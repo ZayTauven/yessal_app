@@ -19,7 +19,7 @@ const QUICK_AMOUNTS = [5000, 10000, 25000, 50000];
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "orange_money", label: "Orange Money" },
   { value: "wave", label: "Wave" },
-  { value: "manual", label: "Manuel" },
+  { value: "collector", label: "Manuel" },
 ];
 
 function formatAmount(value: number) {
@@ -37,7 +37,7 @@ export default function TutelleScreen() {
   const [amount, setAmount] = useState(10000);
   const [customAmount, setCustomAmount] = useState("");
   const [useCustomAmount, setUseCustomAmount] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("manual");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("collector");
   const [submitting, setSubmitting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [memberFirstName, setMemberFirstName] = useState("");

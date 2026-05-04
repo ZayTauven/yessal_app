@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Bell,
+  Clipboard as ClipboardIcon,
   HandCoins,
   Heart,
   PencilLine,
@@ -33,8 +35,11 @@ const PAYMENT_METHODS: {
 }[] = [
   { value: "orange_money", label: "Orange Money", hint: "Mobile money", icon: Wallet },
   { value: "wave", label: "Wave", hint: "Paiement rapide", icon: Heart },
+  { value: "visa", label: "Visa", hint: "Carte bancaire", icon: ShieldCheck },
+  { value: "mastercard", label: "Mastercard", hint: "Carte bancaire", icon: ShieldCheck },
+  { value: "collector", label: "Collecteur", hint: "Collecte physique", icon: Wallet },
   { value: "paypal", label: "PayPal", hint: "International", icon: HandCoins },
-  { value: "manual", label: "Manuel", hint: "Validation locale", icon: ShieldCheck },
+  { value: "virement", label: "Virement", hint: "Banque / Chèque", icon: Wallet },
 ];
 
 function parseCampaignId(value?: string | string[]) {
@@ -61,6 +66,7 @@ export default function DonateScreen() {
   const [customAmount, setCustomAmount] = useState("");
   const [useCustomAmount, setUseCustomAmount] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("orange_money");
+  const [wireRef, setWireRef] = useState("");
   const [successVisible, setSuccessVisible] = useState(false);
   const [successTitle, setSuccessTitle] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -154,20 +160,69 @@ export default function DonateScreen() {
 
     setSubmitting(true);
     try {
-      await ContentService.createDonation({
+      // 1. Create the donation record
+      const donation = await ContentService.createDonation({
         campaign: selectedCampaign.id,
         amount: finalAmount,
         payment_method: paymentMethod,
         beneficiary: selectedBeneficiary?.id ?? null,
-      });
+        external_ref: paymentMethod === "virement" ? wireRef.trim() : null,
+      } as any);
 
-      setSuccessTitle("Don enregistré");
+      // 2. Handle digital/physical payments
+      if (paymentMethod === "collector") {
+        setSuccessTitle("Demande de collecte");
+        setSuccessMessage(
+          "Les collecteurs et le responsable de votre daara ont été notifiés pour venir récupérer votre contribution physique."
+        );
+        setSuccessVisible(true);
+        return;
+      }
+
+      if (paymentMethod === "virement") {
+        setSuccessTitle("Virement enregistré");
+        setSuccessMessage(
+          "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte."
+        );
+        setSuccessVisible(true);
+        return;
+      }
+
+      // 2. If it's a digital payment (Bictorys), initiate payment
+      if (paymentMethod !== "paypal") {
+        const paymentResult = await ContentService.payDonation(donation.id, paymentMethod);
+        
+        if (paymentMethod === "visa" || paymentMethod === "mastercard") {
+          if (paymentResult.checkout_url) {
+            const { Linking } = await import("react-native");
+            await Linking.openURL(paymentResult.checkout_url);
+            
+            setSuccessTitle("Paiement initié");
+            setSuccessMessage(
+              "Vous allez être redirigé vers la page de paiement sécurisée de Bictorys."
+            );
+            setSuccessVisible(true);
+            return;
+          }
+        } else {
+          // Mobile Money (Direct API)
+          setSuccessTitle("Jëf initié");
+          setSuccessMessage(
+            `Une demande de paiement ${paymentMethod === "wave" ? "Wave" : "Orange Money"} a été envoyée. Veuillez valider sur votre téléphone.`
+          );
+          setSuccessVisible(true);
+          return;
+        }
+      }
+
+      // 3. For manual or already handled payments
+      setSuccessTitle("Jëf enregistré");
       setSuccessMessage(
-        `Votre contribution de ${formatAmount(finalAmount)} pour ${selectedCampaign.name} a été soumise avec succès.`,
+        `Votre contribution de ${formatAmount(finalAmount)} pour ${selectedCampaign.name} a été soumise avec succès.`
       );
       setSuccessVisible(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible de créer le don.";
+      const message = error instanceof Error ? error.message : "Impossible de créer le Jëf.";
       Alert.alert("Erreur", message);
     } finally {
       setSubmitting(false);
@@ -177,7 +232,7 @@ export default function DonateScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <SectionHeader
-        title="Don"
+        title="Jëf"
         subtitle="Choisissez une campagne, un montant et votre mode de paiement"
         icon={<Heart size={24} color="#FFF" />}
         actions={[
@@ -205,7 +260,7 @@ export default function DonateScreen() {
             <Text style={styles.heroTitle}>Contribuer en toute simplicité</Text>
             <Text style={styles.heroText}>
               Sélectionnez une campagne active, choisissez le montant adapté et
-              finalisez votre don depuis le mobile.
+              finalisez votre Jëf depuis le mobile.
             </Text>
           </GlassCard>
 
@@ -372,6 +427,41 @@ export default function DonateScreen() {
               );
             })}
           </View>
+
+          {paymentMethod === "virement" && (
+            <GlassCard style={styles.wireCard}>
+              <Text style={styles.wireTitle}>Informations de virement</Text>
+              <Text style={styles.wireText}>
+                Veuillez effectuer le virement sur le compte suivant :
+                {"\n"}• BANQUE : CBAO
+                {"\n"}• RIB : SN012 01234 123456789012 34
+                {"\n"}• TITULAIRE : YESSAL GUI
+              </Text>
+              <View style={styles.virementRefContainer}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.virementRefLabel}>Référence suggérée :</Text>
+                  <Text style={styles.virementRefValue}>{selectedCampaign?.id ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}` : "YSL-D-001"}</Text>
+                </View>
+                <Pressable 
+                  style={styles.copyBtn}
+                  onPress={async () => {
+                    const ref = selectedCampaign?.id ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}` : "YSL-D-001";
+                    await Clipboard.setStringAsync(ref);
+                    Alert.alert("Copié", "La référence a été copiée.");
+                    setWireRef(ref);
+                  }}
+                >
+                  <ClipboardIcon size={18} color={Colors.accent.DEFAULT} />
+                </Pressable>
+              </View>
+              <Input
+                label="Référence du virement (à confirmer)"
+                placeholder="Ex: VIR-2024-001"
+                value={wireRef}
+                onChangeText={setWireRef}
+              />
+            </GlassCard>
+          )}
 
           <GlassCard style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Récapitulatif</Text>
@@ -707,5 +797,52 @@ const styles = StyleSheet.create({
     color: Colors.accent.DEFAULT,
     fontFamily: "Inter_700Bold",
     textAlign: "right",
+  },
+  wireCard: {
+    padding: 16,
+    backgroundColor: Colors.surface.muted,
+  },
+  wireTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+    marginBottom: 8,
+  },
+  wireText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.ink.muted,
+    fontFamily: "Inter_400Regular",
+    marginBottom: 16,
+  },
+  virementRefContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surface.DEFAULT,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border.DEFAULT,
+    gap: 12,
+  },
+  virementRefLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.faint,
+    textTransform: "uppercase",
+  },
+  virementRefValue: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+  },
+  copyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: Colors.accent.dim,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

@@ -10,7 +10,10 @@ import type {
   ProfileUpdatePayload,
   RegisterPayload,
   RegisterResponse,
+  TitleOption,
+  TitleRequest,
   User,
+  UserDocument,
 } from "@/types";
 
 type ProfileResponse = User;
@@ -61,5 +64,25 @@ export const AuthService = {
       return data.results;
     }
     return [];
+  },
+
+  async getTitles(): Promise<TitleOption[]> {
+    return api.get<TitleOption[]>("titles/");
+  },
+
+  async submitTitleRequest(titleId: number, note = ""): Promise<TitleRequest> {
+    return api.post<TitleRequest>("title-requests/", { title: titleId, note });
+  },
+
+  async getMyDocuments(userId: number): Promise<UserDocument[]> {
+    return api.get<UserDocument[]>(`users/${userId}/documents/`);
+  },
+
+  async uploadDocument(userId: number, formData: FormData): Promise<UserDocument> {
+    return api.post<UserDocument>(`users/${userId}/documents/`, formData);
+  },
+
+  async updateDocument(userId: number, docId: number, formData: FormData): Promise<UserDocument> {
+    return api.patch<UserDocument>(`users/${userId}/documents/${docId}/`, formData);
   },
 };

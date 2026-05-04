@@ -270,6 +270,14 @@ export default function CampaignDetail() {
                 />
               </GlassCard>
             </View>
+            <View style={[styles.section, { marginBottom: 40 }]}>
+              <Button
+                label="Voir l'état du Ndiguel"
+                variant="outline"
+                onPress={() => router.push(`/campaign/etat-${campaign.id}` as any)}
+                icon={<Users size={18} color={Colors.accent.DEFAULT} />}
+              />
+            </View>
           </>
         ) : null}
 

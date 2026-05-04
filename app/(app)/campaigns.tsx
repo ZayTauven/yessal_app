@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell, Filter, Heart, Search, Settings2, TrendingUp } from "lucide-react-native";
 
@@ -16,32 +16,35 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
   {
     id: 1,
     name: "Rénovation de la grande mosquée",
-    description: "",
+    description: "Soutenez la restauration de notre patrimoine spirituel.",
     goal_amount: 1_500_000,
     collected_amount: 1_080_000,
     deadline: "2024-12-31",
     status: "active",
     created_at: new Date().toISOString(),
+    image: "https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?auto=format&fit=crop&q=80&w=400",
   },
   {
     id: 2,
     name: "Soutien aux étudiants",
-    description: "",
+    description: "Bourses d'études pour les talibés méritants.",
     goal_amount: 900_000,
     collected_amount: 396_000,
     deadline: "2024-12-31",
     status: "active",
     created_at: new Date().toISOString(),
+    image: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=400",
   },
   {
     id: 3,
     name: "Distribution Ramadan",
-    description: "",
+    description: "Kits alimentaires pour les familles nécessiteuses.",
     goal_amount: 2_000_000,
     collected_amount: 1_820_000,
     deadline: "2024-12-31",
     status: "completed",
     created_at: new Date().toISOString(),
+    image: "https://images.unsplash.com/photo-1542831371-29b0f74f9713?auto=format&fit=crop&q=80&w=400",
   },
 ];
 
@@ -97,8 +100,8 @@ export default function CampaignsScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
-        title="Campagnes"
-        subtitle="Suivez les Jëfs en cours et contribuez rapidement"
+        title="Ndiguels"
+        subtitle="Suivez les ndiguels en cours et contribuez rapidement"
         icon={<TrendingUp size={24} color="#FFF" />}
         actions={[
           {
@@ -118,7 +121,7 @@ export default function CampaignsScreen() {
         <View style={styles.searchBar}>
           <View style={{ flex: 1 }}>
             <Input
-              placeholder="Rechercher une campagne..."
+              placeholder="Rechercher un ndiguel..."
               icon={<Search size={18} color={Colors.ink.faint} />}
             />
           </View>
@@ -149,23 +152,32 @@ export default function CampaignsScreen() {
                   }
                 >
                   <GlassCard style={styles.featuredCard}>
-                    <View style={styles.cardTop}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.cardTitle}>{campaign.name}</Text>
-                        <Text style={styles.cardGoal}>
-                          {campaign.collected_amount.toLocaleString()} /{" "}
-                          {campaign.goal_amount.toLocaleString()} FCFA
-                        </Text>
+                    {campaign.image && (
+                      <Image 
+                        source={{ uri: campaign.image }} 
+                        style={styles.featuredImage}
+                        resizeMode="cover"
+                      />
+                    )}
+                    <View style={styles.featuredContent}>
+                      <View style={styles.cardTop}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cardTitle}>{campaign.name}</Text>
+                          <Text style={styles.cardGoal}>
+                            {campaign.collected_amount.toLocaleString()} /{" "}
+                            {campaign.goal_amount.toLocaleString()} FCFA
+                          </Text>
+                        </View>
+                        <View style={styles.badge}>
+                          <Text style={styles.badgeText}>{statusLabel(campaign.status)}</Text>
+                        </View>
                       </View>
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{statusLabel(campaign.status)}</Text>
-                      </View>
-                    </View>
 
-                    <ProgressBar progress={progress} showPercent={false} />
-                    <Text style={styles.featuredHint}>
-                      Balayez pour voir plus de campagnes mises en avant.
-                    </Text>
+                      <ProgressBar progress={progress} showPercent={false} />
+                      <Text style={styles.featuredHint}>
+                        Balayez pour voir plus de ndiguels.
+                      </Text>
+                    </View>
                   </GlassCard>
                 </Pressable>
               );
@@ -173,7 +185,9 @@ export default function CampaignsScreen() {
           )}
         </ScrollView>
 
-        <Text style={styles.sectionLabel}>Toutes les campagnes</Text>
+        <View style={styles.divider} />
+
+        <Text style={styles.sectionLabel}>Tous les ndiguels</Text>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           scrollIndicatorInsets={{ bottom: 220 }}
@@ -189,24 +203,35 @@ export default function CampaignsScreen() {
                 onPress={() => router.push(`/campaign/${campaign.id}` as any)}
               >
                 <GlassCard style={styles.card}>
-                  <View style={styles.cardTop}>
+                  <View style={styles.listCardContent}>
+                    {campaign.image && (
+                      <Image 
+                        source={{ uri: campaign.image }} 
+                        style={styles.listImage}
+                        resizeMode="cover"
+                      />
+                    )}
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>{campaign.name}</Text>
-                      <Text style={styles.cardGoal}>
-                        {campaign.collected_amount.toLocaleString()} /{" "}
-                        {campaign.goal_amount.toLocaleString()} FCFA
-                      </Text>
-                    </View>
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText}>{statusLabel(campaign.status)}</Text>
+                      <View style={styles.cardTop}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cardTitle}>{campaign.name}</Text>
+                          <Text style={styles.cardGoal}>
+                            {campaign.collected_amount.toLocaleString()} FCFA collectés
+                          </Text>
+                        </View>
+                        <View style={[styles.badge, { paddingVertical: 4, paddingHorizontal: 8 }]}>
+                          <Text style={[styles.badgeText, { fontSize: 10 }]}>{statusLabel(campaign.status)}</Text>
+                        </View>
+                      </View>
+
+                      <View style={{ marginTop: 10 }}>
+                        <ProgressBar progress={progress} showPercent={false} />
+                        <Text style={styles.progressLabel}>
+                          {Math.round(progress * 100)}% de l&apos;objectif atteint
+                        </Text>
+                      </View>
                     </View>
                   </View>
-
-                  <ProgressBar progress={progress} showPercent={false} />
-
-                  <Text style={styles.progressLabel}>
-                    {Math.round(progress * 100)}% collectés
-                  </Text>
                 </GlassCard>
               </Pressable>
             );
@@ -214,7 +239,7 @@ export default function CampaignsScreen() {
         </ScrollView>
 
         <Button
-          label="Faire un don"
+          label="Faire un Jëfs"
           onPress={() => router.push("/donate" as any)}
           icon={<Heart size={16} color="#fff" />}
           style={styles.ctaButton}
@@ -270,8 +295,18 @@ const styles = StyleSheet.create({
   },
   featuredCard: {
     width: 308,
-    padding: 18,
-    gap: 12,
+    padding: 0,
+    overflow: "hidden",
+    borderRadius: 20,
+  },
+  featuredImage: {
+    width: "100%",
+    height: 140,
+    backgroundColor: Colors.surface.muted,
+  },
+  featuredContent: {
+    padding: 16,
+    gap: 10,
   },
   loadingCard: {
     width: 280,
@@ -283,14 +318,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    marginVertical: 16,
+    marginHorizontal: 4,
+  },
   scroll: {
     paddingBottom: 240,
-    gap: 14,
-    marginBottom: 24,
+    gap: 16,
   },
   card: {
-    padding: 16,
+    padding: 12,
+    borderRadius: 18,
+  },
+  listCardContent: {
+    flexDirection: "row",
     gap: 12,
+    alignItems: "center",
+  },
+  listImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: Colors.surface.muted,
   },
   cardTop: {
     flexDirection: "row",

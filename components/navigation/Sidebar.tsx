@@ -43,12 +43,12 @@ const MENU_ITEMS: MenuItem[] = [
     route: "/profile",
   },
   {
-    label: "Mes dons",
+    label: "Mes Jëfs",
     sub: "Historique et suivi",
     icon: Wallet,
     route: "/donations",
   },
-  { label: "Campagnes", sub: "Jëfs actifs", icon: Heart, route: "/campaigns" },
+  { label: "Ndiguels", sub: "Ndiguels actifs", icon: Heart, route: "/campaigns" },
   {
     label: "Mon Daara",
     sub: "Membres et collecteurs",
@@ -63,7 +63,7 @@ const MENU_ITEMS: MenuItem[] = [
   },
   {
     label: "Communauté",
-    sub: "Chat et annonces",
+    sub: "Chat et actualités",
     icon: MessageSquare,
     route: "/chat",
   },
@@ -71,7 +71,7 @@ const MENU_ITEMS: MenuItem[] = [
     label: "Événements",
     sub: "Calendrier confrérique",
     icon: Calendar,
-    route: "/explore",
+    route: "/events",
   },
 ];
 
@@ -254,14 +254,14 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
                 onPress={() => goTo("/donate")}
               >
                 <Wallet size={18} color={Colors.accent.DEFAULT} />
-                <Text style={styles.quickText}>Faire un don</Text>
+                <Text style={styles.quickText}>Faire un Jëfs</Text>
               </Pressable>
               <Pressable
                 style={styles.quickCard}
                 onPress={() => goTo("/campaigns")}
               >
                 <Heart size={18} color={Colors.accent.DEFAULT} />
-                <Text style={styles.quickText}>Campagnes</Text>
+                <Text style={styles.quickText}>Ndiguels</Text>
               </Pressable>
             </View>
           </View>

@@ -19,6 +19,7 @@ export class ApiError extends Error {
 type ApiOptions = {
   auth?: boolean;
   retryOn401?: boolean;
+  headers?: HeadersInit;
 };
 
 type RequestInitWithJson = Omit<RequestInit, "body"> & {
@@ -38,9 +39,11 @@ function buildUrl(path: string) {
   return `${baseUrl}/${normalizedPath}`;
 }
 
-function toHeaders(headers?: HeadersInit) {
+function toHeaders(headers?: HeadersInit, hasJsonBody = true) {
   const next = new Headers(headers);
-  next.set("Content-Type", "application/json");
+  if (hasJsonBody) {
+    next.set("Content-Type", "application/json");
+  }
   return next;
 }
 
@@ -106,7 +109,8 @@ async function request<T>(
 ): Promise<T> {
   const { auth = true, retryOn401 = true } = apiOptions;
   const { body, headers: requestHeaders, ...init } = options;
-  const headers = toHeaders(requestHeaders);
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const headers = toHeaders({ ...apiOptions.headers, ...requestHeaders }, body !== undefined && !isFormData);
 
   if (auth) {
     const token = await SecureStore.getItemAsync(Config.TOKEN_KEY);
@@ -118,18 +122,18 @@ async function request<T>(
   const response = await fetch(buildUrl(path), {
     ...init,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body !== undefined ? (isFormData ? (body as BodyInit) : JSON.stringify(body)) : undefined,
   });
 
   if (response.status === 401 && auth && retryOn401) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      const retryHeaders = toHeaders(requestHeaders);
+      const retryHeaders = toHeaders({ ...apiOptions.headers, ...requestHeaders }, body !== undefined && !isFormData);
       retryHeaders.set("Authorization", `Bearer ${refreshed}`);
       const retryResponse = await fetch(buildUrl(path), {
         ...init,
         headers: retryHeaders,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: body !== undefined ? (isFormData ? (body as BodyInit) : JSON.stringify(body)) : undefined,
       });
 
       if (retryResponse.ok) {

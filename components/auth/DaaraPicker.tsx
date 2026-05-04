@@ -1,4 +1,4 @@
-import { Pressable, Text, View, StyleSheet } from "react-native";
+import { Pressable, Text, View, StyleSheet, useColorScheme } from "react-native";
 import { CheckCircle2 } from "lucide-react-native";
 
 import { Colors } from "@/constants/colors";
@@ -11,6 +11,8 @@ interface DaaraPickerProps {
 }
 
 export function DaaraPicker({ value, options, onChange }: DaaraPickerProps) {
+  const isDark = useColorScheme() === "dark";
+
   return (
     <View style={styles.container}>
       {options.map((daara) => {
@@ -19,18 +21,28 @@ export function DaaraPicker({ value, options, onChange }: DaaraPickerProps) {
           <Pressable
             key={daara.id}
             onPress={() => onChange(daara.id)}
-            style={[styles.item, active && styles.itemActive]}
+            style={[
+              styles.item,
+              isDark && styles.itemDark,
+              active && styles.itemActive,
+            ]}
           >
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.name, active && styles.textActive]} numberOfLines={1}>
-                  {daara.name}
-                </Text>
-                <Text style={styles.code} numberOfLines={1}>
-                  Code {daara.code}
+                <Text
+                  style={[
+                    styles.name,
+                    isDark && styles.textDark,
+                    active && styles.textActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {daara.name} ({daara.code} · {daara.ldd || "N/A"})
                 </Text>
               </View>
-              {active && <CheckCircle2 size={18} color={Colors.accent.DEFAULT} />}
+              {active && (
+                <CheckCircle2 size={18} color={Colors.accent.DEFAULT} />
+              )}
             </View>
           </Pressable>
         );
@@ -51,6 +63,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  itemDark: {
+    backgroundColor: Colors.surface.card,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
   itemActive: {
     borderColor: Colors.accent.DEFAULT,
     backgroundColor: Colors.accent.dim,
@@ -65,6 +81,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     color: Colors.ink.DEFAULT,
   },
+  textDark: {
+    color: "#FFFFFF",
+  },
   textActive: {
     color: Colors.accent.DEFAULT,
   },
@@ -74,5 +93,8 @@ const styles = StyleSheet.create({
     color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
     letterSpacing: 0.3,
+  },
+  textMutedDark: {
+    color: "rgba(255,255,255,0.5)",
   },
 });

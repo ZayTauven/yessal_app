@@ -23,10 +23,9 @@ import { Button } from "@/components/ui/Button";
 import { Colors } from "@/constants/colors";
 
 const schema = z.object({
-  email: z
+  identifier: z
     .string()
-    .min(1, "L'email est requis")
-    .email("Adresse email invalide"),
+    .min(1, "L'identifiant est requis"),
   password: z
     .string()
     .min(1, "Le passe est requis")
@@ -59,7 +58,7 @@ export default function Login() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { identifier: "", password: "" },
   });
 
   useEffect(() => {
@@ -72,7 +71,7 @@ export default function Login() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      await login({ email: values.email, password: values.password });
+      await login({ identifier: values.identifier, password: values.password });
     } catch {
       // error handled in store
     }
@@ -122,12 +121,12 @@ export default function Login() {
           <View style={styles.form}>
             <Controller
               control={control}
-              name="email"
+              name="identifier"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  label="Adresse email"
-                  placeholder="votre@email.com"
-                  keyboardType="email-address"
+                  label="Email ou Téléphone"
+                  placeholder="votre@email.com ou 77..."
+                  keyboardType="default"
                   autoCapitalize="none"
                   autoCorrect={false}
                   onChangeText={(t) => {
@@ -136,7 +135,7 @@ export default function Login() {
                   }}
                   onBlur={onBlur}
                   value={value}
-                  error={errors.email?.message}
+                  error={errors.identifier?.message}
                   icon={<Mail size={16} color={Colors.ink.faint} />}
                 />
               )}

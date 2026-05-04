@@ -8,8 +8,11 @@ import {
   ShieldCheck,
   UserCircle2,
   Users,
-  PencilLine,
   KeyRound,
+  AlertCircle,
+  ChevronRight,
+  PencilLine,
+  FileText,
 } from "lucide-react-native";
 import { Image as ExpoImage } from "expo-image";
 
@@ -18,7 +21,11 @@ import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { useAuthStore } from "@/store/auth.store";
+import { AuthService } from "@/lib/auth.service";
+import { TitleSelectionModal } from "@/components/profile/TitleSelectionModal";
+import type { TitleOption } from "@/types";
 
 const quickActions = [
   {
@@ -35,23 +42,86 @@ const quickActions = [
   },
   {
     title: "Notifications",
-    detail: "Annonces, dons et campagnes",
+    detail: "Actualités, Jëfs et Ndiguels",
     icon: Bell,
+  },
+  {
+    title: "Mes documents",
+    detail: "Vérification d'identité",
+    icon: FileText,
+    route: "/profile/documents" as const,
   },
 ];
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, updateProfile, isLoading } = useAuthStore();
+  const [titles, setTitles] = useState<TitleOption[]>([]);
+  const [showTitleModal, setShowTitleModal] = useState(false);
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
+  const [title, setTitle] = useState(user?.title ?? "");
+  const [birthDate, setBirthDate] = useState(user?.birth_date ?? "");
+  const [gender, setGender] = useState(user?.gender ?? "");
+  const [residenceCountry, setResidenceCountry] = useState(user?.residence_country ?? "");
+  const [city, setCity] = useState(user?.city ?? "");
+  const [address, setAddress] = useState(user?.address ?? "");
+  const [stateName, setStateName] = useState(user?.state ?? "");
+  const [zipCode, setZipCode] = useState(user?.zip_code ?? "");
+  const [maritalStatus, setMaritalStatus] = useState(user?.marital_status ?? "");
+  const [nationalId, setNationalId] = useState(user?.national_id_number ?? "");
+  const [licenseNumber, setLicenseNumber] = useState(user?.driver_license_number ?? "");
+  const [bloodType, setBloodType] = useState(user?.blood_type ?? "");
+
+  const GENDER_OPTIONS = [
+    { label: "Homme", value: "male" },
+    { label: "Femme", value: "female" },
+  ];
+
+  const MARITAL_OPTIONS = [
+    { label: "Célibataire", value: "single" },
+    { label: "Marié(e)", value: "married" },
+    { label: "Divorcé(e)", value: "divorced" },
+    { label: "Veuf/Veuve", value: "widowed" },
+  ];
+
+  const BLOOD_OPTIONS = [
+    { label: "A+", value: "A+" },
+    { label: "A-", value: "A-" },
+    { label: "B+", value: "B+" },
+    { label: "B-", value: "B-" },
+    { label: "AB+", value: "AB+" },
+    { label: "AB-", value: "AB-" },
+    { label: "O+", value: "O+" },
+    { label: "O-", value: "O-" },
+  ];
+
+  const isIncomplete = useMemo(() => {
+    return !user?.phone || !user?.gender || !user?.city || !user?.birth_date;
+  }, [user]);
 
   useEffect(() => {
     setFirstName(user?.first_name ?? "");
     setLastName(user?.last_name ?? "");
     setPhone(user?.phone ?? "");
-  }, [user?.first_name, user?.last_name, user?.phone]);
+    setTitle(user?.title ?? "");
+    setBirthDate(user?.birth_date ?? "");
+    setGender(user?.gender ?? "");
+    setResidenceCountry(user?.residence_country ?? "");
+    setCity(user?.city ?? "");
+    setAddress(user?.address ?? "");
+    setStateName(user?.state ?? "");
+    setZipCode(user?.zip_code ?? "");
+    setMaritalStatus(user?.marital_status ?? "");
+    setNationalId(user?.national_id_number ?? "");
+    setLicenseNumber(user?.driver_license_number ?? "");
+    setBloodType(user?.blood_type ?? "");
+  }, [user]);
+
+  useEffect(() => {
+    AuthService.getTitles().then(setTitles).catch(console.warn);
+  }, []);
 
   const initials = useMemo(
     () => `${user?.first_name?.[0] ?? "Y"}${user?.last_name?.[0] ?? ""}`.toUpperCase(),
@@ -78,10 +148,35 @@ export default function ProfileScreen() {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim() || null,
+        title: title.trim() || null,
+        birth_date: birthDate.trim() || null,
+        gender: (gender.trim() as any) || null,
+        residence_country: residenceCountry.trim() || null,
+        city: city.trim() || null,
+        address: address.trim() || null,
+        state: stateName.trim() || null,
+        zip_code: zipCode.trim() || null,
+        marital_status: (maritalStatus.trim() as any) || null,
+        national_id_number: nationalId.trim() || null,
+        driver_license_number: licenseNumber.trim() || null,
+        blood_type: bloodType.trim() || null,
       });
       Alert.alert("Profil mis à jour", "Vos informations ont bien été enregistrées.");
     } catch {
       Alert.alert("Erreur", "Impossible de mettre à jour le profil pour le moment.");
+    }
+  };
+
+  const handleRequestTitle = async (titleId: number) => {
+    try {
+      await AuthService.submitTitleRequest(titleId);
+      Alert.alert(
+        "Demande envoyée",
+        "Votre demande de changement de titre a été soumise à un administrateur."
+      );
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || "Impossible d'envoyer la demande.";
+      Alert.alert("Erreur", msg);
     }
   };
 
@@ -101,6 +196,21 @@ export default function ProfileScreen() {
         contentInsetAdjustmentBehavior="automatic"
         scrollIndicatorInsets={{ bottom: 180 }}
       >
+        {isIncomplete && (
+          <GlassCard style={styles.alertCard}>
+            <View style={styles.alertRow}>
+              <View style={styles.alertIcon}>
+                <AlertCircle size={24} color="#FFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.alertTitle}>Profil incomplet</Text>
+                <Text style={styles.alertText}>
+                  Complétez vos informations pour faciliter la gestion de vos dons et tutelles.
+                </Text>
+              </View>
+            </View>
+          </GlassCard>
+        )}
         <GlassCard style={styles.accountCard}>
           <View style={styles.avatarRow}>
             <View style={styles.avatar}>
@@ -118,7 +228,7 @@ export default function ProfileScreen() {
                 {user ? `${user.first_name} ${user.last_name}` : "Membre Yessal"}
               </Text>
               <Text style={styles.role}>
-                {user?.role ?? "Compte membre"} · {user?.status ?? "Statut inconnu"}
+                {user?.title ? `${user.title} · ` : ""}{user?.role?.replace("_", " ") ?? "Compte membre"} · {user?.status ?? "Statut inconnu"}
               </Text>
             </View>
           </View>
@@ -135,10 +245,26 @@ export default function ProfileScreen() {
           </View>
         </GlassCard>
 
-        <Text style={styles.sectionLabel}>Modifier le profil</Text>
+        <Text style={styles.sectionLabel}>Identité et Rôle</Text>
         <GlassCard style={styles.formCard}>
           <Input label="Prénom" value={firstName} onChangeText={setFirstName} />
           <Input label="Nom" value={lastName} onChangeText={setLastName} />
+          <View style={styles.titleRow}>
+            <View style={{ flex: 1 }}>
+              <Input
+                label="Titre actuel"
+                value={user?.title || "Aucun titre"}
+                editable={false}
+                placeholder="Talibé"
+              />
+            </View>
+            <Pressable
+              onPress={() => setShowTitleModal(true)}
+              style={styles.requestBtn}
+            >
+              <Text style={styles.requestBtnText}>Changer</Text>
+            </Pressable>
+          </View>
           <Input
             label="Téléphone"
             value={phone}
@@ -146,10 +272,86 @@ export default function ProfileScreen() {
             keyboardType="phone-pad"
             placeholder="+221 ..."
           />
+        </GlassCard>
+
+        <Text style={styles.sectionLabel}>Informations personnelles</Text>
+        <GlassCard style={styles.formCard}>
+          <Input 
+            label="Date de naissance" 
+            value={birthDate} 
+            onChangeText={setBirthDate} 
+            placeholder="AAAA-MM-JJ"
+          />
+          <Select
+            label="Genre"
+            value={gender}
+            options={GENDER_OPTIONS}
+            onSelect={setGender}
+            placeholder="Sélectionner le genre"
+          />
+          <Select
+            label="Statut marital"
+            value={maritalStatus}
+            options={MARITAL_OPTIONS}
+            onSelect={setMaritalStatus}
+            placeholder="Sélectionner le statut"
+          />
+          <Select
+            label="Groupe sanguin"
+            value={bloodType}
+            options={BLOOD_OPTIONS}
+            onSelect={setBloodType}
+            placeholder="Sélectionner le groupe"
+          />
+        </GlassCard>
+
+        <Text style={styles.sectionLabel}>Documents d&apos;identité</Text>
+        <GlassCard style={styles.formCard}>
+          <Input 
+            label="Numéro CNI" 
+            value={nationalId} 
+            onChangeText={setNationalId} 
+            placeholder="Numéro de carte d'identité"
+          />
+          <Input 
+            label="Permis de conduire" 
+            value={licenseNumber} 
+            onChangeText={setLicenseNumber} 
+            placeholder="Numéro de permis"
+          />
+        </GlassCard>
+
+        <Text style={styles.sectionLabel}>Adresse et Résidence</Text>
+        <GlassCard style={styles.formCard}>
+          <Input 
+            label="Pays de résidence" 
+            value={residenceCountry} 
+            onChangeText={setResidenceCountry} 
+          />
+          <Input 
+            label="Région / État" 
+            value={stateName} 
+            onChangeText={setStateName} 
+          />
+          <Input 
+            label="Ville" 
+            value={city} 
+            onChangeText={setCity} 
+          />
+          <Input 
+            label="Adresse" 
+            value={address} 
+            onChangeText={setAddress} 
+          />
+          <Input 
+            label="Code postal" 
+            value={zipCode} 
+            onChangeText={setZipCode} 
+          />
 
           <View style={styles.formActions}>
             <Button
-              label="Enregistrer"
+              label="Mettre à jour le profil"
               onPress={handleSave}
               loading={isLoading}
               icon={<PencilLine size={16} color="#fff" />}
@@ -204,8 +406,9 @@ export default function ProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.securityTitle}>Préférences de notifications</Text>
-              <Text style={styles.securityText}>Annonces, dons, campagnes et rappels.</Text>
+              <Text style={styles.securityText}>Actualités, Jëfs, Ndiguels et Rappels.</Text>
             </View>
+            <ChevronRight size={18} color={Colors.ink.faint} />
           </Pressable>
         </GlassCard>
 
@@ -244,6 +447,14 @@ export default function ProfileScreen() {
           label="Se déconnecter"
           onPress={handleLogout}
           icon={<LogOut size={16} color="#fff" />}
+        />
+
+        <TitleSelectionModal
+          visible={showTitleModal}
+          onClose={() => setShowTitleModal(false)}
+          titles={titles}
+          onSelect={handleRequestTitle}
+          currentTitle={user?.title}
         />
       </ScrollView>
     </View>
@@ -334,7 +545,38 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   formActions: {
-    marginTop: 4,
+    marginTop: 12,
+  },
+  alertCard: {
+    backgroundColor: "#FF9500", // Warm orange for attention
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 0,
+  },
+  alertRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  alertIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertTitle: {
+    color: "#FFF",
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+  },
+  alertText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginTop: 2,
+    lineHeight: 18,
   },
   securityCard: {
     padding: 16,
@@ -396,5 +638,23 @@ const styles = StyleSheet.create({
     color: Colors.ink.muted,
     fontSize: 12,
     fontFamily: "Inter_400Regular",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+    marginBottom: 12,
+  },
+  requestBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: Colors.accent.dim,
+    borderRadius: 12,
+    marginBottom: 6,
+  },
+  requestBtnText: {
+    color: Colors.accent.DEFAULT,
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
   },
 });

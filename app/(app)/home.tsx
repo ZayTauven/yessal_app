@@ -12,8 +12,8 @@ import { ContentService } from "@/lib/content.service";
 import type { AnalyticsResponse } from "@/types";
 
 const shortcuts = [
-  { title: "Faire un don", icon: Heart, route: "/donate" as any },
-  { title: "Campagnes", icon: Landmark, route: "/campaigns" as any },
+  { title: "Faire un Jëfs", icon: Heart, route: "/donate" as any },
+  { title: "Ndiguels", icon: Landmark, route: "/campaigns" as any },
 ];
 
 export default function HomeScreen() {
@@ -51,7 +51,7 @@ export default function HomeScreen() {
 
   const kpis = analytics?.kpis ?? [
     { title: "Contributions", value: "12", change: "+2", icon: "HandCoins" },
-    { title: "Campagnes", value: "4", change: "Actives", icon: "Landmark" },
+    { title: "Ndiguels", value: "4", change: "Actives", icon: "Landmark" },
     { title: "Tutelles", value: "8", change: "Membres", icon: "Users" },
   ];
 
@@ -89,13 +89,13 @@ export default function HomeScreen() {
           <Text style={styles.kicker}>Yessal Gui</Text>
 
           <GlassCard style={styles.heroCard}>
-            <Text style={styles.heroTitle}>Suivez vos dons et vos campagnes.</Text>
+            <Text style={styles.heroTitle}>Suivez vos Jëfs et vos Ndiguels.</Text>
             <Text style={styles.heroText}>
               Accédez rapidement aux actions importantes et gardez une vue
               claire sur votre communauté.
             </Text>
             <Button
-              label="Faire un don"
+              label="Faire un Jëfs"
               onPress={() => router.push("/donate" as any)}
             />
           </GlassCard>
@@ -135,20 +135,25 @@ export default function HomeScreen() {
             })}
           </View>
 
-          <Text style={styles.sectionTitle}>Dernières annonces</Text>
+          <Text style={styles.sectionTitle}>Dernières actualités</Text>
           <View style={styles.announcements}>
             {(analytics?.announcements ?? []).slice(0, 3).map((item) => (
-              <GlassCard key={item.id} style={styles.announcementCard}>
-                <Text style={styles.announcementTitle}>{item.title}</Text>
-                <Text style={styles.announcementText} numberOfLines={2}>
-                  {item.content}
-                </Text>
-              </GlassCard>
+              <Pressable
+                key={item.id}
+                onPress={() => router.push(`/announcements?id=${item.id}` as any)}
+              >
+                <GlassCard style={styles.announcementCard}>
+                  <Text style={styles.announcementTitle}>{item.title}</Text>
+                  <Text style={styles.announcementText} numberOfLines={2}>
+                    {item.content}
+                  </Text>
+                </GlassCard>
+              </Pressable>
             ))}
 
             {!loading && (analytics?.announcements?.length ?? 0) === 0 && (
               <GlassCard style={styles.emptyCard}>
-                <Text style={styles.emptyText}>Aucune annonce récente pour le moment.</Text>
+                <Text style={styles.emptyText}>Aucune actualité récente pour le moment.</Text>
               </GlassCard>
             )}
 
@@ -158,7 +163,7 @@ export default function HomeScreen() {
                 onPress={() => router.push("/announcements" as any)}
               >
                 <Megaphone size={16} color={Colors.accent.DEFAULT} />
-                <Text style={styles.moreAnnouncementsText}>Voir toutes les annonces</Text>
+                <Text style={styles.moreAnnouncementsText}>Voir toutes les actualités</Text>
               </Pressable>
             ) : null}
           </View>

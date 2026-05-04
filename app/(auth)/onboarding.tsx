@@ -20,21 +20,21 @@ const SLIDES = [
     image: require("@/assets/images/onboarding-1.jpg"),
     title: "Bienvenue sur\nYessal Gui",
     subtitle:
-      "La plateforme numérique de votre confrérie. Gérez les dons, suivez les événements et restez connecté à votre Daara.",
+      "La plateforme numérique de votre confrérie. Gérez les dons, suivez les actualités et restez connecté à votre Daara.",
   },
   {
     id: "2",
     image: require("@/assets/images/onboarding-2.jpg"),
     title: "Donnez en\nquelques secondes",
     subtitle:
-      "Contribuez aux campagnes de votre Daara via Orange Money, Wave ou PayPal. Faites aussi des dons au nom de vos proches.",
+      "Contribuez aux Ndiguels de votre Daara via Orange Money, Wave ou PayPal. Faites aussi des dons au nom de vos proches.",
   },
   {
     id: "3",
     image: require("@/assets/images/onboarding-3.jpg"),
     title: "Votre Daara,\noù que vous soyez",
     subtitle:
-      "Suivez les événements, échangez avec votre communauté et consultez l'historique de vos contributions depuis n'importe où.",
+      "Suivez les actualités, échangez avec votre communauté et consultez l'historique de vos contributions depuis n'importe où.",
   },
 ];
 

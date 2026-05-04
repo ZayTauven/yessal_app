@@ -22,7 +22,7 @@ function DonateTabButton({ onPress }: { onPress?: PressableProps["onPress"] }) {
       <View style={styles.donateCircle}>
         <Plus size={20} color="#FFF" strokeWidth={2} />
       </View>
-      <Text style={styles.donateLabel}>Don</Text>
+      <Text style={styles.donateLabel}>Jëfs</Text>
     </Pressable>
   );
 }
@@ -103,7 +103,7 @@ export default function AppLayout() {
         <Tabs.Screen
           name="campaigns"
           options={{
-            title: "Campagnes",
+            title: "Ndiguels",
             tabBarIcon: ({ color, size }) => (
               <Heart size={size} color={color} />
             ),
@@ -112,14 +112,14 @@ export default function AppLayout() {
         <Tabs.Screen
           name="donate"
           options={{
-            title: "Don",
+            title: "Jëfs",
             tabBarButton: (props) => (
               <DonateTabButton onPress={props.onPress} />
             ),
           }}
         />
         <Tabs.Screen
-          name="explore"
+          name="events"
           options={{
             title: "Événements",
             tabBarIcon: ({ color, size }) => (
@@ -140,6 +140,7 @@ export default function AppLayout() {
         <Tabs.Screen name="donations" options={{ href: null }} />
         <Tabs.Screen name="daara" options={{ href: null }} />
         <Tabs.Screen name="profile" options={{ href: null }} />
+        <Tabs.Screen name="explore" options={{ href: null }} />
         <Tabs.Screen name="announcements" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
       </Tabs>

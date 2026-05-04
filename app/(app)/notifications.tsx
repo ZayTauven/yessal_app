@@ -155,7 +155,7 @@ export default function NotificationsScreen() {
           </Pressable>
           <Pressable style={styles.quickCard} onPress={() => router.push("/campaigns" as any)}>
             <Megaphone size={18} color={Colors.accent.DEFAULT} />
-            <Text style={styles.quickText}>Campagnes</Text>
+            <Text style={styles.quickText}>Ndiguels</Text>
           </Pressable>
         </View>
       </ScrollView>

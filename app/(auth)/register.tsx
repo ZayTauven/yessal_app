@@ -35,22 +35,28 @@ import { AuthService } from "@/lib/auth.service";
 import { useAuthStore } from "@/store/auth.store";
 import type { DaaraOption } from "@/types";
 
-const schema = z.object({
-  first_name: z.string().min(1, "Le prénom est requis"),
-  last_name: z.string().min(1, "Le nom est requis"),
-  email: z
-    .string()
-    .min(1, "L'email est requis")
-    .email("Adresse email invalide"),
-  phone: z.string().optional(),
-  password: z
-    .string()
-    .min(6, "Minimum 6 caractères")
-    .regex(/[A-Z]/, "Au moins une majuscule")
-    .regex(/[0-9]/, "Au moins un chiffre")
-    .regex(/[^A-Za-z0-9]/, "Au moins un caractère spécial"),
-  daara_id: z.number().int().positive("Veuillez choisir un Daara"),
-});
+const schema = z
+  .object({
+    first_name: z.string().min(1, "Le prénom est requis"),
+    last_name: z.string().min(1, "Le nom est requis"),
+    email: z
+      .string()
+      .email("Adresse email invalide")
+      .optional()
+      .or(z.literal("")),
+    phone: z.string().optional(),
+    password: z
+      .string()
+      .min(6, "Minimum 6 caractères")
+      .regex(/[A-Z]/, "Au moins une majuscule")
+      .regex(/[0-9]/, "Au moins un chiffre")
+      .regex(/[^A-Za-z0-9]/, "Au moins un caractère spécial"),
+    daara_id: z.number().int().positive("Veuillez choisir un Daara"),
+  })
+  .refine((data) => data.email || data.phone, {
+    message: "L'email ou le téléphone est obligatoire",
+    path: ["email"],
+  });
 
 type FormValues = z.infer<typeof schema>;
 
@@ -87,14 +93,17 @@ export default function RegisterScreen() {
   const isInternational =
     phoneValue && !phoneValue.startsWith("+221") && phoneValue.startsWith("+");
 
-  const filteredDaaras = daaras.filter((daara) => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      daara.name.toLowerCase().includes(q) ||
-      daara.code.toLowerCase().includes(q)
-    );
-  });
+  const filteredDaaras = daaras
+    .filter((daara) => {
+      const q = searchQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        (daara.name?.toLowerCase().includes(q) ?? false) ||
+        (daara.code?.toLowerCase().includes(q) ?? false) ||
+        (daara.ldd?.toLowerCase().includes(q) ?? false)
+      );
+    })
+    .slice(0, searchQuery.trim() ? undefined : 6);
 
   const loadDaaras = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -133,7 +142,7 @@ export default function RegisterScreen() {
   const submit = async (values: FormValues) => {
     try {
       await register({
-        email: values.email,
+        email: values.email || undefined,
         password: values.password,
         first_name: values.first_name,
         last_name: values.last_name,
@@ -255,7 +264,7 @@ export default function RegisterScreen() {
               name="email"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  label="Email"
+                  label="Email (Optionnel si téléphone rempli)"
                   placeholder="member@yessalgui.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -277,7 +286,7 @@ export default function RegisterScreen() {
               render={({ field: { onChange, onBlur, value } }) => (
                 <View>
                   <Input
-                    label="Téléphone"
+                    label="Téléphone (Optionnel si email rempli)"
                     placeholder="+221 77 000 00 00"
                     keyboardType="phone-pad"
                     value={value}

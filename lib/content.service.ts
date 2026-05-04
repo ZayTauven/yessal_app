@@ -10,7 +10,7 @@ import type {
   Message,
   Tutelle,
 } from "@/types";
-import type { Campaign } from "@/types/campaign.types";
+import type { Campaign, CampaignEtat } from "@/types/campaign.types";
 import type { CreateDonationPayload, Donation } from "@/types/donation.types";
 import { Config } from "@/constants/configs";
 
@@ -53,24 +53,26 @@ function normalizeCampaign(item: any): Campaign {
     collected_amount: toNumber(item.collected_amount),
     deadline: item.deadline,
     status: item.status,
-    event: item.event ?? null,
-    event_name: item.event_name ?? null,
+    event: item.event ?? item.fete ?? null,
+    event_name: item.event_name ?? item.fete_name ?? null,
     daara: item.daara ?? null,
     daara_name: item.daara_name ?? null,
     created_at: item.created_at,
     updated_at: item.updated_at ?? undefined,
+    image: absoluteMediaUrl(item.image ?? item.cover_image),
   };
 }
 
 function normalizeEvent(item: any): EventItem {
+  const normalizedDate = item.event_date ?? item.date ?? null;
   return {
     id: item.id,
     name: item.name,
     description: item.description ?? null,
     cover_image: absoluteMediaUrl(item.cover_image),
-    event_date: item.event_date ?? null,
-    recurrence: item.recurrence,
-    is_date_fixed: Boolean(item.is_date_fixed),
+    event_date: normalizedDate,
+    recurrence: item.recurrence ?? "none",
+    is_date_fixed: item.is_date_fixed ?? Boolean(normalizedDate),
     created_by: item.created_by ?? null,
     created_by_name: item.created_by_name ?? null,
     media: Array.isArray(item.media)
@@ -80,7 +82,7 @@ function normalizeEvent(item: any): EventItem {
         }))
       : [],
     created_at: item.created_at,
-    updated_at: item.updated_at,
+    updated_at: item.updated_at ?? item.created_at,
   };
 }
 
@@ -160,9 +162,13 @@ export const ContentService = {
     const data = await api.get<PaginatedResponse<any>>("events/campaigns/");
     return unwrapList(data).map(normalizeCampaign);
   },
+  
+  async getCampaignEtat(id: number): Promise<CampaignEtat> {
+    return api.get<CampaignEtat>(`events/campaigns/${id}/etat/`);
+  },
 
   async getEvents(): Promise<EventItem[]> {
-    const data = await api.get<PaginatedResponse<any>>("events/");
+    const data = await api.get<PaginatedResponse<any>>("events/fetes/");
     return unwrapList(data).map(normalizeEvent);
   },
 
@@ -174,6 +180,10 @@ export const ContentService = {
   async createDonation(payload: CreateDonationPayload): Promise<Donation> {
     const data = await api.post<any>("contributions/", payload);
     return normalizeDonation(data);
+  },
+
+  async payDonation(id: number, payment_method: string): Promise<any> {
+    return api.post<any>(`contributions/${id}/pay/`, { payment_method });
   },
 
   async getChats(): Promise<Chat[]> {
@@ -208,5 +218,15 @@ export const ContentService = {
 
   async getAnalytics(): Promise<AnalyticsResponse> {
     return api.get<AnalyticsResponse>("analytics/");
+  },
+
+  async getMyDaara(): Promise<any> {
+    const profile = await api.get<any>("profile/");
+    return profile.daara;
+  },
+
+  async getDirectory(): Promise<any[]> {
+    const data = await api.get<PaginatedResponse<any>>("directory/users/");
+    return unwrapList(data);
   },
 };

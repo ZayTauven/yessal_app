@@ -1,5 +1,5 @@
-export type PaymentMethod = "orange_money" | "wave" | "paypal" | "manual";
-export type PaymentStatus = "pending" | "confirmed" | "failed";
+export type PaymentMethod = "orange_money" | "wave" | "paypal" | "visa" | "mastercard" | "collector" | "virement";
+export type PaymentStatus = "pending" | "confirmed" | "failed" | "pending_wire";
 
 export interface Donation {
   id: number;
@@ -25,4 +25,5 @@ export interface CreateDonationPayload {
   amount: number;
   payment_method: PaymentMethod;
   beneficiary?: number | null;
+  external_ref?: string | null;
 }

@@ -11,6 +11,7 @@ export interface DaaraOption {
   id: number;
   code: string;
   name: string;
+  ldd?: string | null;
   description?: string | null;
   chef?: number | null;
   is_active: boolean;
@@ -32,6 +33,20 @@ export interface User {
   avatar_url?: string | null;
   avatar?: string | null;
   last_active_at?: string | null;
+
+  // Additional Profile Fields
+  title?: string | null;
+  birth_date?: string | null;
+  gender?: "male" | "female" | "other" | null;
+  residence_country?: string | null;
+  city?: string | null;
+  address?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  marital_status?: "single" | "married" | "divorced" | "widowed" | null;
+  national_id_number?: string | null;
+  driver_license_number?: string | null;
+  blood_type?: string | null;
 }
 
 export interface AuthTokens {
@@ -40,7 +55,7 @@ export interface AuthTokens {
 }
 
 export interface LoginPayload {
-  email: string;
+  identifier: string;
   password: string;
 }
 
@@ -52,7 +67,7 @@ export interface LoginResponse extends AuthTokens {
 }
 
 export interface RegisterPayload {
-  email: string;
+  email?: string;
   password: string;
   first_name: string;
   last_name: string;
@@ -79,4 +94,43 @@ export interface ProfileUpdatePayload {
   first_name?: string;
   last_name?: string;
   phone?: string | null;
+  title?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
+  residence_country?: string | null;
+  city?: string | null;
+  address?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  marital_status?: string | null;
+  national_id_number?: string | null;
+  driver_license_number?: string | null;
+  blood_type?: string | null;
+}
+
+export interface TitleOption {
+  id: number;
+  name: string;
+  description?: string;
+  is_active: boolean;
+}
+
+export interface TitleRequest {
+  id: number;
+  user: number;
+  title: number;
+  title_name?: string;
+  status: "pending" | "approved" | "refused";
+  note?: string;
+  updated_at: string;
+}
+
+export interface UserDocument {
+  id: number;
+  doc_type: string;
+  image?: string;
+  image_verso?: string;
+  status: "pending" | "validated" | "rejected";
+  rejection_note?: string;
+  doc_number?: string;
 }

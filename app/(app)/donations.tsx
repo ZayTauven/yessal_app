@@ -43,6 +43,8 @@ function paymentLabel(status: PaymentStatus) {
       return "Confirmé";
     case "failed":
       return "Échoué";
+    case "pending_wire":
+      return "Virement en attente";
     default:
       return "En attente";
   }
@@ -54,6 +56,8 @@ function paymentColor(status: PaymentStatus) {
       return Colors.status.success;
     case "failed":
       return Colors.status.error;
+    case "pending_wire":
+      return Colors.accent.DEFAULT;
     default:
       return Colors.accent.DEFAULT;
   }
@@ -112,7 +116,7 @@ export default function DonationsScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
-        title="Mes dons"
+        title="Mes Jëfs"
         subtitle="Suivez vos contributions et leur statut"
         icon={<Wallet size={24} color="#FFF" />}
         actions={[
@@ -187,7 +191,7 @@ export default function DonationsScreen() {
 
           {!loading && filteredDonations.length === 0 ? (
             <GlassCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Aucun don trouvé</Text>
+              <Text style={styles.emptyTitle}>Aucun Jëf trouvé</Text>
               <Text style={styles.emptyText}>
                 Les contributions apparaîtront ici après synchronisation avec le backend.
               </Text>

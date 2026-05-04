@@ -8,6 +8,9 @@ import {
   Inter_300Light,
   Inter_400Regular,
   Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_900Black,
 } from "@expo-google-fonts/inter";
 import * as SplashScreen from "expo-splash-screen";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -22,6 +25,9 @@ export default function RootLayout() {
     Inter_300Light,
     Inter_400Regular,
     Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_900Black,
   });
 
   useEffect(() => {

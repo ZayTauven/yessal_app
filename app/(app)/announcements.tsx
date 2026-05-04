@@ -60,7 +60,7 @@ export default function AnnouncementsScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
-        title="Annonces"
+        title="Actualités"
         subtitle="Tous les messages publiés de votre Daara"
         icon={<Megaphone size={24} color="#FFF" />}
       />
@@ -82,9 +82,9 @@ export default function AnnouncementsScreen() {
               </View>
               <Text style={styles.heroBadge}>Flux publié</Text>
             </View>
-            <Text style={styles.heroTitle}>Les annonces au même endroit.</Text>
+            <Text style={styles.heroTitle}>Les actualités au même endroit.</Text>
             <Text style={styles.heroText}>
-              Vous retrouvez ici l’ensemble des messages publiés par la communauté, triés par
+              Vous retrouvez ici l’ensemble des actualités publiées par la communauté, triés par
               fraîcheur et par niveau d’urgence.
             </Text>
           </GlassCard>
@@ -109,7 +109,7 @@ export default function AnnouncementsScreen() {
 
         {filteredItems.length === 0 && !loading ? (
           <GlassCard style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Aucune annonce trouvée</Text>
+            <Text style={styles.emptyTitle}>Aucune actualité trouvée</Text>
             <Text style={styles.emptyText}>
               Essayez un autre filtre ou revenez plus tard pour voir les nouvelles publications.
             </Text>
