@@ -9,11 +9,11 @@ import {
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import {
-  Calendar,
+  Newspaper,
   Bell,
   Settings2,
-  MapPin,
-  Clock,
+  Calendar,
+  User,
   ChevronRight,
 } from "lucide-react-native";
 import { useRouter } from "expo-router";
@@ -22,59 +22,33 @@ import { Colors } from "@/constants/colors";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ContentService } from "@/lib/content.service";
-import type { EventItem } from "@/types/content.types";
+import type { NewsPost } from "@/types/content.types";
 
-const FALLBACK_EVENTS: EventItem[] = [
+const FALLBACK_NEWS: NewsPost[] = [
   {
     id: 1,
-    name: "Grand Magal de Touba",
-    description:
-      "Célébration du départ d'exil de Cheikh Ahmadou Bamba. Un moment de grâce et de recueillement.",
-    cover_image: null,
-    event_date: "2024-08-23",
-    recurrence: "annual",
-    is_date_fixed: true,
+    title: "Succès du Grand Magal 2024",
+    excerpt: "Retour sur un événement historique pour notre confrérie.",
+    content: "Le Grand Magal de cette année a réuni des millions de fidèles dans une ferveur exceptionnelle...",
+    is_published: true,
+    created_by_name: "Admin Yessal",
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    media: [],
   },
   {
     id: 2,
-    name: "Gamou (Maouloud)",
-    description:
-      "Célébration de la naissance du Prophète (PSL). Conférences et chants religieux.",
-    cover_image: null,
-    event_date: "2024-09-15",
-    recurrence: "annual",
-    is_date_fixed: true,
+    title: "Nouveau Daara à Diourbel",
+    excerpt: "L'expansion de notre réseau continue pour mieux vous servir.",
+    content: "Nous avons le plaisir d'annoncer l'ouverture d'un nouveau centre d'enseignement...",
+    is_published: true,
+    created_by_name: "Service Com",
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    media: [],
-  },
-  {
-    id: 3,
-    name: "Dahira Hebdomadaire",
-    description:
-      "Rencontre fraternelle pour l'apprentissage et le partage spirituel.",
-    cover_image: null,
-    event_date: null,
-    recurrence: "weekly",
-    is_date_fixed: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    media: [],
   },
 ];
 
 function formatDate(date?: string | null) {
-  if (!date) {
-    return "Date à venir";
-  }
-
+  if (!date) return "";
   const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) {
-    return date;
-  }
+  if (Number.isNaN(parsed.getTime())) return date;
   return parsed.toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "long",
@@ -82,22 +56,9 @@ function formatDate(date?: string | null) {
   });
 }
 
-function recurrenceLabel(value: EventItem["recurrence"]) {
-  switch (value) {
-    case "annual":
-      return "Annuel";
-    case "quarterly":
-      return "Trimestriel";
-    case "weekly":
-      return "Hebdomadaire";
-    default:
-      return "Ponctuel";
-  }
-}
-
-export default function EventsTimeline() {
+export default function ActualitesScreen() {
   const router = useRouter();
-  const [events, setEvents] = useState<EventItem[]>(FALLBACK_EVENTS);
+  const [news, setNews] = useState<NewsPost[]>(FALLBACK_NEWS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -105,14 +66,12 @@ export default function EventsTimeline() {
 
     const load = async () => {
       try {
-        const data = await ContentService.getEvents();
+        const data = await ContentService.getNews();
         if (active && data.length > 0) {
-          setEvents(data);
+          setNews(data);
         }
-      } catch {
-        if (active) {
-          setEvents(FALLBACK_EVENTS);
-        }
+      } catch (err) {
+        console.error("Error loading news:", err);
       } finally {
         if (active) {
           setLoading(false);
@@ -129,19 +88,14 @@ export default function EventsTimeline() {
   return (
     <View style={styles.container}>
       <SectionHeader
-        title="Événements"
-        subtitle="Vivre la confrérie au quotidien"
-        icon={<Calendar size={24} color="#FFF" />}
+        title="Actualités"
+        subtitle="Le journal de la confrérie"
+        icon={<Newspaper size={24} color="#FFF" />}
         actions={[
           {
             label: "Notifications",
             icon: <Bell size={18} color={Colors.ink.DEFAULT} />,
             onPress: () => router.push("/notifications" as any),
-          },
-          {
-            label: "Paramètres",
-            icon: <Settings2 size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/profile" as any),
           },
         ]}
       />
@@ -155,55 +109,85 @@ export default function EventsTimeline() {
           {loading ? (
             <View style={styles.loadingCard}>
               <ActivityIndicator color={Colors.accent.DEFAULT} />
+              <Text style={styles.loadingText}>Chargement des actualités…</Text>
             </View>
           ) : null}
 
-          {events.map((event, index) => (
-            <View key={event.id} style={styles.timelineItem}>
-              <View style={styles.connectorWrap}>
-                <View style={[styles.dot, index === 0 && styles.dotUrgent]} />
-                {index < events.length - 1 && <View style={styles.line} />}
-              </View>
-
-              <GlassCard style={styles.eventCard}>
-                <ExpoImage
-                  source={event.cover_image ? { uri: event.cover_image } : require("@/assets/images/onboarding-1.jpg")}
-                  style={styles.eventImage}
-                  contentFit="cover"
-                />
-                <View style={styles.cardContent}>
-                  <View style={styles.typeTag}>
-                    <Text style={styles.typeText}>{recurrenceLabel(event.recurrence)}</Text>
+          {!loading && news.map((item) => (
+            <Pressable key={item.id} onPress={() => router.push(`/news/${item.slug}` as any)}>
+              <GlassCard style={styles.newsCard}>
+                {item.cover_image && (
+                  <View style={styles.coverContainer}>
+                    <ExpoImage 
+                      source={{ uri: item.cover_image }} 
+                      style={styles.coverImage} 
+                      contentFit="cover"
+                    />
                   </View>
-
-                  <Text style={styles.eventTitle}>{event.name}</Text>
-
-                  <View style={styles.infoRow}>
-                    <Clock size={14} color={Colors.ink.faint} />
-                    <Text style={styles.infoText}>{formatDate(event.event_date)}</Text>
+                )}
+                <View style={styles.cardHeader}>
+                  <Badge label="Actualité" color={Colors.accent.DEFAULT} />
+                  <View style={styles.dateRow}>
+                    <Calendar size={12} color={Colors.ink.faint} />
+                    <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
                   </View>
+                </View>
 
-                  <View style={styles.infoRow}>
-                    <MapPin size={14} color={Colors.ink.faint} />
-                    <Text style={styles.infoText}>
-                      {event.is_date_fixed ? "Date fixe" : "Date variable"}
-                    </Text>
+                <Text style={styles.newsTitle}>{item.title}</Text>
+                
+                <Text style={styles.excerpt} numberOfLines={3}>
+                  {item.excerpt || item.content.substring(0, 120) + "..."}
+                </Text>
+
+                {item.youtube_url && (
+                  <View style={styles.youtubeButton}>
+                    <View style={styles.youtubeIcon}>
+                      <ChevronRight size={16} color="#FFF" />
+                    </View>
+                    <Text style={styles.youtubeText}>Vidéo YouTube disponible</Text>
                   </View>
+                )}
 
-                  <Text style={styles.description} numberOfLines={2}>
-                    {event.description}
-                  </Text>
+                {item.gallery && item.gallery.length > 0 && (
+                  <View style={styles.galleryPreview}>
+                    {item.gallery.slice(0, 3).map((img) => (
+                      <ExpoImage 
+                        key={img.id} 
+                        source={{ uri: img.image }} 
+                        style={styles.galleryThumb} 
+                      />
+                    ))}
+                    {item.gallery.length > 3 && (
+                      <View style={[styles.galleryThumb, styles.galleryMore]}>
+                        <Text style={styles.galleryMoreText}>+{item.gallery.length - 3}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
 
-                  <Pressable style={styles.detailsBtn} hitSlop={10} onPress={() => router.push("/campaigns" as any)}>
-                    <Text style={styles.detailsText}>Voir les détails</Text>
-                    <ChevronRight size={16} color={Colors.accent.DEFAULT} />
-                  </Pressable>
+                <View style={styles.footer}>
+                  <View style={styles.authorRow}>
+                    <User size={12} color={Colors.ink.faint} />
+                    <Text style={styles.authorText}>{item.created_by_name || "Confrérie"}</Text>
+                  </View>
+                  <View style={styles.readMore}>
+                    <Text style={styles.readMoreText}>Lire la suite</Text>
+                    <ChevronRight size={14} color={Colors.accent.DEFAULT} />
+                  </View>
                 </View>
               </GlassCard>
-            </View>
+            </Pressable>
           ))}
         </ScrollView>
       </View>
+    </View>
+  );
+}
+
+function Badge({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={[styles.badge, { backgroundColor: color + "15", borderColor: color + "30" }]}>
+      <Text style={[styles.badgeText, { color }]}>{label}</Text>
     </View>
   );
 }
@@ -215,105 +199,148 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginTop: 0,
     paddingHorizontal: 20,
-    zIndex: 2,
   },
   scroll: {
     paddingBottom: 180,
     paddingTop: 16,
   },
   loadingCard: {
-    minHeight: 100,
+    minHeight: 200,
     alignItems: "center",
     justifyContent: "center",
+    gap: 12,
   },
-  timelineItem: {
+  loadingText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+  },
+  newsCard: {
+    marginBottom: 20,
+    padding: 16,
+    gap: 12,
+  },
+  cardHeader: {
     flexDirection: "row",
-    gap: 16,
-  },
-  connectorWrap: {
-    width: 20,
+    justifyContent: "space-between",
     alignItems: "center",
   },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: Colors.accent.light,
-    borderWidth: 3,
-    borderColor: "#FFF",
-    marginTop: 20,
-    zIndex: 2,
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
   },
-  dotUrgent: {
-    backgroundColor: Colors.status.error,
-  },
-  line: {
-    flex: 1,
-    width: 2,
-    backgroundColor: "rgba(26, 92, 58, 0.1)",
-    marginVertical: -10,
-  },
-  eventCard: {
-    flex: 1,
-    marginBottom: 28,
-    padding: 0,
-    overflow: "hidden",
-  },
-  eventImage: {
-    width: "100%",
-    height: 124,
-  },
-  cardContent: {
-    padding: 16,
-    gap: 8,
-  },
-  typeTag: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: Colors.surface.muted,
-  },
-  typeText: {
+  badgeText: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
     textTransform: "uppercase",
   },
-  eventTitle: {
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  dateText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.faint,
+  },
+  newsTitle: {
     fontSize: 18,
     fontFamily: "Inter_700Bold",
     color: Colors.ink.DEFAULT,
-    letterSpacing: -0.4,
-    marginBottom: 4,
+    lineHeight: 24,
   },
-  infoRow: {
+  excerpt: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.muted,
+    lineHeight: 20,
+  },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(26, 92, 58, 0.05)",
+  },
+  authorRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
-  infoText: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
+  authorText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.faint,
   },
-  description: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    marginTop: 4,
-  },
-  detailsBtn: {
+  readMore: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 12,
   },
-  detailsText: {
-    fontSize: 14,
+  readMoreText: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+  },
+  coverContainer: {
+    marginHorizontal: -16,
+    marginTop: -16,
+    marginBottom: 12,
+    height: 180,
+    backgroundColor: Colors.surface.muted,
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+  },
+  youtubeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FF000010",
+    padding: 10,
+    borderRadius: 12,
+    gap: 10,
+    marginTop: 4,
+  },
+  youtubeIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FF0000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  youtubeText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#CC0000",
+  },
+  galleryPreview: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  galleryThumb: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 8,
+    backgroundColor: Colors.surface.muted,
+  },
+  galleryMore: {
+    backgroundColor: Colors.accent.dim,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.accent.DEFAULT,
+  },
+  galleryMoreText: {
+    fontSize: 12,
     fontFamily: "Inter_700Bold",
     color: Colors.accent.DEFAULT,
   },

@@ -85,6 +85,29 @@ export interface CreateTutellePayload {
   relation: string;
 }
 
+export interface NewsGalleryImage {
+  id: number;
+  image: string;
+  caption?: string;
+  order: number;
+}
+
+export interface NewsPost {
+  id: number;
+  slug: string;
+  title: string;
+  excerpt?: string | null;
+  content: string;
+  cover_image?: string | null;
+  youtube_url?: string | null;
+  is_published: boolean;
+  created_by?: number | null;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at?: string;
+  gallery?: NewsGalleryImage[];
+}
+
 export interface AnalyticsResponse {
   role: string;
   kpis: Array<{

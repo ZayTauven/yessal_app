@@ -18,6 +18,7 @@ import {
   Heart,
   LogOut,
   MessageSquare,
+  Newspaper,
   NotebookPen,
   ShieldCheck,
   UserCircle2,
@@ -62,14 +63,20 @@ const MENU_ITEMS: MenuItem[] = [
     route: "/profile/tutelle",
   },
   {
-    label: "Communauté",
-    sub: "Chat et actualités",
+    label: "Messagerie",
+    sub: "Chat communautaire",
     icon: MessageSquare,
     route: "/chat",
   },
   {
+    label: "Actualités",
+    sub: "Le journal confrérique",
+    icon: Newspaper,
+    route: "/explore",
+  },
+  {
     label: "Événements",
-    sub: "Calendrier confrérique",
+    sub: "Calendrier des fêtes",
     icon: Calendar,
     route: "/events",
   },
@@ -224,7 +231,10 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Navigation</Text>
             <View style={styles.list}>
-              {MENU_ITEMS.map((item) => {
+              {MENU_ITEMS.filter((item) => {
+                if (item.route === "/events") return user?.role === "admin";
+                return true;
+              }).map((item) => {
                 const Icon = item.icon;
                 return (
                   <Pressable

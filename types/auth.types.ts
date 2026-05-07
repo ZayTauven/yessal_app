@@ -7,11 +7,21 @@ export type UserRole =
 
 export type UserStatus = "pending" | "active" | "inactive" | "blocked";
 
+export interface LDDOption {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  location?: string | null;
+  is_active: boolean;
+}
+
 export interface DaaraOption {
   id: number;
   code: string;
   name: string;
   ldd?: string | null;
+  ldd_id?: number;
   description?: string | null;
   chef?: number | null;
   is_active: boolean;
@@ -44,8 +54,6 @@ export interface User {
   state?: string | null;
   zip_code?: string | null;
   marital_status?: "single" | "married" | "divorced" | "widowed" | null;
-  national_id_number?: string | null;
-  driver_license_number?: string | null;
   blood_type?: string | null;
 }
 
@@ -103,8 +111,6 @@ export interface ProfileUpdatePayload {
   state?: string | null;
   zip_code?: string | null;
   marital_status?: string | null;
-  national_id_number?: string | null;
-  driver_license_number?: string | null;
   blood_type?: string | null;
 }
 

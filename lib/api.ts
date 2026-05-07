@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import { Storage } from "./storage";
 
 import { Config } from "@/constants/configs";
 
@@ -73,7 +73,7 @@ function extractErrorMessage(payload: any, fallback: string) {
 async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      const refresh = await SecureStore.getItemAsync(Config.REFRESH_KEY);
+      const refresh = await Storage.getItemAsync(Config.REFRESH_KEY);
       if (!refresh) {
         return null;
       }
@@ -91,7 +91,7 @@ async function refreshAccessToken() {
       const data = await readResponse<{ access?: string }>(response);
       const access = data?.access ?? null;
       if (access) {
-        await SecureStore.setItemAsync(Config.TOKEN_KEY, access);
+        await Storage.setItemAsync(Config.TOKEN_KEY, access);
       }
       return access;
     })().finally(() => {
@@ -113,7 +113,7 @@ async function request<T>(
   const headers = toHeaders({ ...apiOptions.headers, ...requestHeaders }, body !== undefined && !isFormData);
 
   if (auth) {
-    const token = await SecureStore.getItemAsync(Config.TOKEN_KEY);
+    const token = await Storage.getItemAsync(Config.TOKEN_KEY);
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
@@ -149,8 +149,8 @@ async function request<T>(
       );
     }
 
-    await SecureStore.deleteItemAsync(Config.TOKEN_KEY);
-    await SecureStore.deleteItemAsync(Config.REFRESH_KEY);
+    await Storage.deleteItemAsync(Config.TOKEN_KEY);
+    await Storage.deleteItemAsync(Config.REFRESH_KEY);
   }
 
   if (!response.ok) {

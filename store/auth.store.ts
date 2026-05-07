@@ -70,12 +70,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       await AuthService.register(payload);
     } catch (e: any) {
+      const data = e?.response?.data;
       const msg =
-        e?.response?.data?.detail ??
-        e?.response?.data?.email?.[0] ??
-        e?.response?.data?.password?.[0] ??
-        e?.response?.data?.daara_id?.[0] ??
-        "Impossible de creer le compte pour le moment.";
+        data?.detail ??
+        data?.email?.[0] ??
+        data?.phone?.[0] ??
+        data?.password?.[0] ??
+        data?.daara_id?.[0] ??
+        "Impossible de créer le compte pour le moment.";
       set({ error: msg });
       throw e;
     } finally {

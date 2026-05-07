@@ -179,19 +179,23 @@ export default function DonateScreen() {
         return;
       }
 
-      if (paymentMethod === "virement") {
-        setSuccessTitle("Virement enregistré");
-        setSuccessMessage(
-          "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte."
-        );
-        setSuccessVisible(true);
-        return;
-      }
-
-      // 2. If it's a digital payment (Bictorys), initiate payment
+      // 2. If it's a digital payment or virement, initiate payment
       if (paymentMethod !== "paypal") {
-        const paymentResult = await ContentService.payDonation(donation.id, paymentMethod);
+        const paymentResult = await ContentService.payDonation(
+          donation.id, 
+          paymentMethod, 
+          paymentMethod === "virement" ? wireRef.trim() : undefined
+        );
         
+        if (paymentMethod === "virement") {
+          setSuccessTitle("Virement enregistré");
+          setSuccessMessage(
+            "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte."
+          );
+          setSuccessVisible(true);
+          return;
+        }
+
         if (paymentMethod === "visa" || paymentMethod === "mastercard") {
           if (paymentResult.checkout_url) {
             const { Linking } = await import("react-native");

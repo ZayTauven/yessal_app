@@ -13,8 +13,11 @@ import {
   ChevronRight,
   PencilLine,
   FileText,
+  Camera,
+  Award,
 } from "lucide-react-native";
 import { Image as ExpoImage } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 
 import { Colors } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
@@ -58,10 +61,15 @@ export default function ProfileScreen() {
   const { user, logout, updateProfile, isLoading } = useAuthStore();
   const [titles, setTitles] = useState<TitleOption[]>([]);
   const [showTitleModal, setShowTitleModal] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
-  const [title, setTitle] = useState(user?.title ?? "");
+  // title may come from backend as a string or object, normalise it:
+  const resolvedTitle = typeof user?.title === "object" && user?.title !== null
+    ? (user?.title as any)?.name ?? ""
+    : (user?.title as string | undefined) ?? "";
   const [birthDate, setBirthDate] = useState(user?.birth_date ?? "");
   const [gender, setGender] = useState(user?.gender ?? "");
   const [residenceCountry, setResidenceCountry] = useState(user?.residence_country ?? "");
@@ -70,8 +78,6 @@ export default function ProfileScreen() {
   const [stateName, setStateName] = useState(user?.state ?? "");
   const [zipCode, setZipCode] = useState(user?.zip_code ?? "");
   const [maritalStatus, setMaritalStatus] = useState(user?.marital_status ?? "");
-  const [nationalId, setNationalId] = useState(user?.national_id_number ?? "");
-  const [licenseNumber, setLicenseNumber] = useState(user?.driver_license_number ?? "");
   const [bloodType, setBloodType] = useState(user?.blood_type ?? "");
 
   const GENDER_OPTIONS = [
@@ -98,14 +104,13 @@ export default function ProfileScreen() {
   ];
 
   const isIncomplete = useMemo(() => {
-    return !user?.phone || !user?.gender || !user?.city || !user?.birth_date;
+    return !user?.phone || !user?.gender || !user?.city || !user?.birth_date || !user?.blood_type;
   }, [user]);
 
   useEffect(() => {
     setFirstName(user?.first_name ?? "");
     setLastName(user?.last_name ?? "");
     setPhone(user?.phone ?? "");
-    setTitle(user?.title ?? "");
     setBirthDate(user?.birth_date ?? "");
     setGender(user?.gender ?? "");
     setResidenceCountry(user?.residence_country ?? "");
@@ -114,8 +119,6 @@ export default function ProfileScreen() {
     setStateName(user?.state ?? "");
     setZipCode(user?.zip_code ?? "");
     setMaritalStatus(user?.marital_status ?? "");
-    setNationalId(user?.national_id_number ?? "");
-    setLicenseNumber(user?.driver_license_number ?? "");
     setBloodType(user?.blood_type ?? "");
   }, [user]);
 
@@ -157,13 +160,11 @@ export default function ProfileScreen() {
         state: stateName.trim() || null,
         zip_code: zipCode.trim() || null,
         marital_status: (maritalStatus.trim() as any) || null,
-        national_id_number: nationalId.trim() || null,
-        driver_license_number: licenseNumber.trim() || null,
         blood_type: bloodType.trim() || null,
       });
       Alert.alert("Profil mis à jour", "Vos informations ont bien été enregistrées.");
     } catch {
-      Alert.alert("Erreur", "Impossible de mettre à jour le profil pour le moment.");
+      // error handled by store
     }
   };
 
@@ -180,7 +181,52 @@ export default function ProfileScreen() {
     }
   };
 
-  const avatarSource = user?.avatar_url ? { uri: user.avatar_url } : null;
+  const handlePickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission refusée", "Autorisez l'accès à la galerie pour changer la photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      setAvatarUri(uri);
+      // Upload immediately
+      if (user?.id) {
+        setAvatarUploading(true);
+        try {
+          const formData = new FormData();
+          const filename = uri.split("/").pop() ?? "avatar.jpg";
+          const ext = filename.split(".").pop() ?? "jpg";
+          const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+          formData.append("avatar", { uri, name: filename, type: mimeType } as any);
+          const updated = await AuthService.updateMe(formData as any);
+          // updateProfile in store manually:
+          const { user: _u, ...rest } = useAuthStore.getState();
+          useAuthStore.setState({ user: updated });
+        } catch (e) {
+          console.warn("Avatar upload failed:", e);
+          Alert.alert("Erreur", "Impossible d'enregistrer la photo pour le moment.");
+          setAvatarUri(null);
+        } finally {
+          setAvatarUploading(false);
+        }
+      }
+    }
+  };
+
+  const avatarSource = avatarUri
+    ? { uri: avatarUri }
+    : user?.avatar_url
+    ? { uri: user.avatar_url }
+    : user?.avatar
+    ? { uri: user.avatar }
+    : null;
 
   return (
     <View style={styles.container}>
@@ -212,23 +258,35 @@ export default function ProfileScreen() {
           </GlassCard>
         )}
         <GlassCard style={styles.accountCard}>
+          {/* Avatar with edit button */}
           <View style={styles.avatarRow}>
-            <View style={styles.avatar}>
-              {avatarSource ? (
-                <ExpoImage source={avatarSource} style={styles.avatarImage} contentFit="cover" />
-              ) : (
-                <>
-                  <UserCircle2 size={34} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.avatarText}>{initials}</Text>
-                </>
-              )}
-            </View>
+            <Pressable onPress={handlePickAvatar} style={styles.avatarWrap}>
+              <View style={styles.avatar}>
+                {avatarSource ? (
+                  <ExpoImage source={avatarSource} style={styles.avatarImage} contentFit="cover" />
+                ) : (
+                  <>
+                    <UserCircle2 size={34} color={Colors.accent.DEFAULT} />
+                    <Text style={styles.avatarInitials}>{initials}</Text>
+                  </>
+                )}
+              </View>
+              <View style={styles.avatarEditBadge}>
+                <Camera size={12} color="#FFF" />
+              </View>
+            </Pressable>
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>
                 {user ? `${user.first_name} ${user.last_name}` : "Membre Yessal"}
               </Text>
+              {resolvedTitle ? (
+                <View style={styles.titleChip}>
+                  <Award size={12} color={Colors.accent.DEFAULT} />
+                  <Text style={styles.titleChipText}>{resolvedTitle}</Text>
+                </View>
+              ) : null}
               <Text style={styles.role}>
-                {user?.title ? `${user.title} · ` : ""}{user?.role?.replace("_", " ") ?? "Compte membre"} · {user?.status ?? "Statut inconnu"}
+                {user?.role?.replace("_", " ") ?? "Compte membre"} · {user?.status ?? ""}
               </Text>
             </View>
           </View>
@@ -252,8 +310,8 @@ export default function ProfileScreen() {
           <View style={styles.titleRow}>
             <View style={{ flex: 1 }}>
               <Input
-                label="Titre actuel"
-                value={user?.title || "Aucun titre"}
+                label="Titre honorifique"
+                value={resolvedTitle || "Aucun titre"}
                 editable={false}
                 placeholder="Talibé"
               />
@@ -305,21 +363,6 @@ export default function ProfileScreen() {
           />
         </GlassCard>
 
-        <Text style={styles.sectionLabel}>Documents d&apos;identité</Text>
-        <GlassCard style={styles.formCard}>
-          <Input 
-            label="Numéro CNI" 
-            value={nationalId} 
-            onChangeText={setNationalId} 
-            placeholder="Numéro de carte d'identité"
-          />
-          <Input 
-            label="Permis de conduire" 
-            value={licenseNumber} 
-            onChangeText={setLicenseNumber} 
-            placeholder="Numéro de permis"
-          />
-        </GlassCard>
 
         <Text style={styles.sectionLabel}>Adresse et Résidence</Text>
         <GlassCard style={styles.formCard}>
@@ -481,25 +524,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
   },
+  avatarWrap: {
+    position: "relative",
+  },
   avatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 22,
+    width: 72,
+    height: 72,
+    borderRadius: 24,
     backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    borderWidth: 2,
+    borderColor: Colors.accent.DEFAULT,
   },
   avatarImage: {
     ...StyleSheet.absoluteFillObject,
   },
-  avatarText: {
+  avatarInitials: {
     color: Colors.accent.DEFAULT,
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: "Inter_700Bold",
+  },
+  avatarEditBadge: {
     position: "absolute",
-    bottom: 6,
-    right: 8,
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.accent.DEFAULT,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: Colors.surface.DEFAULT,
+  },
+  titleChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: Colors.accent.dim,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  titleChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
   },
   name: {
     color: Colors.ink.DEFAULT,

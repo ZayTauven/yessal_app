@@ -9,6 +9,7 @@ import type {
   EventItem,
   Message,
   Tutelle,
+  NewsPost,
 } from "@/types";
 import type { Campaign, CampaignEtat } from "@/types/campaign.types";
 import type { CreateDonationPayload, Donation } from "@/types/donation.types";
@@ -144,6 +145,29 @@ function normalizeAnnouncement(item: any): Announcement {
   };
 }
 
+function normalizeNewsPost(item: any): NewsPost {
+  return {
+    id: item.id,
+    slug: item.slug,
+    title: item.title,
+    excerpt: item.excerpt ?? null,
+    content: item.content,
+    cover_image: absoluteMediaUrl(item.cover_image),
+    youtube_url: item.youtube_url ?? null,
+    is_published: Boolean(item.is_published),
+    created_by: item.created_by ?? null,
+    created_by_name: item.created_by_name ?? null,
+    created_at: item.created_at,
+    updated_at: item.updated_at ?? undefined,
+    gallery: Array.isArray(item.gallery)
+      ? item.gallery.map((img: any) => ({
+          ...img,
+          image: absoluteMediaUrl(img.image),
+        }))
+      : [],
+  };
+}
+
 function normalizeTutelle(item: any): Tutelle {
   return {
     id: item.id,
@@ -182,8 +206,8 @@ export const ContentService = {
     return normalizeDonation(data);
   },
 
-  async payDonation(id: number, payment_method: string): Promise<any> {
-    return api.post<any>(`contributions/${id}/pay/`, { payment_method });
+  async payDonation(id: number, payment_method: string, wire_reference?: string): Promise<any> {
+    return api.post<any>(`contributions/${id}/pay/`, { payment_method, wire_reference });
   },
 
   async getChats(): Promise<Chat[]> {
@@ -228,5 +252,15 @@ export const ContentService = {
   async getDirectory(): Promise<any[]> {
     const data = await api.get<PaginatedResponse<any>>("directory/users/");
     return unwrapList(data);
+  },
+
+  async getNews(): Promise<NewsPost[]> {
+    const data = await api.get<PaginatedResponse<any>>("news/posts/");
+    return unwrapList(data).map(normalizeNewsPost);
+  },
+
+  async getNewsPost(slug: string): Promise<NewsPost> {
+    const data = await api.get<any>(`news/posts/${slug}/`);
+    return normalizeNewsPost(data);
   },
 };

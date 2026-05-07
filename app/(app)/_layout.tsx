@@ -8,7 +8,7 @@ import {
   View,
   type PressableProps,
 } from "react-native";
-import { AlignLeft, Calendar, Heart, Home, Plus } from "lucide-react-native";
+import { AlignLeft, Calendar, Heart, Home, Plus, Newspaper } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuthStore } from "@/store/auth.store";
@@ -37,7 +37,7 @@ function MenuTabButton({ onPress }: { onPress?: PressableProps["onPress"] }) {
 }
 
 export default function AppLayout() {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, user } = useAuthStore();
   const insets = useSafeAreaInsets();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -119,12 +119,19 @@ export default function AppLayout() {
           }}
         />
         <Tabs.Screen
+          name="explore"
+          options={{
+            title: "Actualités",
+            tabBarIcon: ({ color, size }) => <Newspaper size={size} color={color} />,
+            href: user?.role === "admin" ? null : "/(app)/explore",
+          }}
+        />
+        <Tabs.Screen
           name="events"
           options={{
             title: "Événements",
-            tabBarIcon: ({ color, size }) => (
-              <Calendar size={size} color={color} />
-            ),
+            tabBarIcon: ({ color, size }) => <Calendar size={size} color={color} />,
+            href: user?.role === "admin" ? "/(app)/events" : null,
           }}
         />
         <Tabs.Screen
@@ -140,7 +147,6 @@ export default function AppLayout() {
         <Tabs.Screen name="donations" options={{ href: null }} />
         <Tabs.Screen name="daara" options={{ href: null }} />
         <Tabs.Screen name="profile" options={{ href: null }} />
-        <Tabs.Screen name="explore" options={{ href: null }} />
         <Tabs.Screen name="announcements" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
       </Tabs>

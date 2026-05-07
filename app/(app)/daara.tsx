@@ -14,6 +14,7 @@ import {
   Activity,
   Building2,
   Hash,
+  Layers,
   MapPin,
   MessageSquare,
   UserCircle,
@@ -116,25 +117,32 @@ export default function DaaraScreen() {
               </View>
             </View>
 
-            {/* Quick Stats Grid */}
-            <View style={styles.statsGrid}>
-              <GlassCard style={styles.statCard}>
-                <View style={styles.statHeader}>
-                  <Text style={styles.statLabel}>Statut</Text>
-                  <View style={[styles.statusBadge, daara.is_active ? styles.statusActive : styles.statusInactive]}>
-                    <Text style={[styles.statusText, daara.is_active ? styles.statusTextActive : styles.statusTextInactive]}>
-                      {daara.is_active ? "Actif" : "Inactif"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.statBody}>
-                  <Activity size={20} color={Colors.ink.faint} />
-                  <Text style={styles.statValue} numberOfLines={2}>
-                    {daara.description || "Aucune description."}
+            {/* Info chips: LDD + Code + Statut */}
+            <View style={styles.infoChipsRow}>
+              {daara.ldd_name || daara.ldd ? (
+                <View style={styles.infoChip}>
+                  <Layers size={13} color={Colors.accent.DEFAULT} />
+                  <Text style={styles.infoChipText}>
+                    {daara.ldd_name ?? daara.ldd ?? "Zone"}
                   </Text>
                 </View>
-              </GlassCard>
+              ) : null}
+              {daara.code ? (
+                <View style={styles.infoChip}>
+                  <Hash size={13} color={Colors.accent.DEFAULT} />
+                  <Text style={styles.infoChipText}>{daara.code}</Text>
+                </View>
+              ) : null}
+              <View style={[styles.infoChip, daara.is_active ? styles.chipActive : styles.chipInactive]}>
+                <Activity size={13} color={daara.is_active ? "#22C55E" : "#EF4444"} />
+                <Text style={[styles.infoChipText, { color: daara.is_active ? "#22C55E" : "#EF4444" }]}>
+                  {daara.is_active ? "Actif" : "Inactif"}
+                </Text>
+              </View>
+            </View>
 
+            {/* Quick Stats Grid */}
+            <View style={styles.statsGrid}>
               <GlassCard style={styles.statCard}>
                 <View style={styles.statHeader}>
                   <Text style={styles.statLabel}>Chef de Daara</Text>
@@ -143,6 +151,17 @@ export default function DaaraScreen() {
                 <View style={styles.statBody}>
                   <Text style={styles.statMainValue}>{daara.chef_full_name || "Non désigné"}</Text>
                   <Text style={styles.statSubValue}>{daara.members_count || 0} membres</Text>
+                </View>
+              </GlassCard>
+
+              <GlassCard style={styles.statCard}>
+                <View style={styles.statHeader}>
+                  <Text style={styles.statLabel}>Description</Text>
+                </View>
+                <View style={styles.statBody}>
+                  <Text style={styles.statValue} numberOfLines={3}>
+                    {daara.description || "Aucune description disponible."}
+                  </Text>
                 </View>
               </GlassCard>
             </View>
@@ -173,15 +192,7 @@ export default function DaaraScreen() {
               )}
             </View>
 
-            {/* Action for Management */}
-            {canManage && (
-              <Button
-                label="Gérer les membres du Daara"
-                onPress={() => router.push("/donations" as any)} // Placeholder for members list
-                variant="primary"
-                style={styles.manageButton}
-              />
-            )}
+
 
             {/* Directory Section - Other Members */}
             <View style={styles.section}>
@@ -320,6 +331,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
+  },
+  infoChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  infoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: Colors.accent.dim,
+    borderWidth: 1,
+    borderColor: Colors.border.DEFAULT,
+  },
+  chipActive: {
+    backgroundColor: "rgba(34, 197, 94, 0.08)",
+    borderColor: "rgba(34, 197, 94, 0.2)",
+  },
+  chipInactive: {
+    backgroundColor: "rgba(239, 68, 68, 0.08)",
+    borderColor: "rgba(239, 68, 68, 0.2)",
+  },
+  infoChipText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.accent.DEFAULT,
   },
   statsGrid: {
     flexDirection: "row",

@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import { Bell, Filter, Heart, Search, Settings2, TrendingUp } from "lucide-react-native";
+import { Bell, Filter, Heart, Search, TrendingUp } from "lucide-react-native";
 
 import { Colors } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
@@ -28,7 +36,7 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
     id: 2,
     name: "Soutien aux étudiants",
     description: "Bourses d'études pour les talibés méritants.",
-    goal_amount: 900_000,
+    goal_amount: 0,
     collected_amount: 396_000,
     deadline: "2024-12-31",
     status: "active",
@@ -50,58 +58,58 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
 
 function statusLabel(status: Campaign["status"]) {
   switch (status) {
-    case "active":
-      return "En cours";
-    case "completed":
-      return "Clôturée";
-    case "pending":
-      return "En attente";
-    default:
-      return "Inactive";
+    case "active": return "En cours";
+    case "completed": return "Clôturée";
+    case "pending": return "En attente";
+    default: return "Inactive";
+  }
+}
+
+function statusColor(status: Campaign["status"]) {
+  switch (status) {
+    case "active": return Colors.accent.DEFAULT;
+    case "completed": return Colors.status?.success ?? "#22C55E";
+    default: return Colors.ink.faint;
   }
 }
 
 export default function CampaignsScreen() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>(FALLBACK_CAMPAIGNS);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-
     const load = async () => {
       try {
         const data = await ContentService.getCampaigns();
-        if (active && data.length > 0) {
-          setCampaigns(data);
-        }
+        if (active && data.length > 0) setCampaigns(data);
       } catch {
-        if (active) {
-          setCampaigns(FALLBACK_CAMPAIGNS);
-        }
+        if (active) setCampaigns(FALLBACK_CAMPAIGNS);
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
-
     load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
-  const featuredCampaigns = useMemo(
-    () => campaigns.filter((campaign) => campaign.status === "active").slice(0, 3),
-    [campaigns],
-  );
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return campaigns;
+    return campaigns.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.description ?? "").toLowerCase().includes(q),
+    );
+  }, [campaigns, search]);
 
   return (
     <View style={styles.container}>
       <SectionHeader
         title="Ndiguels"
-        subtitle="Suivez les ndiguels en cours et contribuez rapidement"
+        subtitle="Consultez et contribuez aux ndiguels actifs"
         icon={<TrendingUp size={24} color="#FFF" />}
         actions={[
           {
@@ -109,19 +117,17 @@ export default function CampaignsScreen() {
             icon: <Bell size={18} color={Colors.ink.DEFAULT} />,
             onPress: () => router.push("/notifications" as any),
           },
-          {
-            label: "Paramètres",
-            icon: <Settings2 size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/profile" as any),
-          },
         ]}
       />
 
       <View style={styles.content}>
+        {/* Search bar */}
         <View style={styles.searchBar}>
           <View style={{ flex: 1 }}>
             <Input
               placeholder="Rechercher un ndiguel..."
+              value={search}
+              onChangeText={setSearch}
               icon={<Search size={18} color={Colors.ink.faint} />}
             />
           </View>
@@ -130,112 +136,98 @@ export default function CampaignsScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.sectionLabel}>En vedette</Text>
+        {/* Grid */}
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.featuredRow}
-        >
-          {loading ? (
-            <View style={styles.loadingCard}>
-              <ActivityIndicator color={Colors.accent.DEFAULT} />
-            </View>
-          ) : (
-            featuredCampaigns.map((campaign) => {
-              const progress =
-                campaign.goal_amount > 0 ? campaign.collected_amount / campaign.goal_amount : 0;
-              return (
-                <Pressable
-                  key={campaign.id}
-                  onPress={() =>
-                    router.push(`/campaign/${campaign.id}` as any)
-                  }
-                >
-                  <GlassCard style={styles.featuredCard}>
-                    {campaign.image && (
-                      <Image 
-                        source={{ uri: campaign.image }} 
-                        style={styles.featuredImage}
-                        resizeMode="cover"
-                      />
-                    )}
-                    <View style={styles.featuredContent}>
-                      <View style={styles.cardTop}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.cardTitle}>{campaign.name}</Text>
-                          <Text style={styles.cardGoal}>
-                            {campaign.collected_amount.toLocaleString()} /{" "}
-                            {campaign.goal_amount.toLocaleString()} FCFA
-                          </Text>
-                        </View>
-                        <View style={styles.badge}>
-                          <Text style={styles.badgeText}>{statusLabel(campaign.status)}</Text>
-                        </View>
-                      </View>
-
-                      <ProgressBar progress={progress} showPercent={false} />
-                      <Text style={styles.featuredHint}>
-                        Balayez pour voir plus de ndiguels.
-                      </Text>
-                    </View>
-                  </GlassCard>
-                </Pressable>
-              );
-            })
-          )}
-        </ScrollView>
-
-        <View style={styles.divider} />
-
-        <Text style={styles.sectionLabel}>Tous les ndiguels</Text>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          scrollIndicatorInsets={{ bottom: 220 }}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scroll}
         >
-          {campaigns.map((campaign) => {
-            const progress =
-              campaign.goal_amount > 0 ? campaign.collected_amount / campaign.goal_amount : 0;
-            return (
-              <Pressable
-                key={campaign.id}
-                onPress={() => router.push(`/campaign/${campaign.id}` as any)}
-              >
-                <GlassCard style={styles.card}>
-                  <View style={styles.listCardContent}>
-                    {campaign.image && (
-                      <Image 
-                        source={{ uri: campaign.image }} 
-                        style={styles.listImage}
-                        resizeMode="cover"
-                      />
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.cardTop}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.cardTitle}>{campaign.name}</Text>
-                          <Text style={styles.cardGoal}>
-                            {campaign.collected_amount.toLocaleString()} FCFA collectés
+          {loading ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator color={Colors.accent.DEFAULT} size="large" />
+              <Text style={styles.loadingText}>Chargement des ndiguels…</Text>
+            </View>
+          ) : filtered.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Heart size={48} color={Colors.ink.faint} />
+              <Text style={styles.emptyText}>Aucun ndiguel trouvé.</Text>
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {filtered.map((campaign) => {
+                const hasGoal = campaign.goal_amount > 0;
+                const progress = hasGoal
+                  ? Math.min(campaign.collected_amount / campaign.goal_amount, 1)
+                  : 0;
+                const color = statusColor(campaign.status);
+
+                return (
+                  <Pressable
+                    key={campaign.id}
+                    style={styles.gridCell}
+                    onPress={() => router.push(`/campaign/${campaign.id}` as any)}
+                  >
+                    <GlassCard style={styles.card}>
+                      {/* Cover image */}
+                      {campaign.image ? (
+                        <ExpoImage
+                          source={{ uri: campaign.image }}
+                          style={styles.coverImage}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <View style={styles.coverPlaceholder}>
+                          <Heart size={28} color={Colors.accent.DEFAULT} />
+                        </View>
+                      )}
+
+                      <View style={styles.cardBody}>
+                        {/* Status badge */}
+                        <View style={[styles.badge, { backgroundColor: color + "18", borderColor: color + "30" }]}>
+                          <Text style={[styles.badgeText, { color }]}>
+                            {statusLabel(campaign.status)}
                           </Text>
                         </View>
-                        <View style={[styles.badge, { paddingVertical: 4, paddingHorizontal: 8 }]}>
-                          <Text style={[styles.badgeText, { fontSize: 10 }]}>{statusLabel(campaign.status)}</Text>
-                        </View>
-                      </View>
 
-                      <View style={{ marginTop: 10 }}>
-                        <ProgressBar progress={progress} showPercent={false} />
-                        <Text style={styles.progressLabel}>
-                          {Math.round(progress * 100)}% de l&apos;objectif atteint
+                        {/* Title */}
+                        <Text style={styles.cardTitle} numberOfLines={2}>
+                          {campaign.name}
                         </Text>
+
+                        {/* Description */}
+                        {campaign.description ? (
+                          <Text style={styles.cardDesc} numberOfLines={2}>
+                            {campaign.description}
+                          </Text>
+                        ) : null}
+
+                        {/* Progress (only when financial goal exists) */}
+                        {hasGoal && (
+                          <View style={styles.progressWrap}>
+                            <ProgressBar progress={progress} showPercent={false} />
+                            <View style={styles.amountsRow}>
+                              <Text style={styles.collectedAmt}>
+                                {campaign.collected_amount.toLocaleString("fr-FR")} FCFA
+                              </Text>
+                              <Text style={styles.goalAmt}>
+                                / {campaign.goal_amount.toLocaleString("fr-FR")}
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                        {/* No goal: just show collected */}
+                        {!hasGoal && campaign.collected_amount > 0 && (
+                          <Text style={styles.collectedNoGoal}>
+                            {campaign.collected_amount.toLocaleString("fr-FR")} FCFA collectés
+                          </Text>
+                        )}
                       </View>
-                    </View>
-                  </View>
-                </GlassCard>
-              </Pressable>
-            );
-          })}
+                    </GlassCard>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </ScrollView>
 
         <Button
@@ -256,10 +248,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginTop: 0,
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 16,
-    zIndex: 2,
   },
   searchBar: {
     flexDirection: "row",
@@ -277,112 +267,111 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(26, 92, 58, 0.08)",
   },
-  sectionLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 12,
-    marginLeft: 4,
+  scroll: {
+    paddingBottom: 220,
   },
-  featuredRow: {
+  loadingWrap: {
+    paddingTop: 60,
+    alignItems: "center",
     gap: 12,
-    paddingBottom: 10,
-    paddingLeft: 4,
-    paddingRight: 18,
-    marginBottom: 24,
   },
-  featuredCard: {
-    width: 308,
+  loadingText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+  },
+  emptyWrap: {
+    paddingTop: 80,
+    alignItems: "center",
+    gap: 16,
+  },
+  emptyText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.muted,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  gridCell: {
+    width: "47.5%",
+  },
+  card: {
     padding: 0,
     overflow: "hidden",
     borderRadius: 20,
+    flex: 1,
   },
-  featuredImage: {
+  coverImage: {
     width: "100%",
-    height: 140,
+    height: 110,
     backgroundColor: Colors.surface.muted,
   },
-  featuredContent: {
-    padding: 16,
-    gap: 10,
-  },
-  loadingCard: {
-    width: 280,
-    minHeight: 140,
-    borderRadius: 20,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
+  coverPlaceholder: {
+    width: "100%",
+    height: 110,
+    backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
   },
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    marginVertical: 16,
-    marginHorizontal: 4,
-  },
-  scroll: {
-    paddingBottom: 240,
-    gap: 16,
-  },
-  card: {
+  cardBody: {
     padding: 12,
-    borderRadius: 18,
-  },
-  listCardContent: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-  },
-  listImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.muted,
-  },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  cardTitle: {
-    fontSize: 16,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  cardGoal: {
-    marginTop: 4,
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
+    gap: 6,
   },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.accent.dim,
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
   },
   badgeText: {
-    fontSize: 11,
-    color: Colors.accent.DEFAULT,
+    fontSize: 9,
     fontFamily: "Inter_700Bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-  progressLabel: {
-    fontSize: 12,
+  cardTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+    lineHeight: 18,
+  },
+  cardDesc: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
     color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
+    lineHeight: 15,
   },
-  featuredHint: {
-    fontSize: 12,
-    color: Colors.ink.faint,
+  progressWrap: {
+    marginTop: 4,
+    gap: 4,
+  },
+  amountsRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 3,
+  },
+  collectedAmt: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+  },
+  goalAmt: {
+    fontSize: 10,
     fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+  },
+  collectedNoGoal: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.muted,
+    marginTop: 4,
   },
   ctaButton: {
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 24,
   },
 });

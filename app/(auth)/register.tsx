@@ -6,7 +6,6 @@ import {
   View,
   Pressable,
   Alert,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -19,7 +18,6 @@ import {
   User,
   Phone,
   ArrowLeft,
-  Search,
   Globe,
 } from "lucide-react-native";
 import { useForm, Controller } from "react-hook-form";
@@ -30,10 +28,10 @@ import { Image as ExpoImage } from "expo-image";
 import { Colors } from "@/constants/colors";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { DaaraPicker } from "@/components/auth/DaaraPicker";
+import { SearchablePicker } from "@/components/auth/SearchablePicker";
 import { AuthService } from "@/lib/auth.service";
 import { useAuthStore } from "@/store/auth.store";
-import type { DaaraOption } from "@/types";
+import type { DaaraOption, LDDOption } from "@/types";
 
 const schema = z
   .object({
@@ -63,11 +61,15 @@ type FormValues = z.infer<typeof schema>;
 export default function RegisterScreen() {
   const router = useRouter();
   const { register, isLoading, error, clearError } = useAuthStore();
+  
+  const [ldds, setLdds] = useState<LDDOption[]>([]);
+  const [selectedLdd, setSelectedLdd] = useState<number | null>(null);
+  const [lddLoading, setLddLoading] = useState(true);
+
   const [daaras, setDaaras] = useState<DaaraOption[]>([]);
-  const [daaraLoading, setDaaraLoading] = useState(true);
+  const [daaraLoading, setDaaraLoading] = useState(false);
   const [daaraRefreshing, setDaaraRefreshing] = useState(false);
   const [daaraError, setDaaraError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
   const {
     control,
@@ -87,25 +89,25 @@ export default function RegisterScreen() {
     },
   });
 
-  const selectedDaara = watch("daara_id");
+  const selectedDaaraId = watch("daara_id");
   const phoneValue = watch("phone");
 
   const isInternational =
     phoneValue && !phoneValue.startsWith("+221") && phoneValue.startsWith("+");
 
-  const filteredDaaras = daaras
-    .filter((daara) => {
-      const q = searchQuery.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        (daara.name?.toLowerCase().includes(q) ?? false) ||
-        (daara.code?.toLowerCase().includes(q) ?? false) ||
-        (daara.ldd?.toLowerCase().includes(q) ?? false)
-      );
-    })
-    .slice(0, searchQuery.trim() ? undefined : 6);
+  const loadInitialData = useCallback(async () => {
+    setLddLoading(true);
+    try {
+      const items = await AuthService.getLDDs();
+      setLdds(items.filter(i => i.is_active));
+    } catch (e) {
+      console.warn("Failed to load LDDs", e);
+    } finally {
+      setLddLoading(false);
+    }
+  }, []);
 
-  const loadDaaras = useCallback(async (isRefresh = false) => {
+  const loadDaaras = useCallback(async (lddId: number, isRefresh = false) => {
     if (isRefresh) {
       setDaaraRefreshing(true);
     } else {
@@ -115,17 +117,14 @@ export default function RegisterScreen() {
     setDaaraError(null);
 
     try {
-      const items = await AuthService.getDaaras();
+      const items = await AuthService.getDaaras(lddId);
       const activeDaaras = items.filter((item) => item.is_active);
       setDaaras(activeDaaras);
       if (activeDaaras.length === 0) {
-        setDaaraError("Aucun Daara actif n'a ete retourne par le serveur.");
+        setDaaraError("Aucun Daara actif trouvé pour cette localité.");
       }
     } catch (e) {
-      setDaaraError(
-        "Impossible de charger la liste des Daaras. Verifiez le backend sur le reseau local.",
-      );
-      console.warn("Failed to load Daaras for registration.", e);
+      setDaaraError("Impossible de charger les Daaras.");
     } finally {
       setDaaraLoading(false);
       setDaaraRefreshing(false);
@@ -133,11 +132,20 @@ export default function RegisterScreen() {
   }, []);
 
   useEffect(() => {
-    loadDaaras();
+    loadInitialData();
     return () => {
       clearError();
     };
-  }, [clearError, loadDaaras]);
+  }, [clearError, loadInitialData]);
+
+  useEffect(() => {
+    if (selectedLdd) {
+      loadDaaras(selectedLdd);
+      setValue("daara_id", 0);
+    } else {
+      setDaaras([]);
+    }
+  }, [selectedLdd, loadDaaras, setValue]);
 
   const submit = async (values: FormValues) => {
     try {
@@ -151,11 +159,12 @@ export default function RegisterScreen() {
       });
       Alert.alert(
         "Compte créé",
-        "Votre compte a été envoyé pour validation. Vous pourrez vous connecter dès qu'un administrateur l'aura activé.",
+        "Votre demande d'inscription a été reçue. Vous pourrez vous connecter après validation par un administrateur.",
         [{ text: "OK", onPress: () => router.replace("/login" as any) }],
       );
-    } catch {
-      // error handled by store banner
+    } catch (e: any) {
+      // The store handles the general error banner, 
+      // but we could also parse e.response.data for field-specific errors.
     }
   };
 
@@ -163,7 +172,7 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Organic Decoration */}
       <ExpoImage
-        source={require("@/assets/images/cosy-green-plant-removebg-preview.png")}
+        source={require("@/assets/images/plant-draw-removebg-preview.png")}
         style={styles.decoration}
         contentFit="contain"
       />
@@ -179,7 +188,7 @@ export default function RegisterScreen() {
           refreshControl={
             <RefreshControl
               refreshing={daaraRefreshing}
-              onRefresh={() => loadDaaras(true)}
+              onRefresh={() => selectedLdd && loadDaaras(selectedLdd, true)}
               tintColor={Colors.accent.DEFAULT}
               colors={[Colors.accent.DEFAULT]}
             />
@@ -331,64 +340,28 @@ export default function RegisterScreen() {
             />
 
             <View style={styles.daaraBlock}>
-              <View style={styles.daaraHeader}>
-                <Text style={styles.sectionTitle}>Choisir un Daara</Text>
-                {daaraLoading && (
-                  <ActivityIndicator
-                    size="small"
-                    color={Colors.accent.DEFAULT}
-                  />
-                )}
-              </View>
+              <SearchablePicker
+                label="1. Mon LDD"
+                placeholder="Sélectionnez votre LDD"
+                options={ldds}
+                value={selectedLdd || undefined}
+                onChange={setSelectedLdd}
+                loading={lddLoading}
+              />
 
-              {!daaraLoading && !daaraError && daaras.length > 0 && (
-                <Text style={styles.metaText}>
-                  {daaras.length} daaras disponibles
-                </Text>
-              )}
-
-              {!daaraLoading && daaras.length > 0 && (
-                <Input
-                  label="Rechercher"
-                  placeholder="Nom ou code"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  icon={<Search size={16} color={Colors.ink.faint} />}
-                />
-              )}
-
-              {daaraError && (
-                <Text style={styles.fieldError}>{daaraError}</Text>
-              )}
-
-              {!daaraLoading && !daaraError && filteredDaaras.length > 0 && (
-                <DaaraPicker
-                  options={filteredDaaras}
-                  value={selectedDaara}
+              {selectedLdd && (
+                <SearchablePicker
+                  label="2. Mon Daara"
+                  placeholder="Rechercher mon Daara..."
+                  options={daaras}
+                  value={selectedDaaraId}
                   onChange={(id) => {
                     setValue("daara_id", id, { shouldValidate: true });
                     clearError();
                   }}
+                  loading={daaraLoading}
+                  error={daaraError || errors.daara_id?.message}
                 />
-              )}
-
-              {!daaraLoading && !daaraError && daaras.length === 0 && (
-                <Text style={styles.fieldError}>
-                  Aucun Daara actif disponible. Contactez l&apos;administrateur.
-                </Text>
-              )}
-
-              {!daaraLoading &&
-                !daaraError &&
-                daaras.length > 0 &&
-                filteredDaaras.length === 0 && (
-                  <Text style={styles.fieldError}>
-                    Aucun Daara ne correspond à votre recherche.
-                  </Text>
-                )}
-
-              {errors.daara_id && (
-                <Text style={styles.fieldError}>{errors.daara_id.message}</Text>
               )}
             </View>
 

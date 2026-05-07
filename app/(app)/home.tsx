@@ -9,7 +9,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { useAuthStore } from "@/store/auth.store";
 import { ContentService } from "@/lib/content.service";
-import type { AnalyticsResponse } from "@/types";
+import type { AnalyticsResponse, NewsPost } from "@/types";
 
 const shortcuts = [
   { title: "Faire un Jëfs", icon: Heart, route: "/donate" as any },
@@ -21,6 +21,7 @@ export default function HomeScreen() {
   const { user } = useAuthStore();
   const firstName = user?.first_name ?? "Membre";
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [news, setNews] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,9 +29,13 @@ export default function HomeScreen() {
 
     const load = async () => {
       try {
-        const data = await ContentService.getAnalytics();
+        const [analyticsData, newsData] = await Promise.all([
+          ContentService.getAnalytics(),
+          ContentService.getNews(),
+        ]);
         if (active) {
-          setAnalytics(data);
+          setAnalytics(analyticsData);
+          setNews(newsData.slice(0, 3));
         }
       } catch {
         if (active) {
@@ -137,30 +142,30 @@ export default function HomeScreen() {
 
           <Text style={styles.sectionTitle}>Dernières actualités</Text>
           <View style={styles.announcements}>
-            {(analytics?.announcements ?? []).slice(0, 3).map((item) => (
+            {news.map((item) => (
               <Pressable
                 key={item.id}
-                onPress={() => router.push(`/announcements?id=${item.id}` as any)}
+                onPress={() => router.push(`/news/${item.slug}` as any)}
               >
                 <GlassCard style={styles.announcementCard}>
                   <Text style={styles.announcementTitle}>{item.title}</Text>
                   <Text style={styles.announcementText} numberOfLines={2}>
-                    {item.content}
+                    {item.excerpt || item.content}
                   </Text>
                 </GlassCard>
               </Pressable>
             ))}
 
-            {!loading && (analytics?.announcements?.length ?? 0) === 0 && (
+            {!loading && news.length === 0 && (
               <GlassCard style={styles.emptyCard}>
                 <Text style={styles.emptyText}>Aucune actualité récente pour le moment.</Text>
               </GlassCard>
             )}
 
-            {!loading && (analytics?.announcements?.length ?? 0) > 0 ? (
+            {!loading && news.length > 0 ? (
               <Pressable
                 style={styles.moreAnnouncements}
-                onPress={() => router.push("/announcements" as any)}
+                onPress={() => router.push("/explore" as any)}
               >
                 <Megaphone size={16} color={Colors.accent.DEFAULT} />
                 <Text style={styles.moreAnnouncementsText}>Voir toutes les actualités</Text>
