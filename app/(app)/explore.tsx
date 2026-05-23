@@ -27,6 +27,7 @@ import type { NewsPost } from "@/types/content.types";
 const FALLBACK_NEWS: NewsPost[] = [
   {
     id: 1,
+    slug: "succes-grand-magal-2024",
     title: "Succès du Grand Magal 2024",
     excerpt: "Retour sur un événement historique pour notre confrérie.",
     content: "Le Grand Magal de cette année a réuni des millions de fidèles dans une ferveur exceptionnelle...",
@@ -36,6 +37,7 @@ const FALLBACK_NEWS: NewsPost[] = [
   },
   {
     id: 2,
+    slug: "nouveau-daara-diourbel",
     title: "Nouveau Daara à Diourbel",
     excerpt: "L'expansion de notre réseau continue pour mieux vous servir.",
     content: "Nous avons le plaisir d'annoncer l'ouverture d'un nouveau centre d'enseignement...",

@@ -151,7 +151,7 @@ export default function ProfileScreen() {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim() || null,
-        title: title.trim() || null,
+        title: resolvedTitle.trim() || null,
         birth_date: birthDate.trim() || null,
         gender: (gender.trim() as any) || null,
         residence_country: residenceCountry.trim() || null,

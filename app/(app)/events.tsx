@@ -155,7 +155,7 @@ export default function FetesScreen() {
         <View style={styles.infoBanner}>
           <Star size={14} color={Colors.accent.DEFAULT} />
           <Text style={styles.infoText}>
-            Les fêtes sont liées aux Ndiguels. L'admin met à jour les dates → vous recevrez une notification Push.
+            {"Les fêtes sont liées aux Ndiguels. L'admin met à jour les dates → vous recevrez une notification Push."}
           </Text>
         </View>
 
@@ -234,14 +234,14 @@ export default function FetesScreen() {
                       </Text>
                     ) : null}
 
-                    {/* Lien vers les Ndiguels de cette fête */}
+                    {/* Lien vers le détail de la fête */}
                     <Pressable
                       style={styles.ndiguelsBtn}
                       hitSlop={10}
-                      onPress={() => router.push("/campaigns" as any)}
+                      onPress={() => router.push(`/event/${fete.id}` as any)}
                     >
                       <Text style={styles.ndiguelsText}>
-                        Voir les Ndiguels liés
+                        Voir le détail
                       </Text>
                       <ChevronRight size={16} color={Colors.accent.DEFAULT} />
                     </Pressable>

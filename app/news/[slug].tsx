@@ -66,7 +66,7 @@ export default function NewsDetailScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={Colors.accent.DEFAULT} />
-        <Text style={styles.loadingText}>Chargement de l'article...</Text>
+        <Text style={styles.loadingText}>{"Chargement de l'article..."}</Text>
       </View>
     );
   }
@@ -134,7 +134,7 @@ export default function NewsDetailScreen() {
               <PlayCircle size={24} color="#FFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.youtubeTitle}>Vidéo de l'événement</Text>
+              <Text style={styles.youtubeTitle}>{"Vidéo de l'événement"}</Text>
               <Text style={styles.youtubeSubtitle}>Regarder sur YouTube</Text>
             </View>
           </Pressable>

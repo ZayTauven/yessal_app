@@ -11,7 +11,7 @@ import type {
   Tutelle,
   NewsPost,
 } from "@/types";
-import type { Campaign, CampaignEtat } from "@/types/campaign.types";
+import type { Campaign, CampaignEtat, FeteEtat } from "@/types/campaign.types";
 import type { CreateDonationPayload, Donation } from "@/types/donation.types";
 import { Config } from "@/constants/configs";
 
@@ -189,6 +189,10 @@ export const ContentService = {
   
   async getCampaignEtat(id: number): Promise<CampaignEtat> {
     return api.get<CampaignEtat>(`events/campaigns/${id}/etat/`);
+  },
+
+  async getFeteEtat(id: number): Promise<FeteEtat> {
+    return api.get<FeteEtat>(`events/fetes/${id}/etat/`);
   },
 
   async getEvents(): Promise<EventItem[]> {
