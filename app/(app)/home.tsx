@@ -1,32 +1,51 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import { Bell, Heart, Landmark, Settings2, Sparkles, Megaphone } from "lucide-react-native";
+import {
+  Bell,
+  Heart,
+  Landmark,
+  MessageSquare,
+  Settings2,
+  UserCheck,
+  Users,
+} from "lucide-react-native";
 
 import { Colors } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/store/auth.store";
 import { ContentService } from "@/lib/content.service";
 import type { AnalyticsResponse, NewsPost } from "@/types";
 
-const shortcuts = [
-  { title: "Faire un Jëfs", icon: Heart, route: "/donate" as any },
-  { title: "Ndiguels", icon: Landmark, route: "/campaigns" as any },
-];
+const COLLECTOR_ROLES = ["collector", "chef_daara", "admin"];
+
+function roleLabel(role?: string) {
+  switch (role) {
+    case "admin": return "Administrateur";
+    case "chef_daara": return "Chef de Daara";
+    case "collector": return "Collecteur";
+    case "member": return "Membre";
+    case "tutelle": return "Tutelle";
+    default: return "Membre";
+  }
+}
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const firstName = user?.first_name ?? "Membre";
+  const isCollector = COLLECTOR_ROLES.includes(user?.role ?? "");
+
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [news, setNews] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-
     const load = async () => {
       try {
         const [analyticsData, newsData] = await Promise.all([
@@ -38,26 +57,26 @@ export default function HomeScreen() {
           setNews(newsData.slice(0, 3));
         }
       } catch {
-        if (active) {
-          setAnalytics(null);
-        }
+        if (active) setAnalytics(null);
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
-
     load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   const kpis = analytics?.kpis ?? [
-    { title: "Contributions", value: "12", change: "+2", icon: "HandCoins" },
-    { title: "Ndiguels", value: "4", change: "Actives", icon: "Landmark" },
-    { title: "Tutelles", value: "8", change: "Membres", icon: "Users" },
+    { title: "Mes Jëfs", value: "12", change: "+2 ce mois", icon: "HandCoins" },
+    { title: "Ndiguels", value: "4", change: "En cours", icon: "Landmark" },
+    { title: "Tutelles", value: "3", change: "Membres", icon: "Users" },
+  ];
+
+  const shortcuts = [
+    { title: "Faire un Jëf", icon: Heart, route: "/donate" as any, color: Colors.accent.DEFAULT },
+    { title: "Ndiguels", icon: Landmark, route: "/campaigns" as any, color: Colors.gold?.DEFAULT ?? "#B8860B" },
+    { title: "Messagerie", icon: MessageSquare, route: "/chat" as any, color: "#3B82F6" },
+    ...(isCollector ? [{ title: "Collecte physique", icon: UserCheck, route: "/donate" as any, color: "#8B5CF6" }] : []),
   ];
 
   return (
@@ -70,11 +89,14 @@ export default function HomeScreen() {
       >
         <SectionHeader
           title={`Salam, ${firstName}`}
-          subtitle="Votre espace Yessal en un coup d'œil"
+          subtitle={roleLabel(user?.role)}
           icon={
-            <View style={styles.headerIcon}>
-              <Sparkles size={16} color="#FFF" />
-            </View>
+            <Avatar
+              uri={user?.avatar_url ?? user?.avatar}
+              name={`${user?.first_name ?? ""} ${user?.last_name ?? ""}`}
+              size={40}
+              borderRadius={13}
+            />
           }
           actions={[
             {
@@ -91,20 +113,39 @@ export default function HomeScreen() {
         />
 
         <View style={styles.body}>
-          <Text style={styles.kicker}>Yessal Gui</Text>
 
-          <GlassCard style={styles.heroCard}>
-            <Text style={styles.heroTitle}>Suivez vos Jëfs et vos Ndiguels.</Text>
-            <Text style={styles.heroText}>
-              Accédez rapidement aux actions importantes et gardez une vue
-              claire sur votre communauté.
-            </Text>
-            <Button
-              label="Faire un Jëfs"
-              onPress={() => router.push("/donate" as any)}
-            />
-          </GlassCard>
+          {/* ─── Hero card premium ─── */}
+          <View style={styles.heroWrap}>
+            <GlassCard style={styles.heroCard}>
+              {/* Arabesque décoration */}
+              <ExpoImage
+                source={require("@/assets/images/arabesque.png")}
+                style={styles.heroArabesque}
+                contentFit="contain"
+                tintColor={Colors.accent.DEFAULT}
+              />
+              <ExpoImage
+                source={require("@/assets/images/ornement.png")}
+                style={styles.heroOrnament}
+                contentFit="contain"
+              />
 
+              <View style={styles.heroPill}>
+                <Text style={styles.heroPillText}>Yessal Gui</Text>
+              </View>
+              <Text style={styles.heroTitle}>Suivez vos Jëfs{"\n"}et vos Ndiguels.</Text>
+              <Text style={styles.heroText}>
+                Contribuez, consultez l'état de vos campagnes et restez connecté à votre communauté.
+              </Text>
+              <Button
+                label="Faire un Jëf"
+                onPress={() => router.push("/donate" as any)}
+                icon={<Heart size={16} color="#FFF" />}
+              />
+            </GlassCard>
+          </View>
+
+          {/* ─── KPI cards ─── */}
           <View style={styles.metricsRow}>
             {loading ? (
               <View style={styles.loadingCard}>
@@ -121,6 +162,7 @@ export default function HomeScreen() {
             )}
           </View>
 
+          {/* ─── Raccourcis ─── */}
           <Text style={styles.sectionTitle}>Actions rapides</Text>
           <View style={styles.quickGrid}>
             {shortcuts.map((item) => {
@@ -131,8 +173,8 @@ export default function HomeScreen() {
                   style={styles.quickCard}
                   onPress={() => router.push(item.route)}
                 >
-                  <View style={styles.quickIcon}>
-                    <Icon size={18} color={Colors.accent.DEFAULT} />
+                  <View style={[styles.quickIcon, { backgroundColor: `${item.color}18` }]}>
+                    <Icon size={18} color={item.color} />
                   </View>
                   <Text style={styles.quickTitle}>{item.title}</Text>
                 </Pressable>
@@ -140,18 +182,33 @@ export default function HomeScreen() {
             })}
           </View>
 
+          {/* ─── Dernières actualités ─── */}
           <Text style={styles.sectionTitle}>Dernières actualités</Text>
-          <View style={styles.announcements}>
+          <View style={styles.newsList}>
             {news.map((item) => (
               <Pressable
                 key={item.id}
                 onPress={() => router.push(`/news/${item.slug}` as any)}
               >
-                <GlassCard style={styles.announcementCard}>
-                  <Text style={styles.announcementTitle}>{item.title}</Text>
-                  <Text style={styles.announcementText} numberOfLines={2}>
-                    {item.excerpt || item.content}
-                  </Text>
+                <GlassCard style={styles.newsCard}>
+                  {item.cover_image ? (
+                    <ExpoImage
+                      source={{ uri: item.cover_image }}
+                      style={styles.newsCover}
+                      contentFit="cover"
+                    />
+                  ) : null}
+                  <View style={styles.newsBody}>
+                    <Text style={styles.newsTitle} numberOfLines={2}>{item.title}</Text>
+                    {item.excerpt ? (
+                      <Text style={styles.newsExcerpt} numberOfLines={2}>{item.excerpt}</Text>
+                    ) : null}
+                    <Text style={styles.newsDate}>
+                      {new Date(item.created_at).toLocaleDateString("fr-FR", {
+                        day: "2-digit", month: "short", year: "numeric",
+                      })}
+                    </Text>
+                  </View>
                 </GlassCard>
               </Pressable>
             ))}
@@ -164,11 +221,10 @@ export default function HomeScreen() {
 
             {!loading && news.length > 0 ? (
               <Pressable
-                style={styles.moreAnnouncements}
+                style={styles.moreBtn}
                 onPress={() => router.push("/explore" as any)}
               >
-                <Megaphone size={16} color={Colors.accent.DEFAULT} />
-                <Text style={styles.moreAnnouncementsText}>Voir toutes les actualités</Text>
+                <Text style={styles.moreBtnText}>Voir toutes les actualités →</Text>
               </Pressable>
             ) : null}
           </View>
@@ -187,48 +243,67 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   body: {
-    paddingHorizontal: 24,
-    marginTop: 0,
+    paddingHorizontal: 20,
     paddingTop: 16,
+    gap: 0,
   },
-  kicker: {
-    color: Colors.accent.light,
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1.4,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 16,
-  },
-  headerIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroCard: {
-    padding: 18,
+  // ─── Hero ───
+  heroWrap: {
     marginBottom: 18,
   },
-  heroTitle: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 22,
-    lineHeight: 30,
+  heroCard: {
+    padding: 22,
+    overflow: "hidden",
+    gap: 12,
+    position: "relative",
+  },
+  heroArabesque: {
+    position: "absolute",
+    right: -30,
+    top: -30,
+    width: 160,
+    height: 160,
+    opacity: 0.08,
+  },
+  heroOrnament: {
+    position: "absolute",
+    left: -10,
+    bottom: -10,
+    width: 80,
+    height: 80,
+    opacity: 0.06,
+  },
+  heroPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Colors.accent.dim,
+  },
+  heroPillText: {
+    fontSize: 11,
     fontFamily: "Inter_700Bold",
-    marginBottom: 8,
+    color: Colors.accent.DEFAULT,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  heroTitle: {
+    fontSize: 24,
+    lineHeight: 32,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
   },
   heroText: {
-    color: Colors.ink.muted,
     fontSize: 14,
     lineHeight: 22,
-    marginBottom: 16,
+    color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
   },
+  // ─── KPIs ───
   metricsRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 22,
   },
   loadingCard: {
     flex: 1,
@@ -243,81 +318,105 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     padding: 14,
+    gap: 3,
   },
   metricValue: {
-    fontSize: 20,
+    fontSize: 22,
     color: Colors.ink.DEFAULT,
     fontFamily: "Inter_700Bold",
   },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.ink.muted,
-    marginTop: 6,
-    lineHeight: 16,
     fontFamily: "Inter_400Regular",
+    lineHeight: 15,
   },
   metricChange: {
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.accent.DEFAULT,
-    marginTop: 4,
     fontFamily: "Inter_700Bold",
+    marginTop: 2,
   },
+  // ─── Section titles ───
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "Inter_700Bold",
     color: Colors.ink.faint,
     textTransform: "uppercase",
     letterSpacing: 1,
     marginBottom: 12,
-    marginLeft: 4,
+    marginLeft: 2,
   },
+  // ─── Quick actions ───
   quickGrid: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 18,
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 24,
   },
   quickCard: {
-    flex: 1,
+    width: "48%",
     borderRadius: 18,
     backgroundColor: Colors.surface.DEFAULT,
     borderWidth: 1,
     borderColor: Colors.border.DEFAULT,
     padding: 16,
-    minHeight: 106,
+    minHeight: 96,
     justifyContent: "space-between",
   },
   quickIcon: {
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
   },
   quickTitle: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     color: Colors.ink.DEFAULT,
     fontFamily: "Inter_600SemiBold",
   },
-  announcements: {
+  // ─── News ───
+  newsList: {
     gap: 10,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
-  announcementCard: {
-    padding: 16,
-    gap: 8,
+  newsCard: {
+    padding: 0,
+    overflow: "hidden",
+    flexDirection: "row",
+    minHeight: 80,
   },
-  announcementTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
+  newsCover: {
+    width: 90,
+    height: "100%",
+    minHeight: 80,
+    backgroundColor: Colors.surface.muted,
+  },
+  newsBody: {
+    flex: 1,
+    padding: 14,
+    gap: 5,
+    justifyContent: "center",
+  },
+  newsTitle: {
+    fontSize: 14,
     fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+    lineHeight: 19,
   },
-  announcementText: {
-    fontSize: 13,
+  newsExcerpt: {
+    fontSize: 12,
     color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
-    lineHeight: 20,
+    lineHeight: 17,
+  },
+  newsDate: {
+    fontSize: 10,
+    color: Colors.ink.faint,
+    fontFamily: "Inter_600SemiBold",
+    marginTop: 2,
   },
   emptyCard: {
     padding: 16,
@@ -326,11 +425,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.ink.faint,
     fontFamily: "Inter_400Regular",
+    textAlign: "center",
   },
-  moreAnnouncements: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  moreBtn: {
     alignSelf: "flex-start",
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -339,7 +436,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border.DEFAULT,
   },
-  moreAnnouncementsText: {
+  moreBtnText: {
     fontSize: 12,
     color: Colors.accent.DEFAULT,
     fontFamily: "Inter_700Bold",

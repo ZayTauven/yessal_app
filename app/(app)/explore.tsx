@@ -11,7 +11,6 @@ import { Image as ExpoImage } from "expo-image";
 import {
   Newspaper,
   Bell,
-  Settings2,
   Calendar,
   User,
   ChevronRight,
@@ -115,84 +114,129 @@ export default function ActualitesScreen() {
             </View>
           ) : null}
 
-          {!loading && news.map((item) => (
-            <Pressable key={item.id} onPress={() => router.push(`/news/${item.slug}` as any)}>
-              <GlassCard style={styles.newsCard}>
-                {item.cover_image && (
-                  <View style={styles.coverContainer}>
-                    <ExpoImage 
-                      source={{ uri: item.cover_image }} 
-                      style={styles.coverImage} 
-                      contentFit="cover"
-                    />
-                  </View>
-                )}
-                <View style={styles.cardHeader}>
-                  <Badge label="Actualité" color={Colors.accent.DEFAULT} />
-                  <View style={styles.dateRow}>
-                    <Calendar size={12} color={Colors.ink.faint} />
-                    <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.newsTitle}>{item.title}</Text>
-                
-                <Text style={styles.excerpt} numberOfLines={3}>
-                  {item.excerpt || item.content.substring(0, 120) + "..."}
-                </Text>
-
-                {item.youtube_url && (
-                  <View style={styles.youtubeButton}>
-                    <View style={styles.youtubeIcon}>
-                      <ChevronRight size={16} color="#FFF" />
-                    </View>
-                    <Text style={styles.youtubeText}>Vidéo YouTube disponible</Text>
-                  </View>
-                )}
-
-                {item.gallery && item.gallery.length > 0 && (
-                  <View style={styles.galleryPreview}>
-                    {item.gallery.slice(0, 3).map((img) => (
-                      <ExpoImage 
-                        key={img.id} 
-                        source={{ uri: img.image }} 
-                        style={styles.galleryThumb} 
+          {/* ─── Hero: premier article ─── */}
+          {!loading && news.length > 0 && (() => {
+            const hero = news[0];
+            return (
+              <Pressable onPress={() => router.push(`/news/${hero.slug}` as any)}>
+                <GlassCard style={styles.heroCard}>
+                  <View style={styles.heroCoverWrap}>
+                    {hero.cover_image ? (
+                      <ExpoImage
+                        source={{ uri: hero.cover_image }}
+                        style={styles.heroCover}
+                        contentFit="cover"
                       />
-                    ))}
-                    {item.gallery.length > 3 && (
-                      <View style={[styles.galleryThumb, styles.galleryMore]}>
-                        <Text style={styles.galleryMoreText}>+{item.gallery.length - 3}</Text>
+                    ) : (
+                      <View style={styles.heroCoverFallback}>
+                        <ExpoImage
+                          source={require("@/assets/images/arabesque.png")}
+                          style={styles.heroFallbackIllus}
+                          contentFit="contain"
+                          tintColor={Colors.accent.DEFAULT}
+                        />
                       </View>
                     )}
+                    <View style={styles.heroCoverOverlay} />
+                    <View style={styles.heroPill}>
+                      <Newspaper size={10} color="#FFF" />
+                      <Text style={styles.heroPillText}>À la une</Text>
+                    </View>
                   </View>
-                )}
 
-                <View style={styles.footer}>
-                  <View style={styles.authorRow}>
-                    <User size={12} color={Colors.ink.faint} />
-                    <Text style={styles.authorText}>{item.created_by_name || "Confrérie"}</Text>
+                  <View style={styles.heroBody}>
+                    <View style={styles.heroMeta}>
+                      <View style={styles.dateRow}>
+                        <Calendar size={11} color={Colors.ink.faint} />
+                        <Text style={styles.dateText}>{formatDate(hero.created_at)}</Text>
+                      </View>
+                      <View style={styles.authorRow}>
+                        <User size={11} color={Colors.ink.faint} />
+                        <Text style={styles.authorText}>{hero.created_by_name || "Confrérie"}</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.heroTitle}>{hero.title}</Text>
+                    <Text style={styles.heroExcerpt} numberOfLines={3}>
+                      {hero.excerpt || (hero.content ? hero.content.substring(0, 140) + "…" : "")}
+                    </Text>
+
+                    {hero.youtube_url && (
+                      <View style={styles.youtubeButton}>
+                        <View style={styles.youtubeIcon}>
+                          <ChevronRight size={14} color="#FFF" />
+                        </View>
+                        <Text style={styles.youtubeText}>Vidéo disponible</Text>
+                      </View>
+                    )}
+
+                    {Array.isArray(hero.gallery) && hero.gallery.length > 0 && (
+                      <View style={styles.galleryPreview}>
+                        {hero.gallery.slice(0, 3).map((img, idx) => (
+                          <ExpoImage
+                            key={img.id ?? idx}
+                            source={{ uri: img.image }}
+                            style={styles.galleryThumb}
+                            contentFit="cover"
+                          />
+                        ))}
+                        {hero.gallery.length > 3 && (
+                          <View style={[styles.galleryThumb, styles.galleryMore]}>
+                            <Text style={styles.galleryMoreText}>+{hero.gallery.length - 3}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
+                    <View style={styles.readMore}>
+                      <Text style={styles.readMoreText}>Lire la suite</Text>
+                      <ChevronRight size={14} color={Colors.accent.DEFAULT} />
+                    </View>
                   </View>
-                  <View style={styles.readMore}>
-                    <Text style={styles.readMoreText}>Lire la suite</Text>
-                    <ChevronRight size={14} color={Colors.accent.DEFAULT} />
-                  </View>
-                </View>
-              </GlassCard>
-            </Pressable>
-          ))}
+                </GlassCard>
+              </Pressable>
+            );
+          })()}
+
+          {/* ─── Articles suivants : liste compacte ─── */}
+          {!loading && news.length > 1 && (
+            <>
+              <Text style={styles.sectionLabel}>Autres actualités</Text>
+              {news.slice(1).map((item) => (
+                <Pressable key={item.id} onPress={() => router.push(`/news/${item.slug}` as any)}>
+                  <GlassCard style={styles.compactCard}>
+                    {item.cover_image ? (
+                      <ExpoImage
+                        source={{ uri: item.cover_image }}
+                        style={styles.compactCover}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={[styles.compactCover, styles.compactCoverFallback]}>
+                        <ExpoImage
+                          source={require("@/assets/images/ornement.png")}
+                          style={{ width: 32, height: 32, opacity: 0.3 }}
+                          contentFit="contain"
+                          tintColor={Colors.accent.DEFAULT}
+                        />
+                      </View>
+                    )}
+                    <View style={styles.compactBody}>
+                      <Text style={styles.compactTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={styles.compactDate}>{formatDate(item.created_at)}</Text>
+                    </View>
+                    <ChevronRight size={16} color={Colors.ink.faint} />
+                  </GlassCard>
+                </Pressable>
+              ))}
+            </>
+          )}
         </ScrollView>
       </View>
     </View>
   );
 }
 
-function Badge({ label, color }: { label: string; color: string }) {
-  return (
-    <View style={[styles.badge, { backgroundColor: color + "15", borderColor: color + "30" }]}>
-      <Text style={[styles.badgeText, { color }]}>{label}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {
@@ -218,26 +262,119 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.ink.faint,
   },
-  newsCard: {
+  sectionLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.faint,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 10,
+    marginTop: 4,
+    marginLeft: 2,
+  },
+  // ─── Hero card ───
+  heroCard: {
+    padding: 0,
+    overflow: "hidden",
     marginBottom: 20,
-    padding: 16,
-    gap: 12,
   },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  heroCoverWrap: {
+    height: 220,
+    position: "relative",
+  },
+  heroCover: {
+    ...StyleSheet.absoluteFill,
+  },
+  heroCoverFallback: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: Colors.accent.dim,
     alignItems: "center",
+    justifyContent: "center",
   },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
+  heroFallbackIllus: {
+    width: 140,
+    height: 140,
+    opacity: 0.25,
   },
-  badgeText: {
+  heroCoverOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(26, 92, 58, 0.35)",
+  },
+  heroPill: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Colors.accent.DEFAULT,
+  },
+  heroPillText: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
+    color: "#FFF",
     textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  heroBody: {
+    padding: 16,
+    gap: 10,
+  },
+  heroMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  heroTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+    lineHeight: 27,
+  },
+  heroExcerpt: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.muted,
+    lineHeight: 21,
+  },
+  // ─── Compact card ───
+  compactCard: {
+    padding: 0,
+    overflow: "hidden",
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    minHeight: 72,
+  },
+  compactCover: {
+    width: 80,
+    height: 72,
+    backgroundColor: Colors.surface.muted,
+  },
+  compactCoverFallback: {
+    backgroundColor: Colors.accent.dim,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactBody: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  compactTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+    lineHeight: 19,
+  },
+  compactDate: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
   },
   dateRow: {
     flexDirection: "row",
@@ -248,27 +385,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
     color: Colors.ink.faint,
-  },
-  newsTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    lineHeight: 24,
-  },
-  excerpt: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    lineHeight: 20,
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(26, 92, 58, 0.05)",
   },
   authorRow: {
     flexDirection: "row",
@@ -289,17 +405,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_700Bold",
     color: Colors.accent.DEFAULT,
-  },
-  coverContainer: {
-    marginHorizontal: -16,
-    marginTop: -16,
-    marginBottom: 12,
-    height: 180,
-    backgroundColor: Colors.surface.muted,
-  },
-  coverImage: {
-    width: "100%",
-    height: "100%",
   },
   youtubeButton: {
     flexDirection: "row",

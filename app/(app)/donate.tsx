@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import * as Clipboard from "expo-clipboard";
+import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Bell,
@@ -10,7 +19,10 @@ import {
   PencilLine,
   Settings2,
   ShieldCheck,
+  UserCheck,
+  Users,
   Wallet,
+  X,
 } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -19,13 +31,34 @@ import { SectionHeader } from "@/components/ui/SectionHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Avatar } from "@/components/ui/Avatar";
 import { SuccessCelebration } from "@/components/modals/SuccessCelebration";
 import { ContentService } from "@/lib/content.service";
+import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
 import type { PaymentMethod } from "@/types/donation.types";
 import type { Tutelle } from "@/types/content.types";
 
+const PAYMENT_LOGOS: Record<string, any> = {
+  orange_money: require("@/assets/images/orange money.png"),
+  wave: require("@/assets/images/sans-contact.png"),
+  paypal: require("@/assets/images/pay-pal.png"),
+};
+
+interface DirectoryUser {
+  id: number;
+  name?: string;
+  first_name?: string;
+  last_name?: string;
+  avatar?: string | null;
+  avatar_url?: string | null;
+  daara_name?: string;
+  role?: string;
+}
+
 const QUICK_AMOUNTS = [5000, 10000, 25000, 50000];
+
+const COLLECTOR_ROLES = ["collector", "chef_daara", "admin"];
 
 const PAYMENT_METHODS: {
   value: PaymentMethod;
@@ -33,13 +66,33 @@ const PAYMENT_METHODS: {
   hint: string;
   icon: typeof Wallet;
 }[] = [
-  { value: "orange_money", label: "Orange Money", hint: "Mobile money", icon: Wallet },
+  {
+    value: "orange_money",
+    label: "Orange Money",
+    hint: "Mobile money",
+    icon: Wallet,
+  },
   { value: "wave", label: "Wave", hint: "Paiement rapide", icon: Heart },
   { value: "visa", label: "Visa", hint: "Carte bancaire", icon: ShieldCheck },
-  { value: "mastercard", label: "Mastercard", hint: "Carte bancaire", icon: ShieldCheck },
-  { value: "collector", label: "Collecteur", hint: "Collecte physique", icon: Wallet },
+  {
+    value: "mastercard",
+    label: "Mastercard",
+    hint: "Carte bancaire",
+    icon: ShieldCheck,
+  },
+  {
+    value: "collector",
+    label: "Collecteur",
+    hint: "Collecte physique",
+    icon: Wallet,
+  },
   { value: "paypal", label: "PayPal", hint: "International", icon: HandCoins },
-  { value: "virement", label: "Virement", hint: "Banque / Chèque", icon: Wallet },
+  {
+    value: "virement",
+    label: "Virement",
+    hint: "Banque / Chèque",
+    icon: Wallet,
+  },
 ];
 
 function parseCampaignId(value?: string | string[]) {
@@ -54,22 +107,38 @@ function formatAmount(value: number) {
 
 export default function DonateScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ campaignId?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    campaignId?: string | string[];
+    beneficiary?: string | string[];
+  }>();
+  const { user } = useAuthStore();
+  const isCollector = COLLECTOR_ROLES.includes(user?.role ?? "");
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [tutelles, setTutelles] = useState<Tutelle[]>([]);
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
-  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<number | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(
+    null,
+  );
+  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<
+    number | null
+  >(null);
   const [amount, setAmount] = useState(10000);
   const [customAmount, setCustomAmount] = useState("");
   const [useCustomAmount, setUseCustomAmount] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("orange_money");
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>("orange_money");
   const [wireRef, setWireRef] = useState("");
   const [successVisible, setSuccessVisible] = useState(false);
   const [successTitle, setSuccessTitle] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  // Collector mode
+  const [collectMode, setCollectMode] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -89,14 +158,26 @@ export default function DonateScreen() {
         setTutelles(tutelleData);
 
         const preferredCampaignId = parseCampaignId(params.campaignId);
-        const fallbackCampaign = campaignData.find((item) => item.status === "active") ?? campaignData[0];
-        const selected = campaignData.find((item) => item.id === preferredCampaignId) ?? fallbackCampaign;
+        const fallbackCampaign =
+          campaignData.find((item) => item.status === "active") ??
+          campaignData[0];
+        const selected =
+          campaignData.find((item) => item.id === preferredCampaignId) ??
+          fallbackCampaign;
 
         if (selected) {
           setSelectedCampaignId(selected.id);
         }
 
-        if (tutelleData.length > 0) {
+        const preferredBeneficiaryId = parseCampaignId(
+          params.beneficiary as any,
+        );
+        const preselectedMember = tutelleData.find(
+          (t) => t.id === preferredBeneficiaryId,
+        );
+        if (preselectedMember) {
+          setSelectedBeneficiaryId(preselectedMember.id);
+        } else if (tutelleData.length > 0) {
           setSelectedBeneficiaryId(tutelleData[0].id);
         }
       } catch {
@@ -115,10 +196,48 @@ export default function DonateScreen() {
     return () => {
       active = false;
     };
-  }, [params.campaignId]);
+  }, [params.campaignId, params.beneficiary]);
+
+  useEffect(() => {
+    if (!collectMode || directoryUsers.length > 0) return;
+    setLoadingDirectory(true);
+    ContentService.getDirectory()
+      .then((data) => setDirectoryUsers(data))
+      .catch(() => setDirectoryUsers([]))
+      .finally(() => setLoadingDirectory(false));
+  }, [collectMode]);
+
+  const getMemberName = (m: DirectoryUser) =>
+    m.name ?? (`${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "Membre");
+
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return directoryUsers.slice(0, 20);
+    return directoryUsers
+      .filter((m) => getMemberName(m).toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [directoryUsers, memberSearch]);
+
+  const selectedMember =
+    directoryUsers.find((m) => m.id === selectedMemberId) ?? null;
+
+  const toggleCollectMode = () => {
+    const next = !collectMode;
+    setCollectMode(next);
+    if (next) {
+      setPaymentMethod("collector");
+      setSelectedMemberId(null);
+    } else {
+      setPaymentMethod("orange_money");
+      setSelectedMemberId(null);
+    }
+  };
 
   const selectedCampaign = useMemo(
-    () => campaigns.find((item) => item.id === selectedCampaignId) ?? campaigns[0] ?? null,
+    () =>
+      campaigns.find((item) => item.id === selectedCampaignId) ??
+      campaigns[0] ??
+      null,
     [campaigns, selectedCampaignId],
   );
 
@@ -137,11 +256,15 @@ export default function DonateScreen() {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }, [amount, customAmount, useCustomAmount]);
 
-  const selectedBeneficiary = tutelles.find((item) => item.id === selectedBeneficiaryId) ?? null;
+  const selectedBeneficiary =
+    tutelles.find((item) => item.id === selectedBeneficiaryId) ?? null;
 
   const handleSubmit = async () => {
     if (!selectedCampaign) {
-      Alert.alert("Campagne requise", "Choisissez une campagne avant de continuer.");
+      Alert.alert(
+        "Campagne requise",
+        "Choisissez une campagne avant de continuer.",
+      );
       return;
     }
 
@@ -158,22 +281,38 @@ export default function DonateScreen() {
       return;
     }
 
+    if (collectMode && !selectedMemberId) {
+      Alert.alert(
+        "Membre requis",
+        "Sélectionnez le membre pour lequel vous saisissez la collecte.",
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       // 1. Create the donation record
       const donation = await ContentService.createDonation({
         campaign: selectedCampaign.id,
         amount: finalAmount,
-        payment_method: paymentMethod,
+        payment_method: collectMode ? "collector" : paymentMethod,
         beneficiary: selectedBeneficiary?.id ?? null,
         external_ref: paymentMethod === "virement" ? wireRef.trim() : null,
+        ...(collectMode && selectedMemberId
+          ? { member_id: selectedMemberId }
+          : {}),
       } as any);
 
       // 2. Handle digital/physical payments
-      if (paymentMethod === "collector") {
-        setSuccessTitle("Demande de collecte");
+      if (collectMode || paymentMethod === "collector") {
+        const memberName = selectedMember
+          ? getMemberName(selectedMember)
+          : null;
+        setSuccessTitle("Collecte enregistrée");
         setSuccessMessage(
-          "Les collecteurs et le responsable de votre daara ont été notifiés pour venir récupérer votre contribution physique."
+          memberName
+            ? `La contribution de ${formatAmount(finalAmount)} au nom de ${memberName} a été enregistrée avec succès.`
+            : "Les collecteurs et le responsable de votre daara ont été notifiés pour venir récupérer votre contribution physique.",
         );
         setSuccessVisible(true);
         return;
@@ -182,15 +321,15 @@ export default function DonateScreen() {
       // 2. If it's a digital payment or virement, initiate payment
       if (paymentMethod !== "paypal") {
         const paymentResult = await ContentService.payDonation(
-          donation.id, 
-          paymentMethod, 
-          paymentMethod === "virement" ? wireRef.trim() : undefined
+          donation.id,
+          paymentMethod,
+          paymentMethod === "virement" ? wireRef.trim() : undefined,
         );
-        
+
         if (paymentMethod === "virement") {
           setSuccessTitle("Virement enregistré");
           setSuccessMessage(
-            "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte."
+            "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte.",
           );
           setSuccessVisible(true);
           return;
@@ -200,10 +339,10 @@ export default function DonateScreen() {
           if (paymentResult.checkout_url) {
             const { Linking } = await import("react-native");
             await Linking.openURL(paymentResult.checkout_url);
-            
+
             setSuccessTitle("Paiement initié");
             setSuccessMessage(
-              "Vous allez être redirigé vers la page de paiement sécurisée de Bictorys."
+              "Vous allez être redirigé vers la page de paiement sécurisée de Bictorys.",
             );
             setSuccessVisible(true);
             return;
@@ -212,7 +351,7 @@ export default function DonateScreen() {
           // Mobile Money (Direct API)
           setSuccessTitle("Jëf initié");
           setSuccessMessage(
-            `Une demande de paiement ${paymentMethod === "wave" ? "Wave" : "Orange Money"} a été envoyée. Veuillez valider sur votre téléphone.`
+            `Une demande de paiement ${paymentMethod === "wave" ? "Wave" : "Orange Money"} a été envoyée. Veuillez valider sur votre téléphone.`,
           );
           setSuccessVisible(true);
           return;
@@ -222,11 +361,12 @@ export default function DonateScreen() {
       // 3. For manual or already handled payments
       setSuccessTitle("Jëf enregistré");
       setSuccessMessage(
-        `Votre contribution de ${formatAmount(finalAmount)} pour ${selectedCampaign.name} a été soumise avec succès.`
+        `Votre contribution de ${formatAmount(finalAmount)} pour ${selectedCampaign.name} a été soumise avec succès.`,
       );
       setSuccessVisible(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible de créer le Jëf.";
+      const message =
+        error instanceof Error ? error.message : "Impossible de créer le Jëf.";
       Alert.alert("Erreur", message);
     } finally {
       setSubmitting(false);
@@ -268,6 +408,117 @@ export default function DonateScreen() {
             </Text>
           </GlassCard>
 
+          {/* ─── Mode collecteur (réservé aux collecteurs / chefs de daara / admins) ─── */}
+          {isCollector && (
+            <Pressable
+              onPress={toggleCollectMode}
+              style={[
+                styles.collectToggle,
+                collectMode && styles.collectToggleActive,
+              ]}
+            >
+              <View
+                style={[
+                  styles.collectToggleIcon,
+                  collectMode && styles.collectToggleIconActive,
+                ]}
+              >
+                <UserCheck
+                  size={18}
+                  color={collectMode ? "#FFF" : Colors.accent.DEFAULT}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.collectToggleTitle,
+                    collectMode && styles.collectToggleTitleActive,
+                  ]}
+                >
+                  {collectMode
+                    ? "Mode collecteur actif"
+                    : "Activer le mode collecteur"}
+                </Text>
+                <Text
+                  style={[
+                    styles.collectToggleSubtitle,
+                    collectMode && styles.collectToggleSubtitleActive,
+                  ]}
+                >
+                  {collectMode
+                    ? "Vous saisissez une contribution physique au nom d'un membre."
+                    : "Enregistrez une collecte physique pour un talibé de votre daara."}
+                </Text>
+              </View>
+              {collectMode && <X size={16} color={Colors.accent.DEFAULT} />}
+            </Pressable>
+          )}
+
+          {/* ─── Sélecteur de membre (mode collecteur) ─── */}
+          {collectMode && (
+            <View style={styles.memberSection}>
+              <Text style={styles.sectionTitle}>Membre concerné</Text>
+              <Input
+                placeholder="Rechercher un membre…"
+                value={memberSearch}
+                onChangeText={setMemberSearch}
+                icon={<Users size={16} color={Colors.ink.faint} />}
+              />
+              {loadingDirectory ? (
+                <View style={styles.memberLoading}>
+                  <ActivityIndicator
+                    color={Colors.accent.DEFAULT}
+                    size="small"
+                  />
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.memberRow}
+                >
+                  {filteredMembers.map((member) => {
+                    const active = selectedMemberId === member.id;
+                    const fullName = getMemberName(member);
+                    return (
+                      <Pressable
+                        key={member.id}
+                        onPress={() => setSelectedMemberId(member.id)}
+                        style={[
+                          styles.memberCard,
+                          active && styles.memberCardActive,
+                        ]}
+                      >
+                        <Avatar
+                          uri={member.avatar_url ?? member.avatar}
+                          name={fullName}
+                          size={40}
+                        />
+                        <Text
+                          style={[
+                            styles.memberName,
+                            active && styles.memberNameActive,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {fullName}
+                        </Text>
+                        {member.daara_name ? (
+                          <Text style={styles.memberDaara} numberOfLines={1}>
+                            {member.daara_name}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                  {filteredMembers.length === 0 && !loadingDirectory && (
+                    <Text style={styles.memberEmpty}>Aucun membre trouvé.</Text>
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          )}
+
           <Text style={styles.sectionTitle}>Campagne</Text>
           {loading ? (
             <GlassCard style={styles.loadingCard}>
@@ -283,15 +534,25 @@ export default function DonateScreen() {
                 campaigns.map((campaign) => {
                   const active = selectedCampaign?.id === campaign.id;
                   const progress =
-                    campaign.goal_amount > 0 ? campaign.collected_amount / campaign.goal_amount : 0;
+                    campaign.goal_amount > 0
+                      ? campaign.collected_amount / campaign.goal_amount
+                      : 0;
 
                   return (
                     <Pressable
                       key={campaign.id}
                       onPress={() => setSelectedCampaignId(campaign.id)}
-                      style={({ pressed }) => [styles.campaignPressable, pressed && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.campaignPressable,
+                        pressed && styles.pressed,
+                      ]}
                     >
-                      <GlassCard style={[styles.campaignCard, active && styles.campaignCardActive]}>
+                      <GlassCard
+                        style={[
+                          styles.campaignCard,
+                          active && styles.campaignCardActive,
+                        ]}
+                      >
                         <View style={styles.campaignTop}>
                           <View style={{ flex: 1 }}>
                             <Text style={styles.campaignName} numberOfLines={2}>
@@ -302,8 +563,15 @@ export default function DonateScreen() {
                               {campaign.goal_amount.toLocaleString()} FCFA
                             </Text>
                           </View>
-                          <View style={[styles.badge, active && styles.badgeActive]}>
-                            <Text style={[styles.badgeText, active && styles.badgeTextActive]}>
+                          <View
+                            style={[styles.badge, active && styles.badgeActive]}
+                          >
+                            <Text
+                              style={[
+                                styles.badgeText,
+                                active && styles.badgeTextActive,
+                              ]}
+                            >
                               {campaign.status === "active"
                                 ? "En cours"
                                 : campaign.status === "completed"
@@ -314,7 +582,12 @@ export default function DonateScreen() {
                         </View>
 
                         <View style={styles.progressTrack}>
-                          <View style={[styles.progressBar, { width: `${Math.max(progress * 100, 8)}%` }]} />
+                          <View
+                            style={[
+                              styles.progressBar,
+                              { width: `${Math.max(progress * 100, 8)}%` },
+                            ]}
+                          />
                         </View>
                       </GlassCard>
                     </Pressable>
@@ -322,7 +595,9 @@ export default function DonateScreen() {
                 })
               ) : (
                 <GlassCard style={styles.emptyCard}>
-                  <Text style={styles.emptyText}>Aucune campagne disponible pour le moment.</Text>
+                  <Text style={styles.emptyText}>
+                    Aucune campagne disponible pour le moment.
+                  </Text>
                 </GlassCard>
               )}
             </ScrollView>
@@ -345,7 +620,12 @@ export default function DonateScreen() {
                   }}
                   style={[styles.amountChip, active && styles.amountChipActive]}
                 >
-                  <Text style={[styles.amountText, active && styles.amountTextActive]}>
+                  <Text
+                    style={[
+                      styles.amountText,
+                      active && styles.amountTextActive,
+                    ]}
+                  >
                     {formatAmount(value)}
                   </Text>
                 </Pressable>
@@ -355,16 +635,37 @@ export default function DonateScreen() {
 
           <Pressable
             onPress={() => setUseCustomAmount(true)}
-            style={[styles.customAmountButton, useCustomAmount && styles.customAmountButtonActive]}
+            style={[
+              styles.customAmountButton,
+              useCustomAmount && styles.customAmountButtonActive,
+            ]}
           >
-            <View style={[styles.customAmountIcon, useCustomAmount && styles.customAmountIconActive]}>
-              <PencilLine size={14} color={useCustomAmount ? "#FFF" : Colors.accent.DEFAULT} />
+            <View
+              style={[
+                styles.customAmountIcon,
+                useCustomAmount && styles.customAmountIconActive,
+              ]}
+            >
+              <PencilLine
+                size={14}
+                color={useCustomAmount ? "#FFF" : Colors.accent.DEFAULT}
+              />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.customAmountTitle, useCustomAmount && styles.customAmountTitleActive]}>
+              <Text
+                style={[
+                  styles.customAmountTitle,
+                  useCustomAmount && styles.customAmountTitleActive,
+                ]}
+              >
                 Montant personnalisé
               </Text>
-              <Text style={[styles.customAmountSubtitle, useCustomAmount && styles.customAmountSubtitleActive]}>
+              <Text
+                style={[
+                  styles.customAmountSubtitle,
+                  useCustomAmount && styles.customAmountSubtitleActive,
+                ]}
+              >
                 Saisissez un montant libre sans parcourir les options.
               </Text>
             </View>
@@ -376,7 +677,9 @@ export default function DonateScreen() {
               placeholder="Ex: 15000"
               keyboardType="numeric"
               value={customAmount}
-              onChangeText={(value) => setCustomAmount(value.replace(/[^\d]/g, ""))}
+              onChangeText={(value) =>
+                setCustomAmount(value.replace(/[^\d]/g, ""))
+              }
             />
           )}
 
@@ -388,10 +691,15 @@ export default function DonateScreen() {
           >
             <Pressable
               onPress={() => setSelectedBeneficiaryId(null)}
-              style={[styles.beneficiaryCard, selectedBeneficiaryId === null && styles.beneficiaryCardActive]}
+              style={[
+                styles.beneficiaryCard,
+                selectedBeneficiaryId === null && styles.beneficiaryCardActive,
+              ]}
             >
               <Text style={styles.beneficiaryName}>Moi-même</Text>
-              <Text style={styles.beneficiaryMeta}>Aucun bénéficiaire ajouté</Text>
+              <Text style={styles.beneficiaryMeta}>
+                Aucun bénéficiaire ajouté
+              </Text>
             </Pressable>
 
             {tutelles.map((member) => {
@@ -400,7 +708,10 @@ export default function DonateScreen() {
                 <Pressable
                   key={member.id}
                   onPress={() => setSelectedBeneficiaryId(member.id)}
-                  style={[styles.beneficiaryCard, active && styles.beneficiaryCardActive]}
+                  style={[
+                    styles.beneficiaryCard,
+                    active && styles.beneficiaryCardActive,
+                  ]}
                 >
                   <Text style={styles.beneficiaryName}>
                     {member.first_name} {member.last_name}
@@ -412,44 +723,82 @@ export default function DonateScreen() {
           </ScrollView>
 
           <Text style={styles.sectionTitle}>Paiement</Text>
-          <View style={styles.paymentGrid}>
-            {PAYMENT_METHODS.map((method) => {
-              const active = paymentMethod === method.value;
-              const Icon = method.icon;
-              return (
-                <Pressable
-                  key={method.value}
-                  onPress={() => setPaymentMethod(method.value)}
-                  style={[styles.paymentCard, active && styles.paymentCardActive]}
-                >
-                  <View style={[styles.paymentIcon, active && styles.paymentIconActive]}>
-                    <Icon size={16} color={active ? "#FFF" : Colors.accent.DEFAULT} />
-                  </View>
-                  <Text style={styles.paymentLabel}>{method.label}</Text>
-                  <Text style={styles.paymentHint}>{method.hint}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {collectMode ? (
+            <GlassCard style={styles.collectPaymentInfo}>
+              <UserCheck size={16} color={Colors.accent.DEFAULT} />
+              <Text style={styles.collectPaymentInfoText}>
+                En mode collecteur, le paiement est enregistré comme collecte
+                physique.
+              </Text>
+            </GlassCard>
+          ) : (
+            <View style={styles.paymentGrid}>
+              {PAYMENT_METHODS.map((method) => {
+                const active = paymentMethod === method.value;
+                const Icon = method.icon;
+                const logo = PAYMENT_LOGOS[method.value];
+                return (
+                  <Pressable
+                    key={method.value}
+                    onPress={() => setPaymentMethod(method.value)}
+                    style={[
+                      styles.paymentCard,
+                      active && styles.paymentCardActive,
+                    ]}
+                  >
+                    {logo ? (
+                      <ExpoImage
+                        source={logo}
+                        style={styles.paymentLogoImg}
+                        contentFit="contain"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.paymentIcon,
+                          active && styles.paymentIconActive,
+                        ]}
+                      >
+                        <Icon
+                          size={16}
+                          color={active ? "#FFF" : Colors.accent.DEFAULT}
+                        />
+                      </View>
+                    )}
+                    <Text style={styles.paymentLabel}>{method.label}</Text>
+                    <Text style={styles.paymentHint}>{method.hint}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           {paymentMethod === "virement" && (
             <GlassCard style={styles.wireCard}>
               <Text style={styles.wireTitle}>Informations de virement</Text>
               <Text style={styles.wireText}>
-                Veuillez effectuer le virement sur le compte suivant :
-                {"\n"}• BANQUE : CBAO
+                Veuillez effectuer le virement sur le compte suivant :{"\n"}•
+                BANQUE : CBAO
                 {"\n"}• RIB : SN012 01234 123456789012 34
                 {"\n"}• TITULAIRE : YESSAL GUI
               </Text>
               <View style={styles.virementRefContainer}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.virementRefLabel}>Référence suggérée :</Text>
-                  <Text style={styles.virementRefValue}>{selectedCampaign?.id ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}` : "YSL-D-001"}</Text>
+                  <Text style={styles.virementRefLabel}>
+                    Référence suggérée :
+                  </Text>
+                  <Text style={styles.virementRefValue}>
+                    {selectedCampaign?.id
+                      ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}`
+                      : "YSL-D-001"}
+                  </Text>
                 </View>
-                <Pressable 
+                <Pressable
                   style={styles.copyBtn}
                   onPress={async () => {
-                    const ref = selectedCampaign?.id ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}` : "YSL-D-001";
+                    const ref = selectedCampaign?.id
+                      ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}`
+                      : "YSL-D-001";
                     await Clipboard.setStringAsync(ref);
                     Alert.alert("Copié", "La référence a été copiée.");
                     setWireRef(ref);
@@ -469,26 +818,59 @@ export default function DonateScreen() {
 
           <GlassCard style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Récapitulatif</Text>
+            {collectMode && selectedMember && (
+              <View style={[styles.summaryRow, styles.summaryMemberRow]}>
+                <Avatar
+                  uri={selectedMember.avatar_url ?? selectedMember.avatar}
+                  name={getMemberName(selectedMember)}
+                  size={32}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryMemberLabel}>Au nom de</Text>
+                  <Text style={styles.summaryMemberName}>
+                    {getMemberName(selectedMember)}
+                  </Text>
+                </View>
+              </View>
+            )}
+            {collectMode && !selectedMember && (
+              <View style={styles.summaryWarning}>
+                <Text style={styles.summaryWarningText}>
+                  ⚠ Sélectionnez un membre ci-dessus
+                </Text>
+              </View>
+            )}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Campagne</Text>
               <Text style={styles.summaryValue} numberOfLines={1}>
                 {selectedCampaign?.name ?? "Aucune sélection"}
               </Text>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Bénéficiaire</Text>
-              <Text style={styles.summaryValue} numberOfLines={1}>
-                {selectedBeneficiary
-                  ? `${selectedBeneficiary.first_name} ${selectedBeneficiary.last_name}`
-                  : "Moi-même"}
-              </Text>
-            </View>
+            {!collectMode && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Bénéficiaire</Text>
+                <Text style={styles.summaryValue} numberOfLines={1}>
+                  {selectedBeneficiary
+                    ? `${selectedBeneficiary.first_name} ${selectedBeneficiary.last_name}`
+                    : "Moi-même"}
+                </Text>
+              </View>
+            )}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Montant</Text>
               <Text style={styles.summaryAmount}>
                 {finalAmount ? formatAmount(finalAmount) : "0 FCFA"}
               </Text>
             </View>
+            {collectMode && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Mode</Text>
+                <View style={styles.collectBadge}>
+                  <UserCheck size={11} color={Colors.accent.DEFAULT} />
+                  <Text style={styles.collectBadgeText}>Collecte physique</Text>
+                </View>
+              </View>
+            )}
           </GlassCard>
 
           <Button
@@ -506,7 +888,7 @@ export default function DonateScreen() {
         message={successMessage}
         onClose={() => {
           setSuccessVisible(false);
-          router.replace("/home" as any);
+          router.replace("/(app)/home" as any);
         }}
       />
     </SafeAreaView>
@@ -848,5 +1230,163 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // ─── Collector mode styles ───
+  collectToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: Colors.surface.subtle,
+    borderWidth: 1,
+    borderColor: Colors.border.DEFAULT,
+  },
+  collectToggleActive: {
+    backgroundColor: Colors.accent.dim,
+    borderColor: Colors.accent.DEFAULT,
+  },
+  collectToggleIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.surface.DEFAULT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  collectToggleIconActive: {
+    backgroundColor: Colors.accent.DEFAULT,
+  },
+  collectToggleTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+  },
+  collectToggleTitleActive: {
+    color: Colors.accent.DEFAULT,
+  },
+  collectToggleSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+    lineHeight: 16,
+  },
+  collectToggleSubtitleActive: {
+    color: Colors.ink.muted,
+  },
+  memberSection: {
+    gap: 10,
+  },
+  memberLoading: {
+    height: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberRow: {
+    gap: 10,
+    paddingRight: 8,
+    paddingBottom: 4,
+  },
+  memberCard: {
+    width: 110,
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: Colors.surface.subtle,
+    borderWidth: 1,
+    borderColor: Colors.border.DEFAULT,
+    alignItems: "center",
+    gap: 6,
+  },
+  memberCardActive: {
+    backgroundColor: Colors.accent.dim,
+    borderColor: Colors.accent.DEFAULT,
+  },
+  memberName: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.DEFAULT,
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  memberNameActive: {
+    color: Colors.accent.DEFAULT,
+  },
+  memberDaara: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+    textAlign: "center",
+  },
+  memberEmpty: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.faint,
+    padding: 16,
+  },
+  collectPaymentInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    backgroundColor: Colors.accent.dim,
+  },
+  collectPaymentInfoText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: Colors.ink.muted,
+    lineHeight: 18,
+  },
+  summaryMemberRow: {
+    alignItems: "center",
+    gap: 10,
+    paddingBottom: 10,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.DEFAULT,
+  },
+  summaryMemberLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.faint,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  summaryMemberName: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+  },
+  summaryWarning: {
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(184,134,11,0.1)",
+    marginBottom: 6,
+  },
+  summaryWarningText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.gold?.DEFAULT ?? "#B8860B",
+    textAlign: "center",
+  },
+  collectBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: Colors.accent.dim,
+  },
+  collectBadgeText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.accent.DEFAULT,
+  },
+  paymentLogoImg: {
+    width: 44,
+    height: 28,
+    marginBottom: 2,
   },
 });

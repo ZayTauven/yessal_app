@@ -36,6 +36,7 @@ export interface Chat {
   id: number;
   name?: string | null;
   daara?: number | null;
+  daara_name?: string | null;
   created_by?: number | null;
   created_at: string;
 }

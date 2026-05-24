@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -12,14 +12,17 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Send, ShieldCheck, Users } from "lucide-react-native";
+import { ArrowLeft, Image as ImageIcon, Send, ShieldCheck, Trash2 } from "lucide-react-native";
 
 import { Colors } from "@/constants/colors";
-import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { Avatar } from "@/components/ui/Avatar";
 import { ContentService } from "@/lib/content.service";
 import { useAuthStore } from "@/store/auth.store";
 import type { Chat, Message } from "@/types/content.types";
+
+const ADMIN_ROLES = ["admin", "chef_daara"];
 
 function parseId(value?: string | string[]) {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -27,22 +30,14 @@ function parseId(value?: string | string[]) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function formatDateTime(value?: string) {
-  if (!value) {
-    return "";
-  }
-
+function formatTime(value?: string) {
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString("fr-FR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (Number.isNaN(date.getTime())) return value;
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function ChatDetailScreen() {
@@ -50,6 +45,8 @@ export default function ChatDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const chatId = parseId(params.id);
   const user = useAuthStore((state) => state.user);
+  const isAdmin = ADMIN_ROLES.includes(user?.role ?? "");
+  const scrollRef = useRef<ScrollView>(null);
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -59,18 +56,14 @@ export default function ChatDetailScreen() {
   const [sending, setSending] = useState(false);
 
   const load = async () => {
-    if (!chatId) {
-      setLoading(false);
-      return;
-    }
-
+    if (!chatId) { setLoading(false); return; }
     try {
       const [chatData, messageData] = await Promise.all([
         ContentService.getChats(),
         ContentService.getMessages(),
       ]);
       setChats(chatData);
-      setMessages(messageData.filter((message) => message.chat === chatId));
+      setMessages(messageData.filter((m) => m.chat === chatId));
     } catch {
       setChats([]);
       setMessages([]);
@@ -80,61 +73,62 @@ export default function ChatDetailScreen() {
     }
   };
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId]);
+  useEffect(() => { load(); }, [chatId]);
 
-  const chat = useMemo(
-    () => chats.find((item) => item.id === chatId) ?? null,
-    [chatId, chats],
-  );
+  // Scroll to bottom when messages load or new message arrives
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
+    }
+  }, [messages.length]);
+
+  const chat = useMemo(() => chats.find((c) => c.id === chatId) ?? null, [chatId, chats]);
 
   const orderedMessages = useMemo(
     () => [...messages].sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()),
     [messages],
   );
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await load();
-  };
-
   const handleSend = async () => {
-    if (!chatId || !content.trim()) {
-      return;
-    }
-
+    if (!chatId || !content.trim()) return;
     setSending(true);
     try {
-      const created = await ContentService.createMessage({
-        chat: chatId,
-        content: content.trim(),
-      });
-
-      setMessages((current) => [...current, created]);
+      const created = await ContentService.createMessage({ chat: chatId, content: content.trim() });
+      setMessages((curr) => [...curr, created]);
       setContent("");
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
     } catch {
-      Alert.alert("Erreur", "Impossible d’envoyer le message pour le moment.");
+      Alert.alert("Erreur", "Impossible d'envoyer le message pour le moment.");
     } finally {
       setSending(false);
     }
   };
 
-  const label = chat?.name ?? (chatId ? `Chat ${chatId}` : "Discussion");
-  const initials = label
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const handleDeleteMessage = (messageId: number) => {
+    Alert.alert(
+      "Supprimer ce message",
+      "Cette action est irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: () => {
+            setMessages((curr) => curr.filter((m) => m.id !== messageId));
+          },
+        },
+      ]
+    );
+  };
+
+  const chatLabel = chat?.name ?? chat?.daara_name ?? (chat?.daara ? "Chat du Daara" : "Discussion");
 
   if (!chatId) {
     return (
       <View style={styles.screen}>
         <GlassCard style={styles.errorCard}>
           <Text style={styles.errorTitle}>Conversation introuvable</Text>
-          <Text style={styles.errorText}>L’identifiant du chat est invalide.</Text>
+          <Text style={styles.errorText}>L'identifiant est invalide.</Text>
           <Button label="Retour" onPress={() => router.back()} fullWidth={false} />
         </GlassCard>
       </View>
@@ -145,107 +139,144 @@ export default function ChatDetailScreen() {
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <ArrowLeft size={18} color={Colors.ink.DEFAULT} />
-          </Pressable>
+      {/* ─── Header ─── */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <ArrowLeft size={18} color={Colors.ink.DEFAULT} />
+        </Pressable>
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>{label}</Text>
-            <Text style={styles.headerSubtitle}>
-              {chat?.daara ? "Chat de Daara" : "Discussion communautaire"}
-            </Text>
-          </View>
-
-          <View style={styles.avatar}>
-            {chat?.daara ? (
-              <ShieldCheck size={18} color={Colors.accent.DEFAULT} />
-            ) : (
-              <Users size={18} color={Colors.accent.DEFAULT} />
-            )}
-          </View>
-        </View>
-
-        {loading ? (
-          <View style={styles.loadingWrap}>
-            <Text style={styles.loadingText}>Chargement de la conversation...</Text>
+        {chat?.daara ? (
+          <View style={styles.groupAvatarHeader}>
+            <ShieldCheck size={20} color={Colors.accent.DEFAULT} />
           </View>
         ) : (
-        <ScrollView
-          style={styles.messagesWrap}
-          contentContainerStyle={styles.messagesContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-          contentInsetAdjustmentBehavior="automatic"
-          scrollIndicatorInsets={{ bottom: 24 }}
-          showsVerticalScrollIndicator={false}
-        >
-            <GlassCard style={styles.summaryCard}>
-              <View style={styles.summaryRow}>
-                <View style={styles.avatarSmall}>
-                  <Text style={styles.avatarSmallText}>{initials}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.summaryTitle}>{label}</Text>
-                  <Text style={styles.summaryText}>
-                    Faites défiler pour lire les derniers messages et répondez dans le champ ci-dessous.
-                  </Text>
-                </View>
-              </View>
-            </GlassCard>
-
-            {orderedMessages.length === 0 ? (
-              <GlassCard style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>Aucun message pour le moment</Text>
-                <Text style={styles.emptyText}>
-                  Cette conversation est prête à recevoir le premier message.
-                </Text>
-              </GlassCard>
-            ) : null}
-
-            {orderedMessages.map((message) => {
-              const isMine = message.sender === user?.id;
-              return (
-                <View
-                  key={message.id}
-                  style={[styles.messageRow, isMine ? styles.messageRowMine : styles.messageRowOther]}
-                >
-                  <View
-                    style={[
-                      styles.bubble,
-                      isMine ? styles.bubbleMine : styles.bubbleOther,
-                    ]}
-                  >
-                    <Text style={[styles.messageText, isMine && styles.messageTextMine]}>
-                      {message.content}
-                    </Text>
-                    <Text style={[styles.messageTime, isMine && styles.messageTimeMine]}>
-                      {formatDateTime(message.sent_at)}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
+          <Avatar name={chatLabel} size={42} />
         )}
 
-        <GlassCard style={styles.composerCard}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{chatLabel}</Text>
+          <Text style={styles.headerSubtitle}>
+            {chat?.daara
+              ? (chat.daara_name ? `Daara · ${chat.daara_name}` : "Chat de Daara")
+              : "Discussion communautaire"}
+          </Text>
+        </View>
+
+        {isAdmin && (
+          <View style={styles.adminChip}>
+            <ShieldCheck size={12} color={Colors.accent.DEFAULT} />
+            <Text style={styles.adminChipText}>Admin</Text>
+          </View>
+        )}
+      </View>
+
+      {/* ─── Messages ─── */}
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <Text style={styles.loadingText}>Chargement…</Text>
+        </View>
+      ) : (
+        <ScrollView
+          ref={scrollRef}
+          style={styles.messagesWrap}
+          contentContainerStyle={styles.messagesContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); }} />}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="interactive"
+        >
+          {orderedMessages.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyTitle}>Aucun message</Text>
+              <Text style={styles.emptyText}>Cette conversation est prête à recevoir le premier message.</Text>
+            </View>
+          ) : null}
+
+          {orderedMessages.map((msg, index) => {
+            const senderId = typeof msg.sender === "object" ? (msg.sender as any)?.id : msg.sender;
+            const senderDisplay = typeof msg.sender === "object"
+              ? ((msg.sender as any)?.name ?? (msg.sender as any)?.first_name ?? `Membre #${senderId}`)
+              : `Membre #${msg.sender}`;
+            const isMine = senderId === user?.id;
+            const prevMsg = index > 0 ? orderedMessages[index - 1] : null;
+            const prevSenderId = prevMsg ? (typeof prevMsg.sender === "object" ? (prevMsg.sender as any)?.id : prevMsg.sender) : null;
+            const sameAuthor = prevSenderId === senderId;
+            const showSenderName = !isMine && !sameAuthor;
+
+            return (
+              <View
+                key={msg.id}
+                style={[
+                  styles.messageRow,
+                  isMine ? styles.messageRowMine : styles.messageRowOther,
+                  sameAuthor && styles.messageRowCompact,
+                ]}
+              >
+                {/* Other's avatar (only on first message of a run) */}
+                {!isMine && !sameAuthor ? (
+                  <Avatar name={senderDisplay} size={30} style={styles.messageAvatar} />
+                ) : !isMine ? (
+                  <View style={styles.messageAvatarPlaceholder} />
+                ) : null}
+
+                <View style={[styles.messageGroup, isMine && styles.messageGroupMine]}>
+                  {showSenderName && (
+                    <Text style={styles.senderName}>{senderDisplay}</Text>
+                  )}
+                  <Pressable
+                    onLongPress={isAdmin ? () => handleDeleteMessage(msg.id) : undefined}
+                    style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+                  >
+                    <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
+                      <Text style={[styles.messageText, isMine && styles.messageTextMine]}>
+                        {msg.content}
+                      </Text>
+                      <View style={styles.messageMeta}>
+                        <Text style={[styles.messageTime, isMine && styles.messageTimeMine]}>
+                          {formatTime(msg.sent_at)}
+                        </Text>
+                        {isAdmin && !isMine && (
+                          <Pressable
+                            onPress={() => handleDeleteMessage(msg.id)}
+                            style={styles.deleteBtn}
+                          >
+                            <Trash2 size={11} color={Colors.status?.error ?? "#8B2E2E"} />
+                          </Pressable>
+                        )}
+                      </View>
+                    </View>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {/* ─── Composer ─── */}
+      <View style={styles.composerWrap}>
+        <GlassCard style={styles.composer}>
+          <Pressable style={styles.attachBtn}>
+            <ImageIcon size={18} color={Colors.ink.faint} />
+          </Pressable>
           <TextInput
             value={content}
             onChangeText={setContent}
-            placeholder="Écrire un message..."
+            placeholder="Écrire un message…"
             placeholderTextColor={Colors.ink.faint}
             multiline
             style={styles.composerInput}
+            onSubmitEditing={handleSend}
+            returnKeyType="send"
           />
-          <Button
-            label={sending ? "Envoi..." : "Envoyer"}
+          <Pressable
             onPress={handleSend}
-            loading={sending}
-            icon={<Send size={16} color="#fff" />}
-            fullWidth={false}
-          />
+            disabled={sending || !content.trim()}
+            style={[styles.sendBtn, (!content.trim() || sending) && styles.sendBtnDisabled]}
+          >
+            <Send size={17} color="#FFF" />
+          </Pressable>
         </GlassCard>
       </View>
     </KeyboardAvoidingView>
@@ -257,46 +288,61 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.surface.subtle,
   },
-  container: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 14,
-    gap: 14,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 58 : 16,
+    paddingBottom: 14,
+    backgroundColor: Colors.surface.DEFAULT,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.DEFAULT,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: Colors.surface.DEFAULT,
+    backgroundColor: Colors.surface.subtle,
     borderWidth: 1,
     borderColor: Colors.border.DEFAULT,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 18,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  headerSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  avatar: {
+  groupAvatarHeader: {
     width: 42,
     height: 42,
     borderRadius: 14,
     backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: `${Colors.accent.DEFAULT}30`,
+  },
+  headerTitle: {
+    fontSize: 16,
+    color: Colors.ink.DEFAULT,
+    fontFamily: "Inter_700Bold",
+  },
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    color: Colors.ink.muted,
+    fontFamily: "Inter_400Regular",
+  },
+  adminChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: Colors.accent.dim,
+  },
+  adminChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
   },
   loadingWrap: {
     flex: 1,
@@ -311,59 +357,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    paddingBottom: 28,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 4,
   },
-  summaryCard: {
-    padding: 16,
-  },
-  summaryRow: {
-    flexDirection: "row",
+  emptyWrap: {
+    paddingTop: 60,
     alignItems: "center",
-    gap: 12,
-  },
-  avatarSmall: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarSmallText: {
-    color: Colors.accent.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  summaryTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  summaryText: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 18,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  emptyCard: {
-    padding: 16,
+    gap: 8,
   },
   emptyTitle: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
+    fontSize: 15,
     fontFamily: "Inter_700Bold",
-    marginBottom: 4,
+    color: Colors.ink.DEFAULT,
   },
   emptyText: {
     fontSize: 13,
     color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
+    textAlign: "center",
     lineHeight: 20,
+    maxWidth: 260,
   },
   messageRow: {
     flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    marginBottom: 2,
   },
   messageRowMine: {
     justifyContent: "flex-end",
@@ -371,22 +391,45 @@ const styles = StyleSheet.create({
   messageRowOther: {
     justifyContent: "flex-start",
   },
+  messageRowCompact: {
+    marginBottom: 1,
+  },
+  messageAvatar: {
+    marginBottom: 2,
+    flexShrink: 0,
+  },
+  messageAvatarPlaceholder: {
+    width: 30,
+    flexShrink: 0,
+  },
+  messageGroup: {
+    maxWidth: "76%",
+    gap: 2,
+  },
+  messageGroupMine: {
+    alignItems: "flex-end",
+  },
+  senderName: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.faint,
+    marginLeft: 4,
+    marginBottom: 2,
+  },
   bubble: {
-    maxWidth: "84%",
     borderRadius: 18,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 6,
+    paddingVertical: 10,
   },
   bubbleMine: {
     backgroundColor: Colors.accent.DEFAULT,
-    borderBottomRightRadius: 6,
+    borderBottomRightRadius: 5,
   },
   bubbleOther: {
     backgroundColor: Colors.surface.DEFAULT,
     borderWidth: 1,
     borderColor: Colors.border.DEFAULT,
-    borderBottomLeftRadius: 6,
+    borderBottomLeftRadius: 5,
   },
   messageText: {
     fontSize: 14,
@@ -397,27 +440,67 @@ const styles = StyleSheet.create({
   messageTextMine: {
     color: "#FFF",
   },
+  messageMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    marginTop: 4,
+  },
   messageTime: {
     fontSize: 10,
     color: Colors.ink.faint,
     fontFamily: "Inter_400Regular",
-    alignSelf: "flex-end",
   },
   messageTimeMine: {
-    color: "rgba(255,255,255,0.82)",
+    color: "rgba(255,255,255,0.7)",
   },
-  composerCard: {
-    padding: 14,
-    gap: 10,
+  deleteBtn: {
+    padding: 2,
+  },
+  composerWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === "ios" ? 32 : 14,
+    paddingTop: 8,
+    backgroundColor: Colors.surface.DEFAULT,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border.DEFAULT,
+  },
+  composer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    padding: 8,
+    paddingLeft: 12,
+  },
+  attachBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: Colors.surface.subtle,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 2,
   },
   composerInput: {
-    minHeight: 48,
-    maxHeight: 120,
+    flex: 1,
+    minHeight: 36,
+    maxHeight: 110,
     fontSize: 14,
     color: Colors.ink.DEFAULT,
     fontFamily: "Inter_400Regular",
-    paddingVertical: 0,
+    paddingVertical: 6,
+  },
+  sendBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: Colors.accent.DEFAULT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendBtnDisabled: {
+    backgroundColor: Colors.ink.ghost,
   },
   errorCard: {
     padding: 18,

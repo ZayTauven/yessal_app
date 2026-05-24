@@ -113,6 +113,7 @@ function normalizeChat(item: any): Chat {
     id: item.id,
     name: item.name ?? null,
     daara: item.daara ?? null,
+    daara_name: item.daara_name ?? item.daara_label ?? null,
     created_by: item.created_by ?? null,
     created_at: item.created_at,
   };
@@ -185,6 +186,11 @@ export const ContentService = {
   async getCampaigns(): Promise<Campaign[]> {
     const data = await api.get<PaginatedResponse<any>>("events/campaigns/");
     return unwrapList(data).map(normalizeCampaign);
+  },
+
+  async getCampaignById(id: number): Promise<Campaign> {
+    const data = await api.get<any>(`events/campaigns/${id}/`);
+    return normalizeCampaign(data);
   },
   
   async getCampaignEtat(id: number): Promise<CampaignEtat> {

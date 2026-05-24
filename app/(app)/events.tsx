@@ -7,6 +7,7 @@ import {
   ScrollView,
   Pressable,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import {
   Calendar,
   Bell,
@@ -195,6 +196,17 @@ export default function FetesScreen() {
                   </View>
 
                   <GlassCard style={styles.feteCard}>
+                    {/* Image de couverture */}
+                    {fete.cover_image ? (
+                      <View style={styles.coverWrap}>
+                        <ExpoImage
+                          source={{ uri: fete.cover_image }}
+                          style={styles.coverImage}
+                          contentFit="cover"
+                        />
+                      </View>
+                    ) : null}
+
                     {/* En-tête */}
                     <View style={styles.cardHeader}>
                       <View style={styles.recurrenceTag}>
@@ -346,6 +358,21 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 24,
     padding: 16,
+    gap: 10,
+    overflow: "hidden",
+  },
+  coverWrap: {
+    marginHorizontal: -16,
+    marginTop: -16,
+    marginBottom: 6,
+    height: 140,
+    backgroundColor: Colors.surface.muted,
+  },
+  coverImage: {
+    width: "100%",
+    height: "100%",
+  },
+  cardInner: {
     gap: 10,
   },
   cardHeader: {

@@ -138,7 +138,13 @@ export default function AnnouncementsScreen() {
               <Text style={styles.cardText}>{item.content}</Text>
               <View style={styles.bottomRow}>
                 <Text style={styles.bottomMeta}>
-                  {item.target_role !== "all" ? item.target_role : "Tous les membres"}
+                  {{
+                    all: "Tous les membres",
+                    member: "Talibés",
+                    chef_daara: "Chefs de Daara",
+                    collector: "Collecteurs",
+                    admin: "Administrateurs",
+                  }[item.target_role] ?? item.target_role}
                 </Text>
                 <Text style={styles.bottomMeta}>
                   {item.expires_at ? `Expire le ${new Date(item.expires_at).toLocaleDateString("fr-FR")}` : "Sans échéance"}

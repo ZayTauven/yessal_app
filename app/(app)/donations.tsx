@@ -1,16 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import {
   Bell,
   CalendarDays,
   Coins,
   Filter,
-  Heart,
   Settings2,
   ShieldCheck,
   Wallet,
 } from "lucide-react-native";
+
+const PAYMENT_LOGOS: Record<string, any> = {
+  orange_money: require("@/assets/images/orange money.png"),
+  wave: require("@/assets/images/sans-contact.png"),
+  paypal: require("@/assets/images/pay-pal.png"),
+  mastercard: require("@/assets/images/mastercard.png"),
+  visa: require("@/assets/images/carte-paiement.png"),
+  collector: require("@/assets/images/collecteur.png"),
+};
 
 import { Colors } from "@/constants/colors";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -64,16 +81,18 @@ function paymentColor(status: PaymentStatus) {
 }
 
 function methodLabel(method: Donation["payment_method"]) {
-  switch (method) {
-    case "orange_money":
-      return "Orange Money";
-    case "wave":
-      return "Wave";
-    case "paypal":
-      return "PayPal";
-    default:
-      return "Manuel";
-  }
+  const labels: Record<string, string> = {
+    orange_money: "Orange Money",
+    wave: "Wave",
+    paypal: "PayPal",
+    bictorys: "Bictorys",
+    virement: "Virement",
+    collector: "Collecteur",
+    manual: "Manuel",
+    visa: "Visa",
+    mastercard: "Mastercard",
+  };
+  return labels[method] ?? method;
 }
 
 export default function DonationsScreen() {
@@ -108,8 +127,12 @@ export default function DonationsScreen() {
 
   const totals = useMemo(() => {
     const total = donations.reduce((sum, donation) => sum + donation.amount, 0);
-    const confirmed = donations.filter((donation) => donation.payment_status === "confirmed").length;
-    const pending = donations.filter((donation) => donation.payment_status === "pending").length;
+    const confirmed = donations.filter(
+      (donation) => donation.payment_status === "confirmed",
+    ).length;
+    const pending = donations.filter(
+      (donation) => donation.payment_status === "pending",
+    ).length;
     return { total, confirmed, pending };
   }, [donations]);
 
@@ -138,16 +161,23 @@ export default function DonationsScreen() {
           contentInsetAdjustmentBehavior="automatic"
           scrollIndicatorInsets={{ bottom: 180 }}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => {
-            setRefreshing(true);
-            await load();
-          }} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await load();
+              }}
+            />
+          }
           contentContainerStyle={styles.scroll}
         >
           <View style={styles.statsRow}>
             <GlassCard style={styles.statCard}>
               <Coins size={18} color={Colors.accent.DEFAULT} />
-              <Text style={styles.statValue}>{totals.total.toLocaleString()} FCFA</Text>
+              <Text style={styles.statValue}>
+                {totals.total.toLocaleString()} FCFA
+              </Text>
               <Text style={styles.statLabel}>Total contribué</Text>
             </GlassCard>
             <GlassCard style={styles.statCard}>
@@ -165,21 +195,41 @@ export default function DonationsScreen() {
           <View style={styles.filterRow}>
             <Pressable
               onPress={() => setFilter("all")}
-              style={[styles.filterChip, filter === "all" && styles.filterChipActive]}
+              style={[
+                styles.filterChip,
+                filter === "all" && styles.filterChipActive,
+              ]}
             >
-              <Text style={[styles.filterText, filter === "all" && styles.filterTextActive]}>Tous</Text>
-            </Pressable>
-            {(["pending", "confirmed", "failed"] as DonationFilter[]).map((value) => (
-              <Pressable
-                key={value}
-                onPress={() => setFilter(value)}
-                style={[styles.filterChip, filter === value && styles.filterChipActive]}
+              <Text
+                style={[
+                  styles.filterText,
+                  filter === "all" && styles.filterTextActive,
+                ]}
               >
-                <Text style={[styles.filterText, filter === value && styles.filterTextActive]}>
-                  {paymentLabel(value as PaymentStatus)}
-                </Text>
-              </Pressable>
-            ))}
+                Tous
+              </Text>
+            </Pressable>
+            {(["pending", "confirmed", "failed"] as DonationFilter[]).map(
+              (value) => (
+                <Pressable
+                  key={value}
+                  onPress={() => setFilter(value)}
+                  style={[
+                    styles.filterChip,
+                    filter === value && styles.filterChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      filter === value && styles.filterTextActive,
+                    ]}
+                  >
+                    {paymentLabel(value as PaymentStatus)}
+                  </Text>
+                </Pressable>
+              ),
+            )}
             <Filter size={18} color={Colors.ink.faint} />
           </View>
 
@@ -193,7 +243,8 @@ export default function DonationsScreen() {
             <GlassCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Aucun Jëf trouvé</Text>
               <Text style={styles.emptyText}>
-                Les contributions apparaîtront ici après synchronisation avec le backend.
+                Les contributions apparaîtront ici après synchronisation avec le
+                backend.
               </Text>
             </GlassCard>
           ) : null}
@@ -211,25 +262,49 @@ export default function DonationsScreen() {
                 <GlassCard style={styles.card}>
                   <View style={styles.cardTop}>
                     <View style={styles.iconWrap}>
-                      <Heart size={18} color={Colors.accent.DEFAULT} />
+                      {PAYMENT_LOGOS[donation.payment_method] ? (
+                        <ExpoImage
+                          source={PAYMENT_LOGOS[donation.payment_method]}
+                          style={styles.paymentLogo}
+                          contentFit="contain"
+                        />
+                      ) : (
+                        <Wallet size={18} color={Colors.accent.DEFAULT} />
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.cardTitle} numberOfLines={2}>
-                        {donation.campaign_name ?? `Campagne #${donation.campaign}`}
+                        {donation.campaign_name ??
+                          `Campagne #${donation.campaign}`}
                       </Text>
                       <Text style={styles.cardSub}>
-                        {methodLabel(donation.payment_method)} · {formatDate(donation.created_at)}
+                        {methodLabel(donation.payment_method)} ·{" "}
+                        {formatDate(donation.created_at)}
                       </Text>
                     </View>
-                    <View style={[styles.statusChip, { backgroundColor: `${paymentColor(donation.payment_status)}15` }]}>
-                      <Text style={[styles.statusText, { color: paymentColor(donation.payment_status) }]}>
+                    <View
+                      style={[
+                        styles.statusChip,
+                        {
+                          backgroundColor: `${paymentColor(donation.payment_status)}15`,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: paymentColor(donation.payment_status) },
+                        ]}
+                      >
                         {paymentLabel(donation.payment_status)}
                       </Text>
                     </View>
                   </View>
 
                   <View style={styles.cardBottom}>
-                    <Text style={styles.amount}>{donation.amount.toLocaleString()} FCFA</Text>
+                    <Text style={styles.amount}>
+                      {donation.amount.toLocaleString()} FCFA
+                    </Text>
                     <Text style={styles.beneficiary}>
                       {donation.beneficiary_name
                         ? `Bénéficiaire: ${donation.beneficiary_name}`
@@ -345,6 +420,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  paymentLogo: {
+    width: 32,
+    height: 22,
   },
   cardTitle: {
     fontSize: 15,

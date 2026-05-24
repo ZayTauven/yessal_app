@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, ChevronRight, Heart, UserPlus, Users, PencilLine } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, Heart, UserPlus, Users } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/colors";
@@ -10,35 +10,35 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { ContentService } from "@/lib/content.service";
-import type { Campaign } from "@/types/campaign.types";
-import type { PaymentMethod } from "@/types/donation.types";
 import type { Tutelle } from "@/types/content.types";
 
-const QUICK_AMOUNTS = [5000, 10000, 25000, 50000];
+const RELATION_COLORS: Record<string, string> = {
+  père: "#6366F1",
+  mère: "#EC4899",
+  fils: "#0EA5E9",
+  fille: "#F59E0B",
+  frère: "#10B981",
+  sœur: "#8B5CF6",
+  épouse: "#EF4444",
+  époux: "#3B82F6",
+};
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: "orange_money", label: "Orange Money" },
-  { value: "wave", label: "Wave" },
-  { value: "collector", label: "Manuel" },
-];
-
-function formatAmount(value: number) {
-  return `${value.toLocaleString()} FCFA`;
+function avatarColor(relation: string) {
+  const key = relation.toLowerCase().trim();
+  for (const [k, v] of Object.entries(RELATION_COLORS)) {
+    if (key.includes(k)) return v;
+  }
+  let hash = 0;
+  for (let i = 0; i < relation.length; i++) hash = relation.charCodeAt(i) + ((hash << 5) - hash);
+  const palette = ["#6366F1", "#10B981", "#F59E0B", "#3B82F6", "#8B5CF6", "#EC4899"];
+  return palette[Math.abs(hash) % palette.length];
 }
 
 export default function TutelleScreen() {
   const router = useRouter();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [tutelles, setTutelles] = useState<Tutelle[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
-  const [amount, setAmount] = useState(10000);
-  const [customAmount, setCustomAmount] = useState("");
-  const [useCustomAmount, setUseCustomAmount] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("collector");
-  const [submitting, setSubmitting] = useState(false);
   const [creating, setCreating] = useState(false);
   const [memberFirstName, setMemberFirstName] = useState("");
   const [memberLastName, setMemberLastName] = useState("");
@@ -49,97 +49,18 @@ export default function TutelleScreen() {
 
     const load = async () => {
       try {
-        const [campaignData, tutelleData] = await Promise.all([
-          ContentService.getCampaigns(),
-          ContentService.getTutelles(),
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        setCampaigns(campaignData);
-        setTutelles(tutelleData);
-
-        const fallbackCampaign = campaignData.find((item) => item.status === "active") ?? campaignData[0];
-        if (fallbackCampaign) {
-          setSelectedCampaignId(fallbackCampaign.id);
-        }
-
-        if (tutelleData.length > 0) {
-          setSelectedMemberId(tutelleData[0].id);
-        }
+        const tutelleData = await ContentService.getTutelles();
+        if (active) setTutelles(tutelleData);
       } catch {
-        if (active) {
-          setCampaigns([]);
-          setTutelles([]);
-        }
+        if (active) setTutelles([]);
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
 
     load();
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
-
-  const selectedMember = useMemo(
-    () => tutelles.find((member) => member.id === selectedMemberId) ?? null,
-    [selectedMemberId, tutelles],
-  );
-
-  const selectedCampaign = useMemo(
-    () => campaigns.find((item) => item.id === selectedCampaignId) ?? campaigns[0] ?? null,
-    [campaigns, selectedCampaignId],
-  );
-
-  useEffect(() => {
-    if (!selectedCampaign && campaigns.length > 0) {
-      setSelectedCampaignId(campaigns[0].id);
-    }
-  }, [campaigns, selectedCampaign]);
-
-  const finalAmount = useMemo(() => {
-    if (!useCustomAmount) {
-      return amount;
-    }
-
-    const parsed = Number(customAmount.replace(/[^\d]/g, ""));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [amount, customAmount, useCustomAmount]);
-
-  const handleContribute = async () => {
-    if (!selectedCampaign) {
-      Alert.alert("Campagne requise", "Choisissez une campagne avant de continuer.");
-      return;
-    }
-
-    if (!finalAmount) {
-      Alert.alert("Montant requis", "Ajoutez un montant valide.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await ContentService.createDonation({
-        campaign: selectedCampaign.id,
-        amount: finalAmount,
-        payment_method: paymentMethod,
-        beneficiary: selectedMember?.id ?? null,
-      });
-
-      Alert.alert("Contribution envoyée", "Votre don a bien été soumis.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible d'enregistrer la contribution.";
-      Alert.alert("Erreur", message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleCreateMember = async () => {
     const first_name = memberFirstName.trim();
@@ -153,13 +74,8 @@ export default function TutelleScreen() {
 
     setCreating(true);
     try {
-      const created = await ContentService.createTutelle({
-        first_name,
-        last_name,
-        relation,
-      });
+      const created = await ContentService.createTutelle({ first_name, last_name, relation });
       setTutelles((current) => [created, ...current]);
-      setSelectedMemberId(created.id);
       setMemberFirstName("");
       setMemberLastName("");
       setMemberRelation("");
@@ -177,7 +93,7 @@ export default function TutelleScreen() {
     <SafeAreaView style={styles.safe}>
       <SectionHeader
         title="Tutelle familiale"
-        subtitle="Suivez les dons effectués au nom de vos proches"
+        subtitle="Gérez les membres de votre cercle familial"
         icon={<Users size={24} color="#FFF" />}
       />
 
@@ -194,190 +110,61 @@ export default function TutelleScreen() {
           </Pressable>
 
           <GlassCard style={styles.introCard}>
-            <Text style={styles.introTitle}>Gérez votre cercle familial</Text>
+            <Text style={styles.introTitle}>Vos proches en tutelle</Text>
             <Text style={styles.introText}>
-              Enregistrez les membres de votre famille pour effectuer des dons en leur nom et garder une
-              vision claire de votre tutelle.
+              Enregistrez les membres de votre famille pour effectuer des dons en leur nom depuis
+              l'écran de contribution.
             </Text>
           </GlassCard>
 
-          <Text style={styles.sectionTitle}>Campagne liée</Text>
           {loading ? (
-            <GlassCard style={styles.loadingCard}>
+            <View style={styles.loadingWrap}>
               <ActivityIndicator color={Colors.accent.DEFAULT} />
-            </GlassCard>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.campaignRow}
-            >
-              {campaigns.map((campaign) => {
-                const active = selectedCampaignId === campaign.id;
-                const progress =
-                  campaign.goal_amount > 0 ? campaign.collected_amount / campaign.goal_amount : 0;
-
-                return (
-                  <Pressable
-                    key={campaign.id}
-                    onPress={() => setSelectedCampaignId(campaign.id)}
-                    style={[styles.campaignCard, active && styles.campaignCardActive]}
-                  >
-                    <Text style={styles.memberName} numberOfLines={2}>
-                      {campaign.name}
-                    </Text>
-                    <Text style={styles.memberRel}>
-                      {campaign.collected_amount.toLocaleString()} / {campaign.goal_amount.toLocaleString()} FCFA
-                    </Text>
-                    <View style={styles.progressTrack}>
-                      <View style={[styles.progressBar, { width: `${Math.max(progress * 100, 8)}%` }]} />
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-
-          <Text style={styles.sectionTitle}>Membres enregistrés</Text>
-          {tutelles.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.memberRow}>
-              {tutelles.map((member) => {
-                const active = selectedMemberId === member.id;
-                return (
-                  <Pressable
-                    key={member.id}
-                    onPress={() => setSelectedMemberId(member.id)}
-                    style={[styles.memberCard, active && styles.memberCardActive]}
-                  >
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{member.first_name.charAt(0)}</Text>
-                    </View>
-                    <Text style={styles.memberName}>{member.first_name} {member.last_name}</Text>
-                    <Text style={styles.memberRel}>{member.relation}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : (
+            </View>
+          ) : tutelles.length === 0 ? (
             <GlassCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>Aucun membre enregistré</Text>
-              <Text style={styles.emptyText}>Ajoutez un premier membre pour l’utiliser comme bénéficiaire.</Text>
-            </GlassCard>
-          )}
-
-          <GlassCard style={styles.contributionCard}>
-            <View style={styles.contributionHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.formTitle}>Contribution rapide</Text>
-                <Text style={styles.formHint}>
-                  Pour {selectedMember ? `${selectedMember.first_name} ${selectedMember.last_name}` : "votre tutelle"}
-                </Text>
-              </View>
-              <View style={styles.pill}>
-                <PencilLine size={12} color={Colors.accent.DEFAULT} />
-                <Text style={styles.pillText}>Montant libre</Text>
-              </View>
-            </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.amountRow}>
-              {QUICK_AMOUNTS.map((value) => {
-                const active = !useCustomAmount && amount === value;
-                return (
-                  <Pressable
-                    key={value}
-                    onPress={() => {
-                      setUseCustomAmount(false);
-                      setAmount(value);
-                    }}
-                    style={[styles.amountChip, active && styles.amountChipActive]}
-                  >
-                    <Text style={[styles.amountText, active && styles.amountTextActive]}>
-                      {formatAmount(value)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            <Pressable
-              onPress={() => setUseCustomAmount(true)}
-              style={[styles.customAmountButton, useCustomAmount && styles.customAmountButtonActive]}
-            >
-              <View style={[styles.customAmountIcon, useCustomAmount && styles.customAmountIconActive]}>
-                <PencilLine size={14} color={useCustomAmount ? "#FFF" : Colors.accent.DEFAULT} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.customAmountTitle, useCustomAmount && styles.customAmountTitleActive]}>
-                  Montant personnalisé
-                </Text>
-                <Text style={[styles.customAmountSubtitle, useCustomAmount && styles.customAmountSubtitleActive]}>
-                  Saisir un montant libre sans parcourir le carrousel.
-                </Text>
-              </View>
-            </Pressable>
-
-            {useCustomAmount && (
-              <Input
-                label="Montant personnalisé"
-                placeholder="Ex: 15000"
-                keyboardType="numeric"
-                value={customAmount}
-                onChangeText={(value) => setCustomAmount(value.replace(/[^\d]/g, ""))}
-              />
-            )}
-
-            <View style={styles.paymentRow}>
-              {PAYMENT_METHODS.map((method) => {
-                const active = paymentMethod === method.value;
-                return (
-                  <Pressable
-                    key={method.value}
-                    onPress={() => setPaymentMethod(method.value)}
-                    style={[styles.paymentChip, active && styles.paymentChipActive]}
-                  >
-                    <Text style={[styles.paymentText, active && styles.paymentTextActive]}>
-                      {method.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Montant sélectionné</Text>
-              <Text style={styles.summaryValue}>{finalAmount ? formatAmount(finalAmount) : "0 FCFA"}</Text>
-              <Text style={styles.summarySub}>
-                {selectedCampaign ? selectedCampaign.name : "Aucune campagne sélectionnée"}
+              <Text style={styles.emptyText}>
+                Ajoutez un premier proche pour lui dédier des contributions.
               </Text>
+            </GlassCard>
+          ) : (
+            <View style={styles.list}>
+              {tutelles.map((member) => {
+                const color = avatarColor(member.relation);
+                const initials = `${member.first_name?.[0] ?? ""}${member.last_name?.[0] ?? ""}`.toUpperCase();
+
+                return (
+                  <GlassCard key={member.id} style={styles.memberCard}>
+                    <View style={styles.memberRow}>
+                      <View style={[styles.avatar, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
+                        <Text style={[styles.avatarText, { color }]}>{initials}</Text>
+                      </View>
+                      <View style={styles.memberInfo}>
+                        <Text style={styles.memberName}>{member.first_name} {member.last_name}</Text>
+                        <View style={[styles.relationChip, { backgroundColor: `${color}18` }]}>
+                          <Text style={[styles.relationText, { color }]}>{member.relation}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      style={styles.contributeBtn}
+                      onPress={() =>
+                        router.push(`/(app)/donate?beneficiary=${member.id}` as any)
+                      }
+                    >
+                      <Heart size={14} color={Colors.accent.DEFAULT} />
+                      <Text style={styles.contributeBtnText}>
+                        Contribuer pour {member.first_name}
+                      </Text>
+                      <ChevronRight size={14} color={Colors.accent.DEFAULT} />
+                    </Pressable>
+                  </GlassCard>
+                );
+              })}
             </View>
-
-            <Button
-              label="Contribuer"
-              onPress={handleContribute}
-              loading={submitting}
-              icon={<Heart size={16} color="#fff" />}
-            />
-          </GlassCard>
-
-          <Text style={styles.sectionTitle}>Gérer la tutelle</Text>
-          <View style={styles.list}>
-            {tutelles.map((member) => (
-              <GlassCard key={member.id} style={styles.memberListCard}>
-                <View style={styles.memberRowVertical}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{member.first_name.charAt(0)}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.memberName}>
-                      {member.first_name} {member.last_name}
-                    </Text>
-                    <Text style={styles.memberRel}>{member.relation}</Text>
-                  </View>
-                  <ChevronRight size={18} color={Colors.ink.ghost} />
-                </View>
-              </GlassCard>
-            ))}
-          </View>
+          )}
 
           {showAdd && (
             <GlassCard style={styles.formCard}>
@@ -418,9 +205,9 @@ export default function TutelleScreen() {
           )}
 
           <Button
-            label="Ajouter un membre"
+            label={showAdd ? "Fermer le formulaire" : "Ajouter un membre"}
             icon={<UserPlus size={16} color={Colors.accent.DEFAULT} />}
-            onPress={() => setShowAdd((value) => !value)}
+            onPress={() => setShowAdd((v) => !v)}
             variant="outline"
           />
         </ScrollView>
@@ -436,7 +223,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    marginTop: 0,
   },
   scroll: {
     paddingHorizontal: 24,
@@ -456,12 +242,12 @@ const styles = StyleSheet.create({
   },
   introCard: {
     padding: 18,
+    gap: 8,
   },
   introTitle: {
     fontSize: 18,
     fontFamily: "Inter_700Bold",
     color: Colors.ink.DEFAULT,
-    marginBottom: 8,
   },
   introText: {
     fontSize: 14,
@@ -469,272 +255,99 @@ const styles = StyleSheet.create({
     color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
   },
-  sectionTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginLeft: 4,
-  },
-  loadingCard: {
-    minHeight: 108,
+  loadingWrap: {
+    minHeight: 100,
     alignItems: "center",
     justifyContent: "center",
-  },
-  campaignRow: {
-    gap: 10,
-    paddingRight: 4,
-  },
-  campaignCard: {
-    width: 190,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    gap: 10,
-  },
-  campaignCardActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.surface.muted,
-    overflow: "hidden",
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  memberRow: {
-    gap: 12,
-    paddingRight: 4,
-  },
-  memberCard: {
-    width: 180,
-    padding: 16,
-    gap: 10,
-    borderRadius: 20,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  memberCardActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.surface.muted,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  memberName: {
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-  },
-  memberRel: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
   },
   emptyCard: {
-    padding: 16,
+    padding: 18,
+    gap: 6,
   },
   emptyTitle: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
+    fontSize: 15,
     fontFamily: "Inter_700Bold",
-    marginBottom: 4,
+    color: Colors.ink.DEFAULT,
   },
   emptyText: {
     fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
     lineHeight: 20,
-  },
-  contributionCard: {
-    padding: 18,
-    gap: 14,
-  },
-  contributionHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  formTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  formHint: {
-    marginTop: 4,
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.accent.dim,
-  },
-  pillText: {
-    fontSize: 11,
-    color: Colors.accent.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  amountRow: {
-    gap: 10,
-    paddingRight: 4,
-  },
-  amountChip: {
-    minHeight: 46,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  amountChipActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  amountText: {
-    fontSize: 13,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_600SemiBold",
-  },
-  amountTextActive: {
-    color: "#FFF",
-  },
-  customAmountButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  customAmountButtonActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  customAmountIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  customAmountIconActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  customAmountTitle: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  customAmountTitleActive: {
-    color: Colors.ink.DEFAULT,
-  },
-  customAmountSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  customAmountSubtitleActive: {
-    color: Colors.ink.muted,
-  },
-  paymentRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  paymentChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  paymentChipActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  paymentText: {
-    fontSize: 12,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_600SemiBold",
-  },
-  paymentTextActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  summaryBox: {
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  summaryValue: {
-    marginTop: 4,
-    fontSize: 24,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  summarySub: {
-    marginTop: 4,
-    fontSize: 12,
     color: Colors.ink.muted,
     fontFamily: "Inter_400Regular",
   },
   list: {
     gap: 12,
   },
-  memberListCard: {
+  memberCard: {
     padding: 16,
+    gap: 14,
   },
-  memberRowVertical: {
+  memberRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
   },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+  },
+  avatarText: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+  },
+  memberInfo: {
+    flex: 1,
+    gap: 6,
+  },
+  memberName: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
+  },
+  relationChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  relationText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  contributeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: Colors.accent.dim,
+    borderWidth: 1,
+    borderColor: `${Colors.accent.DEFAULT}40`,
+  },
+  contributeBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+    flex: 1,
+    textAlign: "center",
+  },
   formCard: {
-    marginTop: 8,
     padding: 18,
     gap: 12,
+  },
+  formTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    color: Colors.ink.DEFAULT,
   },
   formActions: {
     flexDirection: "row",
     gap: 12,
-    marginTop: 8,
+    marginTop: 4,
   },
 });

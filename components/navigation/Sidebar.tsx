@@ -143,6 +143,22 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
     [user?.first_name, user?.last_name],
   );
 
+  const avatarSource = (user as any)?.avatar_url
+    ? { uri: (user as any).avatar_url }
+    : (user as any)?.avatar
+    ? { uri: (user as any).avatar }
+    : null;
+
+  const roleLabel = (role?: string) => {
+    switch (role) {
+      case "member": return "Talibé";
+      case "chef_daara": return "Chef de Daara";
+      case "collector": return "Collecteur";
+      case "admin": return "Administrateur";
+      default: return role?.replace(/_/g, " ") ?? "Compte membre";
+    }
+  };
+
   const goTo = (route: string) => {
     onNavigate?.();
     router.push(route as any);
@@ -204,7 +220,15 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
 
               <View style={styles.profileRow}>
                 <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initials}</Text>
+                  {avatarSource ? (
+                    <ExpoImage
+                      source={avatarSource}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  )}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.name}>
@@ -213,8 +237,7 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
                       : "Membre Yessal"}
                   </Text>
                   <Text style={styles.role}>
-                    {user?.role ?? "Compte membre"} ·{" "}
-                    {user?.status ?? "Statut inconnu"}
+                    {roleLabel(user?.role)} · {user?.status ?? ""}
                   </Text>
                   <View style={styles.daaraPill}>
                     <ShieldCheck size={12} color="#FFF" />
@@ -234,7 +257,11 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
               {MENU_ITEMS.filter((item) => {
                 if (item.route === "/events") return user?.role === "admin";
                 return true;
-              }).map((item) => {
+              }).concat(
+                ["collector", "chef_daara", "admin"].includes(user?.role ?? "")
+                  ? [{ label: "Collecte physique", sub: "Enregistrer une contribution", icon: ShieldCheck, route: "/donate" }]
+                  : []
+              ).map((item) => {
                 const Icon = item.icon;
                 return (
                   <Pressable
@@ -288,11 +315,11 @@ export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
 
 const styles = StyleSheet.create({
   screen: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 50,
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(7, 13, 9, 0.52)",
   },
   drawer: {
@@ -311,10 +338,10 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   heroImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(26, 92, 58, 0.72)",
   },
   heroContent: {
@@ -368,6 +395,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: 56,
+    height: 56,
   },
   avatarText: {
     color: "#FFF",

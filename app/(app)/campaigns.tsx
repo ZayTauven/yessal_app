@@ -9,16 +9,27 @@ import {
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import { Bell, Filter, Heart, Search, TrendingUp } from "lucide-react-native";
+import { Bell, Calendar, Filter, Heart, Search, TrendingUp } from "lucide-react-native";
 
 import { Colors } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ContentService } from "@/lib/content.service";
+import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
+
+const PRIVILEGED_ROLES = ["admin", "chef_daara", "collector"];
+
+const COVER_ILLUSTRATIONS = [
+  require("@/assets/images/arabesque.png"),
+  require("@/assets/images/ornement.png"),
+  require("@/assets/images/etoile-filante.png"),
+  require("@/assets/images/donner-de-lamour.png"),
+  require("@/assets/images/lune.png"),
+  require("@/assets/images/soleil.png"),
+];
 
 const FALLBACK_CAMPAIGNS: Campaign[] = [
   {
@@ -30,7 +41,7 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
     deadline: "2024-12-31",
     status: "active",
     created_at: new Date().toISOString(),
-    image: "https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?auto=format&fit=crop&q=80&w=400",
+    image: null,
   },
   {
     id: 2,
@@ -41,7 +52,7 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
     deadline: "2024-12-31",
     status: "active",
     created_at: new Date().toISOString(),
-    image: "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&q=80&w=400",
+    image: null,
   },
   {
     id: 3,
@@ -52,31 +63,32 @@ const FALLBACK_CAMPAIGNS: Campaign[] = [
     deadline: "2024-12-31",
     status: "completed",
     created_at: new Date().toISOString(),
-    image: "https://images.unsplash.com/photo-1542831371-29b0f74f9713?auto=format&fit=crop&q=80&w=400",
+    image: null,
   },
 ];
 
-function statusLabel(status: Campaign["status"]) {
-  switch (status) {
-    case "active": return "En cours";
-    case "completed": return "Clôturée";
-    case "pending": return "En attente";
-    default: return "Inactive";
-  }
-}
+const STATUS_CONFIG: Record<Campaign["status"], { label: string; color: string }> = {
+  active: { label: "En cours", color: Colors.accent.DEFAULT },
+  completed: { label: "Clôturée", color: Colors.status?.success ?? "#2D6A4F" },
+  pending: { label: "En attente", color: Colors.gold?.DEFAULT ?? "#B8860B" },
+  inactive: { label: "Inactive", color: Colors.ink.faint },
+};
 
-function statusColor(status: Campaign["status"]) {
-  switch (status) {
-    case "active": return Colors.accent.DEFAULT;
-    case "completed": return Colors.status?.success ?? "#22C55E";
-    default: return Colors.ink.faint;
-  }
+function daysLeft(deadline?: string | null) {
+  if (!deadline) return null;
+  const diff = new Date(deadline).getTime() - Date.now();
+  const days = Math.ceil(diff / 86_400_000);
+  return days > 0 ? days : 0;
 }
 
 export default function CampaignsScreen() {
   const router = useRouter();
+  const { user } = useAuthStore();
+  const isPrivileged = PRIVILEGED_ROLES.includes(user?.role ?? "");
+
   const [campaigns, setCampaigns] = useState<Campaign[]>(FALLBACK_CAMPAIGNS);
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<Campaign["status"] | "all">("all");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -96,14 +108,20 @@ export default function CampaignsScreen() {
   }, []);
 
   const filtered = useMemo(() => {
+    let list = campaigns;
+    if (activeFilter !== "all") list = list.filter((c) => c.status === activeFilter);
     const q = search.toLowerCase().trim();
-    if (!q) return campaigns;
-    return campaigns.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.description ?? "").toLowerCase().includes(q),
+    if (!q) return list;
+    return list.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q),
     );
-  }, [campaigns, search]);
+  }, [campaigns, search, activeFilter]);
+
+  const filters: Array<{ key: Campaign["status"] | "all"; label: string }> = [
+    { key: "all", label: "Tous" },
+    { key: "active", label: "En cours" },
+    { key: "completed", label: "Clôturés" },
+  ];
 
   return (
     <View style={styles.container}>
@@ -121,8 +139,8 @@ export default function CampaignsScreen() {
       />
 
       <View style={styles.content}>
-        {/* Search bar */}
-        <View style={styles.searchBar}>
+        {/* Search + filter */}
+        <View style={styles.searchRow}>
           <View style={{ flex: 1 }}>
             <Input
               placeholder="Rechercher un ndiguel..."
@@ -131,10 +149,26 @@ export default function CampaignsScreen() {
               icon={<Search size={18} color={Colors.ink.faint} />}
             />
           </View>
-          <Pressable style={styles.filterBtn}>
-            <Filter size={20} color={Colors.accent.DEFAULT} />
-          </Pressable>
         </View>
+
+        {/* Filter chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {filters.map((f) => (
+            <Pressable
+              key={f.key}
+              style={[styles.filterChip, activeFilter === f.key && styles.filterChipActive]}
+              onPress={() => setActiveFilter(f.key)}
+            >
+              <Text style={[styles.filterChipText, activeFilter === f.key && styles.filterChipTextActive]}>
+                {f.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
         {/* Grid */}
         <ScrollView
@@ -154,11 +188,12 @@ export default function CampaignsScreen() {
           ) : (
             <View style={styles.grid}>
               {filtered.map((campaign) => {
+                const cfg = STATUS_CONFIG[campaign.status] ?? STATUS_CONFIG.inactive;
                 const hasGoal = campaign.goal_amount > 0;
                 const progress = hasGoal
                   ? Math.min(campaign.collected_amount / campaign.goal_amount, 1)
                   : 0;
-                const color = statusColor(campaign.status);
+                const remaining = daysLeft(campaign.deadline);
 
                 return (
                   <Pressable
@@ -176,15 +211,20 @@ export default function CampaignsScreen() {
                         />
                       ) : (
                         <View style={styles.coverPlaceholder}>
-                          <Heart size={28} color={Colors.accent.DEFAULT} />
+                          <ExpoImage
+                            source={COVER_ILLUSTRATIONS[campaign.id % COVER_ILLUSTRATIONS.length]}
+                            style={styles.coverArabesque}
+                            contentFit="contain"
+                            tintColor={Colors.accent.DEFAULT}
+                          />
                         </View>
                       )}
 
                       <View style={styles.cardBody}>
                         {/* Status badge */}
-                        <View style={[styles.badge, { backgroundColor: color + "18", borderColor: color + "30" }]}>
-                          <Text style={[styles.badgeText, { color }]}>
-                            {statusLabel(campaign.status)}
+                        <View style={[styles.badge, { backgroundColor: cfg.color + "18", borderColor: cfg.color + "30" }]}>
+                          <Text style={[styles.badgeText, { color: cfg.color }]}>
+                            {cfg.label}
                           </Text>
                         </View>
 
@@ -200,10 +240,28 @@ export default function CampaignsScreen() {
                           </Text>
                         ) : null}
 
-                        {/* Progress (only when financial goal exists) */}
-                        {hasGoal && (
+                        {/* Deadline */}
+                        {remaining !== null && campaign.status === "active" && (
+                          <View style={styles.deadlineRow}>
+                            <Calendar size={10} color={Colors.ink.faint} />
+                            <Text style={styles.deadlineText}>
+                              {remaining > 0 ? `${remaining}j restants` : "Dernier jour"}
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* Progress — visible only pour rôles privilégiés */}
+                        {isPrivileged && hasGoal && (
                           <View style={styles.progressWrap}>
-                            <ProgressBar progress={progress} showPercent={false} />
+                            <View style={styles.progressTrack}>
+                              <View
+                                style={[
+                                  styles.progressFill,
+                                  { width: `${Math.max(progress * 100, 4)}%` },
+                                  progress >= 0.9 && styles.progressFillHigh,
+                                ]}
+                              />
+                            </View>
                             <View style={styles.amountsRow}>
                               <Text style={styles.collectedAmt}>
                                 {campaign.collected_amount.toLocaleString("fr-FR")} FCFA
@@ -215,8 +273,8 @@ export default function CampaignsScreen() {
                           </View>
                         )}
 
-                        {/* No goal: just show collected */}
-                        {!hasGoal && campaign.collected_amount > 0 && (
+                        {/* Privilégié + sans objectif fixe */}
+                        {isPrivileged && !hasGoal && campaign.collected_amount > 0 && (
                           <Text style={styles.collectedNoGoal}>
                             {campaign.collected_amount.toLocaleString("fr-FR")} FCFA collectés
                           </Text>
@@ -231,7 +289,7 @@ export default function CampaignsScreen() {
         </ScrollView>
 
         <Button
-          label="Faire un Jëfs"
+          label="Faire un Jëf"
           onPress={() => router.push("/donate" as any)}
           icon={<Heart size={16} color="#fff" />}
           style={styles.ctaButton}
@@ -249,23 +307,38 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 14,
   },
-  searchBar: {
+  searchRow: {
     flexDirection: "row",
     gap: 12,
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: 10,
   },
-  filterBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    justifyContent: "center",
-    alignItems: "center",
+  filterRow: {
+    gap: 8,
+    marginBottom: 14,
+    paddingRight: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Colors.surface.DEFAULT,
     borderWidth: 1,
-    borderColor: "rgba(26, 92, 58, 0.08)",
+    borderColor: Colors.border.DEFAULT,
+  },
+  filterChipActive: {
+    backgroundColor: Colors.accent.DEFAULT,
+    borderColor: Colors.accent.DEFAULT,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.muted,
+  },
+  filterChipTextActive: {
+    color: "#FFF",
   },
   scroll: {
     paddingBottom: 220,
@@ -306,19 +379,25 @@ const styles = StyleSheet.create({
   },
   coverImage: {
     width: "100%",
-    height: 110,
+    height: 120,
     backgroundColor: Colors.surface.muted,
   },
   coverPlaceholder: {
     width: "100%",
-    height: 110,
+    height: 120,
     backgroundColor: Colors.accent.dim,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  coverArabesque: {
+    width: 100,
+    height: 100,
+    opacity: 0.25,
   },
   cardBody: {
     padding: 12,
-    gap: 6,
+    gap: 5,
   },
   badge: {
     alignSelf: "flex-start",
@@ -345,9 +424,34 @@ const styles = StyleSheet.create({
     color: Colors.ink.muted,
     lineHeight: 15,
   },
-  progressWrap: {
-    marginTop: 4,
+  deadlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
+    marginTop: 2,
+  },
+  deadlineText: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.ink.faint,
+  },
+  progressWrap: {
+    marginTop: 6,
+    gap: 4,
+  },
+  progressTrack: {
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: Colors.surface.muted,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: Colors.accent.DEFAULT,
+  },
+  progressFillHigh: {
+    backgroundColor: Colors.gold?.DEFAULT ?? "#B8860B",
   },
   amountsRow: {
     flexDirection: "row",
@@ -355,20 +459,20 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   collectedAmt: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: "Inter_700Bold",
     color: Colors.accent.DEFAULT,
   },
   goalAmt: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: "Inter_400Regular",
     color: Colors.ink.faint,
   },
   collectedNoGoal: {
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: "Inter_600SemiBold",
     color: Colors.ink.muted,
-    marginTop: 4,
+    marginTop: 2,
   },
   ctaButton: {
     marginTop: 8,

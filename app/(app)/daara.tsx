@@ -17,12 +17,14 @@ import {
   Layers,
   MapPin,
   MessageSquare,
+  Phone,
   UserCircle,
   Users2,
 } from "lucide-react-native";
 import { useAuthStore } from "@/store/auth.store";
 
 import { Colors } from "@/constants/colors";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ContentService } from "@/lib/content.service";
@@ -55,9 +57,32 @@ export default function DaaraScreen() {
     loadData();
   }, []);
 
-  const isChef = user?.role === "chef_daara";
-  const isCollector = user?.role === "collector";
-  const canManage = isChef || isCollector;
+  const getMemberName = (m: any) =>
+    m.name ?? (`${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "Membre");
+
+  // L'API peut retourner ldd comme un objet ou un ID selon le sérialiseur
+  const lddObj =
+    daara && typeof daara.ldd === "object" && daara.ldd !== null
+      ? (daara.ldd as any)
+      : null;
+  const lddName = daara?.ldd_name ?? lddObj?.name ?? null;
+  const lddCode = lddObj?.code ?? null;
+  const lddLocation = lddObj?.location ?? null;
+
+  const roleLabel = (role: string) => {
+    switch (role) {
+      case "member":
+        return "Talibé";
+      case "chef_daara":
+        return "Chef de Daara";
+      case "collector":
+        return "Collecteur";
+      case "admin":
+        return "Administrateur";
+      default:
+        return role.replace(/_/g, " ");
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -98,16 +123,16 @@ export default function DaaraScreen() {
                 </View>
                 <Text style={styles.daaraName}>{daara.name}</Text>
                 <View style={styles.headerMeta}>
-                  {daara.code && (
+                  {lddName && (
                     <View style={styles.metaItem}>
-                      <Hash size={12} color="rgba(255,255,255,0.8)" />
-                      <Text style={styles.metaText}>{daara.code}</Text>
+                      <Layers size={12} color="rgba(255,255,255,0.8)" />
+                      <Text style={styles.metaText}>{lddName}</Text>
                     </View>
                   )}
-                  {daara.location && (
+                  {lddLocation && (
                     <View style={styles.metaItem}>
                       <MapPin size={12} color="rgba(255,255,255,0.8)" />
-                      <Text style={styles.metaText}>{daara.location}</Text>
+                      <Text style={styles.metaText}>{lddLocation}</Text>
                     </View>
                   )}
                 </View>
@@ -119,23 +144,34 @@ export default function DaaraScreen() {
 
             {/* Info chips: LDD + Code + Statut */}
             <View style={styles.infoChipsRow}>
-              {daara.ldd_name || daara.ldd ? (
+              {lddName ? (
                 <View style={styles.infoChip}>
                   <Layers size={13} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.infoChipText}>
-                    {daara.ldd_name ?? daara.ldd ?? "Zone"}
-                  </Text>
+                  <Text style={styles.infoChipText}>{lddName}</Text>
                 </View>
               ) : null}
-              {daara.code ? (
+              {lddCode ? (
                 <View style={styles.infoChip}>
                   <Hash size={13} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.infoChipText}>{daara.code}</Text>
+                  <Text style={styles.infoChipText}>{lddCode}</Text>
                 </View>
               ) : null}
-              <View style={[styles.infoChip, daara.is_active ? styles.chipActive : styles.chipInactive]}>
-                <Activity size={13} color={daara.is_active ? "#22C55E" : "#EF4444"} />
-                <Text style={[styles.infoChipText, { color: daara.is_active ? "#22C55E" : "#EF4444" }]}>
+              <View
+                style={[
+                  styles.infoChip,
+                  daara.is_active ? styles.chipActive : styles.chipInactive,
+                ]}
+              >
+                <Activity
+                  size={13}
+                  color={daara.is_active ? "#22C55E" : "#EF4444"}
+                />
+                <Text
+                  style={[
+                    styles.infoChipText,
+                    { color: daara.is_active ? "#22C55E" : "#EF4444" },
+                  ]}
+                >
                   {daara.is_active ? "Actif" : "Inactif"}
                 </Text>
               </View>
@@ -149,8 +185,12 @@ export default function DaaraScreen() {
                   <UserCircle size={14} color={Colors.ink.faint} />
                 </View>
                 <View style={styles.statBody}>
-                  <Text style={styles.statMainValue}>{daara.chef_full_name || "Non désigné"}</Text>
-                  <Text style={styles.statSubValue}>{daara.members_count || 0} membres</Text>
+                  <Text style={styles.statMainValue}>
+                    {daara.chef_full_name || "Non désigné"}
+                  </Text>
+                  <Text style={styles.statSubValue}>
+                    {daara.members_count || 0} membres
+                  </Text>
                 </View>
               </GlassCard>
 
@@ -174,55 +214,105 @@ export default function DaaraScreen() {
                   {daara.collectors.map((c: any) => (
                     <GlassCard key={c.id} style={styles.collectorCard}>
                       <View style={styles.collectorInfo}>
-                        <View style={styles.collectorAvatar}>
-                          <Text style={styles.avatarInitial}>{c.first_name[0]}{c.last_name[0]}</Text>
+                        <Avatar
+                          uri={c.avatar_url ?? c.avatar}
+                          name={getMemberName(c)}
+                          size={40}
+                          borderRadius={12}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.collectorName}>
+                            {getMemberName(c)}
+                          </Text>
+                          <Text style={styles.collectorPhone}>
+                            {c.phone || "Pas de numéro"}
+                          </Text>
                         </View>
-                        <View>
-                          <Text style={styles.collectorName}>{c.first_name} {c.last_name}</Text>
-                          <Text style={styles.collectorPhone}>{c.phone || "Pas de numéro"}</Text>
-                        </View>
+                        {c.phone && (
+                          <Pressable
+                            style={styles.callBtn}
+                            onPress={() => {
+                              const { Linking } = require("react-native");
+                              Linking.openURL(`tel:${c.phone}`);
+                            }}
+                          >
+                            <Phone size={16} color={Colors.accent.DEFAULT} />
+                          </Pressable>
+                        )}
                       </View>
                     </GlassCard>
                   ))}
                 </View>
               ) : (
                 <GlassCard style={styles.emptyCollectorCard}>
-                  <Text style={styles.emptyCollectorText}>Aucun collecteur désigné.</Text>
+                  <Text style={styles.emptyCollectorText}>
+                    Aucun collecteur désigné.
+                  </Text>
                 </GlassCard>
               )}
             </View>
-
-
 
             {/* Directory Section - Other Members */}
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Users2 size={20} color={Colors.accent.DEFAULT} />
-                <Text style={styles.sectionTitleMain}>Les membres de mon Daara</Text>
+                <Text style={styles.sectionTitleMain}>
+                  Les membres de mon Daara
+                </Text>
               </View>
-              
+
+              {/* Bouton Chat de groupe du Daara */}
+              <Pressable
+                style={styles.groupChatBtn}
+                onPress={() => router.push("/chat" as any)}
+              >
+                <View style={styles.groupChatIcon}>
+                  <MessageSquare size={18} color="#FFF" />
+                </View>
+                <Text style={styles.groupChatText}>
+                  Ouvrir le Chat du Daara
+                </Text>
+              </Pressable>
+
               <View style={styles.directoryList}>
-                {directory.filter(m => m.id !== user?.id).length > 0 ? (
-                  directory.filter(m => m.id !== user?.id).map((member) => (
-                    <Pressable
-                      key={member.id}
-                      onPress={() => router.push(`/chat?with=${member.id}` as any)}
-                    >
-                      <GlassCard style={styles.memberCard}>
+                {directory.filter((m) => m.id !== user?.id).length > 0 ? (
+                  directory
+                    .filter((m) => m.id !== user?.id)
+                    .map((member) => (
+                      <GlassCard key={member.id} style={styles.memberCard}>
                         <View style={styles.memberRow}>
+                          <Avatar
+                            uri={member.avatar_url ?? member.avatar}
+                            name={getMemberName(member)}
+                            size={38}
+                            borderRadius={12}
+                          />
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.memberName}>{member.first_name} {member.last_name}</Text>
-                            <Text style={styles.memberRole}>{member.role === 'member' ? 'Talibé' : member.role.replace('_', ' ')}</Text>
+                            <Text style={styles.memberName}>
+                              {getMemberName(member)}
+                            </Text>
+                            <Text style={styles.memberRole}>
+                              {roleLabel(member.role)}
+                            </Text>
                           </View>
-                          <View style={styles.chatButton}>
-                            <MessageSquare size={18} color={Colors.accent.DEFAULT} />
-                          </View>
+                          {member.phone && (
+                            <Pressable
+                              style={styles.callBtn}
+                              onPress={() => {
+                                const { Linking } = require("react-native");
+                                Linking.openURL(`tel:${member.phone}`);
+                              }}
+                            >
+                              <Phone size={16} color={Colors.accent.DEFAULT} />
+                            </Pressable>
+                          )}
                         </View>
                       </GlassCard>
-                    </Pressable>
-                  ))
+                    ))
                 ) : (
-                  <Text style={styles.emptyDirectoryText}>Aucun autre membre trouvé.</Text>
+                  <Text style={styles.emptyDirectoryText}>
+                    Aucun autre membre trouvé.
+                  </Text>
                 )}
               </View>
             </View>
@@ -491,6 +581,51 @@ const styles = StyleSheet.create({
     color: Colors.ink.faint,
     fontFamily: "Inter_400Regular",
   },
+  callBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.accent.dim,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupChatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: Colors.accent.DEFAULT,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  groupChatIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupChatText: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: "#FFF",
+  },
+  memberAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: Colors.accent.dim,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  memberAvatarText: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    color: Colors.accent.DEFAULT,
+  },
   manageButton: {
     marginVertical: 10,
   },
@@ -503,7 +638,6 @@ const styles = StyleSheet.create({
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
   },
   memberName: {
     fontSize: 15,
