@@ -3,6 +3,12 @@
     "name": "yessal-mobile",
     "slug": "yessal-mobile",
     "version": "1.0.0",
+    "extra": {
+      "eas": {
+        "projectId": "a8802576-4789-4d8f-813e-4aad7f43ab92"
+      },
+      "router": {}
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "yessalmobile",
@@ -11,11 +17,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yessalgui.app",
-      "googleServicesFile": "../AGENTS/firebase/GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.yessalgui.com",
-      "googleServicesFile": "../AGENTS/firebase/google-services.json",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -52,6 +58,7 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "owner": "zayad444"
   }
 }
