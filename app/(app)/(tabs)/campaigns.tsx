@@ -20,6 +20,7 @@ import { ContentService } from "@/lib/content.service";
 import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
 
+import { useUiStore } from "@/store/ui.store";
 const PRIVILEGED_ROLES = ["admin", "chef_daara", "collector"];
 
 const COVER_ILLUSTRATIONS = [
@@ -82,6 +83,7 @@ function daysLeft(deadline?: string | null) {
 }
 
 export default function CampaignsScreen() {
+  const openDrawer = useUiStore((state) => state.openDrawer);
   const router = useRouter();
   const { user } = useAuthStore();
   const isPrivileged = PRIVILEGED_ROLES.includes(user?.role ?? "");
@@ -126,6 +128,7 @@ export default function CampaignsScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
+        onMenu={openDrawer}
         title="Ndiguels"
         subtitle="Consultez et contribuez aux ndiguels actifs"
         icon={<TrendingUp size={24} color="#FFF" />}

@@ -30,6 +30,7 @@ import { AuthService } from "@/lib/auth.service";
 import { TitleSelectionModal } from "@/components/profile/TitleSelectionModal";
 import type { TitleOption } from "@/types";
 
+import { useUiStore } from "@/store/ui.store";
 const quickActions = [
   {
     title: "Ma tutelle",
@@ -57,6 +58,7 @@ const quickActions = [
 ];
 
 export default function ProfileScreen() {
+  const openDrawer = useUiStore((state) => state.openDrawer);
   const router = useRouter();
   const { user, logout, updateProfile, isLoading } = useAuthStore();
   const [titles, setTitles] = useState<TitleOption[]>([]);
@@ -231,6 +233,7 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
+        onMenu={openDrawer}
         title="Profil"
         subtitle="Gérez votre compte et vos préférences"
         icon={<UserCircle2 size={24} color="#FFF" />}

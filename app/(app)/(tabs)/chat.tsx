@@ -28,6 +28,7 @@ import { ContentService } from "@/lib/content.service";
 import { useAuthStore } from "@/store/auth.store";
 import type { Chat, Message } from "@/types/content.types";
 
+import { useUiStore } from "@/store/ui.store";
 const ADMIN_ROLES = ["admin", "chef_daara"];
 
 type ChatSummary = Chat & {
@@ -53,6 +54,7 @@ function formatTime(value?: string) {
 }
 
 export default function CommunityScreen() {
+  const openDrawer = useUiStore((state) => state.openDrawer);
   const router = useRouter();
   const { user } = useAuthStore();
   const isAdmin = ADMIN_ROLES.includes(user?.role ?? "");
@@ -125,6 +127,7 @@ export default function CommunityScreen() {
   return (
     <View style={styles.container}>
       <SectionHeader
+        onMenu={openDrawer}
         title="Messagerie"
         subtitle={isAdmin ? "Gérez les discussions de la communauté" : "Échangez avec votre Daara et vos frères"}
         icon={<MessageSquare size={24} color="#FFF" />}

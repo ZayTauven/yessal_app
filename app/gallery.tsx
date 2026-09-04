@@ -84,7 +84,9 @@ const DEMO_PHOTO = require("@/assets/images/onboarding-1.jpg");
 export default function Gallery() {
   const [filter, setFilter] = useState("Tous");
   const [method, setMethod] = useState<PaymentMethod>("orange_money");
-  const [amount, setAmount] = useState(25_000);
+  /** Le pavé édite une chaîne de chiffres ; le montant s'en déduit. */
+  const [amountDigits, setAmountDigits] = useState("25000");
+  const amount = Number(amountDigits || 0);
   const [tab, setTab] = useState("home");
   const [phone, setPhone] = useState("77 641 22 08");
 
@@ -298,8 +300,11 @@ export default function Gallery() {
           title="AmountSelector · NumericKeypad"
           note="touches 72 · chiffres 24 / 600 · touche « 000 »"
         >
-          <AmountSelector value={amount} onChange={setAmount} />
-          <NumericKeypad value={amount} onChange={setAmount} />
+          <AmountSelector
+            value={amount}
+            onChange={(next) => setAmountDigits(String(next))}
+          />
+          <NumericKeypad value={amountDigits} onChange={setAmountDigits} />
         </Section>
 
         {/* 13 — PaymentMethodRow */}

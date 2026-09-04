@@ -887,7 +887,13 @@ export default function DonateScreen() {
         message={successMessage}
         onClose={() => {
           setSuccessVisible(false);
-          router.replace("/(app)/home" as any);
+          /*
+           * Phase C : `donate` n'est plus un onglet, c'est une feuille par-dessus
+           * l'onglet courant. Un `replace` vers l'accueil remplacerait la route
+           * DE LA FEUILLE — l'accueil se serait affiché à l'intérieur. On referme,
+           * et l'utilisateur retrouve l'écran d'où il est parti.
+           */
+          router.dismissTo("/home");
         }}
       />
     </SafeAreaView>

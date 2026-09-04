@@ -1,314 +1,446 @@
-import { useRef, useState } from "react";
+/**
+ * app/(auth)/onboarding.tsx — la porte d'entrée.
+ *
+ * Refonte du §4 du plan, disposition alignée sur la référence Fundio fournie
+ * par le commanditaire le 2026-09-04.
+ *
+ * LA DISPOSITION : un damier 2 × 2 où photos et tuiles alternent en diagonale
+ * — photo en haut à gauche, tuile pastel en haut à droite, tuile en bas à
+ * gauche, photo en bas à droite. La colonne de droite est décalée vers le bas :
+ * c'est ce décalage qui donne l'air composé plutôt que gabarité. Puis, centrés :
+ * une pastille, le titre, une phrase, et UNE action.
+ *
+ * La composition est ENTIÈREMENT STATIQUE — le cadre, le titre et le bouton ne
+ * bougent pas. La sensation visée est la stabilité, la confiance. La vie vient
+ * uniquement du CONTENU :
+ *   — les deux cartes photo pivotent sur `rotateY` et révèlent d'autres scènes
+ *     de la confrérie ;
+ *   — les deux tuiles font défiler en boucle des pictogrammes de campagnes de
+ *     dons, en sens opposés et à des vitesses premières entre elles (14 s et
+ *     17 s) pour que la symétrie ne se voie jamais.
+ *
+ * **Règle : ne rien nommer, ne rien raconter. MONTRER.** Aucune incrustation
+ * de texte sur les photographies.
+ *
+ * UNE SEULE ACTION. La planche portait « Passer » en haut et « Commencer » en
+ * bas — deux boutons menant au même écran. La référence n'en a qu'un. À
+ * arbitrage égal entre ajouter et retirer, on retire.
+ *
+ * ⚠ Les photographies sont les seules AUTHENTIQUES du fonds (§3.5). Les images
+ * de banque ont été retirées : `ceremonie-*` montrait une procession orthodoxe
+ * éthiopienne, `daara-2x1` une cour d'école d'Afrique de l'Est. Ne pas les
+ * réintroduire.
+ *
+ * ⚠ Les pictogrammes sont ceux de Lucide, EN ATTENTE. Le jeu de dix tracés
+ * monoline originaux (brief §3.5) reste dû — ceux de la planche viennent de
+ * Fundio et ne peuvent pas être livrés.
+ */
+import { useEffect } from "react";
 import {
-  View,
-  Text,
-  FlatList,
-  Dimensions,
-  Pressable,
   StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Image as ExpoImage } from "expo-image";
-import { Colors } from "@/constants/colors";
+import { Image as ExpoImage, type ImageSource } from "expo-image";
+import { useRouter } from "expo-router";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
+import {
+  HandCoins,
+  HandHeart,
+  HeartHandshake,
+  PiggyBank,
+  UtensilsCrossed,
+} from "lucide-react-native";
 
-const { width: W } = Dimensions.get("window");
+import { Button } from "@/components/ui/Button";
+import {
+  Border,
+  Font,
+  GUTTER,
+  Ink,
+  Pastel,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  Violet,
+  continuous,
+} from "@/theme";
 
-const SLIDES = [
-  {
-    id: "1",
-    image: require("@/assets/images/onboarding-1.jpg"),
-    title: "Bienvenue sur\nYessal Gui",
-    subtitle:
-      "La plateforme numérique de votre confrérie. Gérez les dons, suivez les actualités et restez connecté à votre Daara.",
-  },
-  {
-    id: "2",
-    image: require("@/assets/images/onboarding-2.jpg"),
-    title: "Donnez en\nquelques secondes",
-    subtitle:
-      "Contribuez aux Ndiguels de votre Daara via Orange Money, Wave ou PayPal. Faites aussi des dons au nom de vos proches.",
-  },
-  {
-    id: "3",
-    image: require("@/assets/images/onboarding-3.jpg"),
-    title: "Votre Daara,\noù que vous soyez",
-    subtitle:
-      "Suivez les actualités, échangez avec votre communauté et consultez l'historique de vos contributions depuis n'importe où.",
-  },
+// ─────────────────────────────────────────────────────────────────────────────
+// Le contenu qui vit
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Frame = { source: ImageSource; focus: number };
+
+/**
+ * Carte du haut : les visages. `focus` est l'ancrage vertical du cadrage, en
+ * fraction de hauteur — les valeurs remontent vers les visages et amputent le
+ * bas, où vit le filigrane du photographe.
+ */
+const ROLL_FACES: Frame[] = [
+  { source: require("@/assets/photos/reel/sokhna-aida-2x3.jpg"), focus: 0.2 },
+  { source: require("@/assets/photos/reel/guide-a-3x4.jpg"), focus: 0.26 },
+  { source: require("@/assets/photos/reel/serigne-3x4.jpg"), focus: 0.24 },
+  { source: require("@/assets/photos/reel/guide-c-3x4.jpg"), focus: 0.22 },
 ];
 
-function Dot({ active }: { active: boolean }) {
-  return (
-    <View
-      style={{
-        width: active ? 22 : 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: active ? Colors.accent.DEFAULT : Colors.ink.ghost,
-        marginHorizontal: 4,
-      }}
-    />
-  );
-}
+/**
+ * Carte du bas : la communauté. Recadrages carrés DÉRIVÉS DES ORIGINAUX 3:2,
+ * pas des 2:1 déjà produits — passer de 2:1 à 0,88 n'aurait gardé que 44 % de
+ * la largeur. Les 2:1 restent au dépôt pour `CampaignCard`, qui est large.
+ */
+const ROLL_COMMUNITY: Frame[] = [
+  { source: require("@/assets/photos/reel/scene-foule.jpg"), focus: 0.5 },
+  { source: require("@/assets/photos/reel/scene-marmites.jpg"), focus: 0.5 },
+  { source: require("@/assets/photos/reel/scene-plats.jpg"), focus: 0.5 },
+];
+
+const PICTOS_A = [HandHeart, PiggyBank, HeartHandshake];
+const PICTOS_B = [UtensilsCrossed, HeartHandshake, HandCoins];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Géométrie et rythmes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Largeur / hauteur d'une carte photo, mesurée sur la référence. */
+const PHOTO_RATIO = 0.88;
+const CELL_GAP = 12;
+/** Décalage de la colonne de droite — ce qui casse la symétrie du damier. */
+const COLUMN_OFFSET = 14;
+/** Part de la hauteur d'écran que le damier ne dépasse pas. */
+const GRID_HEIGHT_SHARE = 0.48;
+
+/** Durée d'un demi-pivot. L'image est échangée au point mort, à 90°. */
+const FLIP_MS = 340;
+const FLIP_EVERY_MS = 3600;
+/** Décalage de la seconde carte : les deux ne tournent jamais ensemble. */
+const FLIP_OFFSET_MS = 1800;
+
+const PICTO_SIZE = 56;
+const PICTO_GAP = Space.lg;
+/** Une période = une copie complète de la bande. Le défilement boucle dessus. */
+const MARQUEE_PERIOD = PICTOS_A.length * (PICTO_SIZE + PICTO_GAP);
 
 export default function Onboarding() {
   const router = useRouter();
-  const [current, setCurrent] = useState(0);
-  const flatRef = useRef<FlatList>(null);
+  const { width, height } = useWindowDimensions();
 
-  const handleNext = () => {
-    if (current < SLIDES.length - 1) {
-      flatRef.current?.scrollToIndex({ index: current + 1 });
-      setCurrent(current + 1);
-    } else {
-      router.replace("/login" as any);
-    }
-  };
-
-  const handleSkip = () => router.replace("/login" as any);
-
-  const isLast = current === SLIDES.length - 1;
-
-  const onMomentumScrollEnd = (event: any) => {
-    const slideSize = event.nativeEvent.layoutMeasurement.width;
-    const index = event.nativeEvent.contentOffset.x / slideSize;
-    const roundIndex = Math.round(index);
-    setCurrent(roundIndex);
-  };
+  /**
+   * La cellule est bornée DEUX FOIS : par la largeur disponible, et par la part
+   * de hauteur qu'on accorde au damier. Sans la seconde borne, un écran court
+   * (un iPhone SE) verrait le bouton passer sous le pli.
+   *
+   * Hauteur d'une colonne = photo + écart + tuile carrée = c / R + g + c.
+   */
+  const byWidth = (width - GUTTER * 2 - CELL_GAP) / 2;
+  const budget = height * GRID_HEIGHT_SHARE - COLUMN_OFFSET - CELL_GAP;
+  const byHeight = budget / (1 / PHOTO_RATIO + 1);
+  const cell = Math.floor(Math.min(byWidth, byHeight));
+  const photoHeight = Math.round(cell / PHOTO_RATIO);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.bgBase} />
-      <View style={styles.bgBlobTop} />
-      <View style={styles.bgBlobBottom} />
-
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.topBar}>
-          {!isLast && (
-            <Pressable
-              onPress={handleSkip}
-              hitSlop={15}
-              style={styles.skipButton}
-            >
-              <Text style={styles.skipText}>Passer</Text>
-            </Pressable>
-          )}
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      <View style={styles.grid}>
+        <View style={styles.column}>
+          <FlipCard
+            roll={ROLL_FACES}
+            direction={1}
+            startDelay={0}
+            accessibilityLabel="La guide et les figures de la confrérie"
+            style={{ width: cell, height: photoHeight }}
+          />
+          <MarqueeTile
+            pictos={PICTOS_B}
+            tone={Pastel.teal}
+            direction={1}
+            durationMs={17000}
+            size={cell}
+            accessibilityLabel="Les actions solidaires du Daara"
+          />
         </View>
 
-        <FlatList
-          ref={flatRef}
-          data={SLIDES}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={onMomentumScrollEnd}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={[styles.slide, { width: W }]}>
-              <View style={styles.illustrationWrap}>
-                <ExpoImage
-                  source={item.image}
-                  style={styles.image}
-                  contentFit="cover"
-                  transition={500}
-                />
-                <View style={styles.imageOverlay} />
-              </View>
+        <View style={[styles.column, styles.columnOffset]}>
+          <MarqueeTile
+            pictos={PICTOS_A}
+            tone={Pastel.peach}
+            direction={-1}
+            durationMs={14000}
+            size={cell}
+            accessibilityLabel="Les campagnes de dons du Daara"
+          />
+          <FlipCard
+            roll={ROLL_COMMUNITY}
+            direction={-1}
+            startDelay={FLIP_OFFSET_MS}
+            accessibilityLabel="Les rassemblements et les repas partagés du Daara"
+            style={{ width: cell, height: photoHeight }}
+          />
+        </View>
+      </View>
 
-              <View style={styles.textWrap}>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.subtitle}>{item.subtitle}</Text>
-              </View>
-            </View>
-          )}
-        />
+      {/*
+        Le texte SUIT la grille, à distance fixe ; le bouton s'épingle en bas.
+        L'inverse — tout le bloc poussé en bas par un ressort — creusait un vide
+        entre la grille et le titre, visible sur la capture du 2026-09-04.
+      */}
+      <View style={styles.bottom}>
+        <View style={styles.pill}>
+          <Text style={styles.pillLabel}>Ndiguels et Jëfs</Text>
+        </View>
 
-        <View style={styles.bottom}>
-          <View style={styles.dots}>
-            {SLIDES.map((_, i) => (
-              <Dot key={i} active={i === current} />
-            ))}
+        <Text style={styles.title}>Le Daara dans{"\n"}votre poche</Text>
+        <Text style={styles.subtitle}>
+          {"Suivez les Ndiguels, faites vos Jëfs et portez vos proches, où que vous soyez."}
+        </Text>
+      </View>
+
+      <View style={styles.spacer} />
+
+      <Button label="Commencer" onPress={() => router.replace("/login")} />
+    </SafeAreaView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface FlipCardProps {
+  roll: Frame[];
+  /** Sens du pivot : 1 vers la droite, −1 vers la gauche. */
+  direction: 1 | -1;
+  startDelay: number;
+  accessibilityLabel: string;
+  style?: StyleProp<ViewStyle>;
+}
+
+/**
+ * La carte photo qui pivote.
+ *
+ * Tout tient sur le fil natif : AUCUN état React, donc aucun rendu React
+ * pendant l'animation. L'index de l'image est une valeur partagée, échangée
+ * depuis le rappel de la première moitié du pivot — c'est-à-dire à 90°, quand
+ * la carte est vue par la tranche et que l'échange est invisible.
+ */
+function FlipCard({
+  roll,
+  direction,
+  startDelay,
+  accessibilityLabel,
+  style,
+}: FlipCardProps) {
+  const flip = useSharedValue(0);
+  const index = useSharedValue(0);
+  const count = roll.length;
+
+  useEffect(() => {
+    const turn = () => {
+      flip.value = withSequence(
+        withTiming(
+          1,
+          { duration: FLIP_MS, easing: Easing.in(Easing.cubic) },
+          (finished) => {
+            "worklet";
+            if (finished) index.value = (index.value + 1) % count;
+          },
+        ),
+        withTiming(0, { duration: FLIP_MS, easing: Easing.out(Easing.cubic) }),
+      );
+    };
+
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const start = setTimeout(() => {
+      interval = setInterval(turn, FLIP_EVERY_MS);
+    }, startDelay);
+
+    return () => {
+      clearTimeout(start);
+      if (interval) clearInterval(interval);
+    };
+  }, [count, flip, index, startDelay]);
+
+  const card = useAnimatedStyle(() => ({
+    transform: [
+      { perspective: 800 },
+      { rotateY: `${flip.value * 90 * direction}deg` },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.photoCard, card, style]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
+    >
+      {roll.map((frame, i) => (
+        <FlipFace key={i} frame={frame} position={i} index={index} />
+      ))}
+    </Animated.View>
+  );
+}
+
+function FlipFace({
+  frame,
+  position,
+  index,
+}: {
+  frame: Frame;
+  position: number;
+  index: { value: number };
+}) {
+  const face = useAnimatedStyle(() => ({
+    opacity: index.value === position ? 1 : 0,
+  }));
+
+  return (
+    <Animated.View style={[StyleSheet.absoluteFill, face]}>
+      <ExpoImage
+        source={frame.source}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        contentPosition={{ top: `${frame.focus * 100}%`, left: "50%" }}
+        cachePolicy="memory-disk"
+      />
+    </Animated.View>
+  );
+}
+
+interface MarqueeTileProps {
+  pictos: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>[];
+  tone: string;
+  /** −1 défile vers la gauche, 1 vers la droite. */
+  direction: 1 | -1;
+  durationMs: number;
+  size: number;
+  accessibilityLabel: string;
+}
+
+/**
+ * La tuile pastel dont la bande de pictogrammes défile en boucle.
+ *
+ * La liste est doublée : la translation d'exactement une période revient donc
+ * sur une bande identique, et la boucle ne se voit pas.
+ */
+function MarqueeTile({
+  pictos,
+  tone,
+  direction,
+  durationMs,
+  size,
+  accessibilityLabel,
+}: MarqueeTileProps) {
+  const from = direction === -1 ? 0 : -MARQUEE_PERIOD;
+  const to = direction === -1 ? -MARQUEE_PERIOD : 0;
+  const x = useSharedValue(from);
+
+  useEffect(() => {
+    x.value = from;
+    x.value = withRepeat(
+      withTiming(to, { duration: durationMs, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, [durationMs, from, to, x]);
+
+  const strip = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+
+  return (
+    <View
+      style={[styles.tile, { width: size, height: size, backgroundColor: tone }]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
+    >
+      <Animated.View style={[styles.strip, strip]}>
+        {[...pictos, ...pictos].map((Picto, i) => (
+          <View key={i} style={styles.picto}>
+            <Picto size={PICTO_SIZE} color={Violet[900]} strokeWidth={1.4} />
           </View>
-
-          <Pressable
-            onPress={handleNext}
-            style={({ pressed }) => [
-              styles.cta,
-              {
-                opacity: pressed ? 0.9 : 1,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-              },
-            ]}
-          >
-            <Text style={styles.ctaOnboarding}>
-              {isLast ? "Commencer" : "Suivant"}
-            </Text>
-          </Pressable>
-
-          {!isLast && (
-            <Pressable
-              onPress={() => router.replace("/login" as any)}
-              style={{ marginTop: 20 }}
-            >
-              <Text style={styles.already}>
-                Déjà membre ?{" "}
-                <Text style={styles.alreadyLink}>Se connecter</Text>
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      </SafeAreaView>
+        ))}
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: Surface.default,
+    paddingHorizontal: GUTTER,
+    paddingBottom: GUTTER,
   },
-  bgBase: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "#FDFBF8",
-  },
-  bgBlobTop: {
-    position: "absolute",
-    top: -120,
-    left: -90,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: Colors.accent.dim,
-    opacity: 0.7,
-  },
-  bgBlobBottom: {
-    position: "absolute",
-    right: -120,
-    bottom: 120,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: "rgba(184, 134, 11, 0.12)",
-    opacity: 0.9,
-  },
-  safe: {
-    flex: 1,
-  },
-  topBar: {
+
+  grid: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    height: 60,
-    zIndex: 10,
+    justifyContent: "center",
+    gap: CELL_GAP,
+    paddingTop: Space.xl,
   },
-  skipButton: {
-    backgroundColor: Colors.accent.DEFAULT,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-    shadowColor: Colors.accent.DEFAULT,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  skipText: {
-    fontSize: 14,
-    color: "#FFFFFF",
-    fontFamily: "Inter_600SemiBold",
-  },
-  slide: {
-    flex: 1,
-    alignItems: "center",
-  },
-  illustrationWrap: {
-    width: W * 0.88,
-    height: W * 0.9,
-    borderRadius: 32,
+  column: { gap: CELL_GAP },
+  /** Le décalage qui casse la symétrie du damier. */
+  columnOffset: { marginTop: COLUMN_OFFSET },
+
+  photoCard: {
+    borderRadius: Radius.card,
+    ...continuous,
     overflow: "hidden",
-    marginTop: 10,
-    marginBottom: 35,
-    backgroundColor: Colors.surface.muted,
-    elevation: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    backgroundColor: Violet[100],
   },
-  image: {
-    flex: 1,
-    width: "100%",
+
+  tile: {
+    borderRadius: Radius.tile,
+    ...continuous,
+    overflow: "hidden",
+    justifyContent: "center",
   },
-  imageOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(26, 92, 58, 0.03)",
-  },
-  textWrap: {
-    paddingHorizontal: 32,
-    alignItems: "center",
-  },
-  title: {
-    fontSize: 28,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    textAlign: "center",
-    lineHeight: 36,
-    letterSpacing: -0.5,
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 16,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    textAlign: "center",
-    lineHeight: 24,
-    maxWidth: 310,
-  },
-  bottom: {
-    paddingHorizontal: 24,
-    paddingBottom: 40,
-    alignItems: "center",
-    width: "100%",
-  },
-  dots: {
-    flexDirection: "row",
-    marginBottom: 32,
-    alignItems: "center",
-  },
-  cta: {
-    backgroundColor: Colors.accent.DEFAULT,
-    borderRadius: 18,
-    paddingVertical: 18,
-    width: "100%",
+  strip: { flexDirection: "row", alignItems: "center", paddingLeft: PICTO_GAP },
+  picto: {
+    width: PICTO_SIZE,
+    height: PICTO_SIZE,
+    marginRight: PICTO_GAP,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: Colors.accent.DEFAULT,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
   },
-  ctaText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.5,
+
+  spacer: { flex: 1, minHeight: Space.xxl },
+
+  bottom: { alignItems: "center", marginTop: Space.huge },
+  /**
+   * La pastille de la référence : capsule contour, sur fond blanc. Décorative —
+   * ce n'est pas un `Chip`, qui est une pilule de filtre avec une sémantique de
+   * pression et une zone tactile de 44.
+   */
+  pill: {
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.sm,
+    borderRadius: Radius.chip,
+    borderWidth: 1,
+    borderColor: Border.strong,
   },
-  ctaOnboarding: {
-    color: "green",
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.5,
+  pillLabel: { fontFamily: Font.bold, fontSize: 13, lineHeight: 16, color: Violet[900] },
+
+  title: {
+    ...Type.screenTitle,
+    color: Violet[900],
+    textAlign: "center",
+    marginTop: Space.xl,
   },
-  already: {
-    fontSize: 15,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  alreadyLink: {
-    color: Colors.accent.DEFAULT,
-    fontFamily: "Inter_700Bold",
+  subtitle: {
+    ...Type.body,
+    color: Ink[500],
+    textAlign: "center",
+    marginTop: Space.md,
+    maxWidth: 300,
   },
 });

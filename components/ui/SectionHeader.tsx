@@ -5,6 +5,7 @@ import {
   Dimensions,
   Pressable,
 } from "react-native";
+import { Menu } from "lucide-react-native";
 import { Colors } from "@/constants/colors";
 
 const { width: W } = Dimensions.get("window");
@@ -20,9 +21,19 @@ interface SectionHeaderProps {
   subtitle?: string;
   icon?: React.ReactNode;
   actions?: SectionHeaderAction[];
+  /**
+   * Ouvre le tiroir. Placé À GAUCHE du titre, comme le veut le contrat
+   * (« le bouton présent en tête de chaque écran, à gauche du titre »).
+   *
+   * Ajout temporaire de la phase C : le tiroir n'est plus un onglet, il lui
+   * faut donc une prise sur chaque écran. `SectionHeader` disparaît en phase F
+   * au profit de `ScreenHeader`, qui porte nativement un emplacement gauche —
+   * cette prop part avec lui.
+   */
+  onMenu?: () => void;
 }
 
-export function SectionHeader({ title, subtitle, icon, actions }: SectionHeaderProps) {
+export function SectionHeader({ title, subtitle, icon, actions, onMenu }: SectionHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.bgBase} />
@@ -31,6 +42,16 @@ export function SectionHeader({ title, subtitle, icon, actions }: SectionHeaderP
       <View style={styles.accentLine} />
 
       <View style={styles.content}>
+        {onMenu ? (
+          <Pressable
+            onPress={onMenu}
+            accessibilityRole="button"
+            accessibilityLabel="Ouvrir le menu"
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+          >
+            <Menu size={20} color={Colors.ink.DEFAULT} />
+          </Pressable>
+        ) : null}
         {icon && <View style={styles.iconBox}>{icon}</View>}
         <View style={styles.textColumn}>
           <Text style={styles.title}>{title}</Text>

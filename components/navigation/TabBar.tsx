@@ -27,6 +27,7 @@
  * Composant de présentation. Le câblage à `expo-router` est la phase C.
  */
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import {
   Pressable,
   StyleSheet,
@@ -42,6 +43,16 @@ import { GUTTER, Ink, Radius, Shadow, Space, UIType, Violet } from "@/theme";
 const BAR_HEIGHT = 64;
 const CENTER_SIZE = 56;
 const TAB_SIZE = 48;
+/** Marge basse de la barre au-dessus de l'encoche. */
+const BAR_INSET = 14;
+
+/**
+ * Ce qu'un écran doit réserver en bas de son contenu pour ne pas passer sous
+ * la barre. À ajouter à `insets.bottom` :
+ *
+ *   contentContainerStyle={{ paddingBottom: insets.bottom + TAB_BAR_SPACE }}
+ */
+export const TAB_BAR_SPACE = BAR_HEIGHT + BAR_INSET * 2;
 
 export interface TabItem {
   key: string;
@@ -73,7 +84,7 @@ export function TabBar({ items, activeKey, center, style }: TabBarProps) {
 
   return (
     <View
-      style={[styles.wrapper, { bottom: insets.bottom + 14 }, style]}
+      style={[styles.wrapper, { bottom: insets.bottom + BAR_INSET }, style]}
       pointerEvents="box-none"
     >
       <BlurView intensity={24} tint="light" style={styles.bar}>
@@ -83,7 +94,10 @@ export function TabBar({ items, activeKey, center, style }: TabBarProps) {
 
         {center ? (
           <Pressable
-            onPress={center.onPress}
+            onPress={() => {
+              tap();
+              center.onPress();
+            }}
             accessibilityRole="button"
             accessibilityLabel={center.accessibilityLabel}
             style={({ pressed }) => [styles.center, pressed && styles.pressed]}
@@ -105,7 +119,10 @@ function Tab({ item, active }: { item: TabItem; active: boolean }) {
 
   return (
     <Pressable
-      onPress={item.onPress}
+      onPress={() => {
+        tap();
+        item.onPress();
+      }}
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={item.label}
@@ -125,6 +142,14 @@ function Tab({ item, active }: { item: TabItem; active: boolean }) {
       ) : null}
     </Pressable>
   );
+}
+
+/**
+ * Retour haptique à la frappe. Remplace `components/haptic-tab.tsx`, qui
+ * n'avait plus de raison d'être une fois la barre par défaut abandonnée.
+ */
+function tap() {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 }
 
 const styles = StyleSheet.create({

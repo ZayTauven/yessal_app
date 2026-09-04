@@ -76,6 +76,13 @@ export interface Tutelle {
   last_name: string;
   relation: string;
   linked_user?: number | null;
+  /**
+   * Renvoyés par `TutelleSerializer` (`accounts/serializers.py:201-217`) via
+   * `linked_user`, et manquants ici depuis l'origine. Les deux sont `null`
+   * quand la tutelle n'est rattachée à aucun compte — c'est le cas courant.
+   */
+  avatar_url?: string | null;
+  phone?: string | null;
   created_at?: string;
   updated_at?: string;
 }

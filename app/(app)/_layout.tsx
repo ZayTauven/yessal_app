@@ -1,202 +1,76 @@
-import { useState } from "react";
-import { Redirect, Tabs } from "expo-router";
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type PressableProps,
-} from "react-native";
-import { AlignLeft, Calendar, Heart, Home, Plus, Newspaper } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+/**
+ * app/(app)/_layout.tsx — la couche authentifiée.
+ *
+ * Trois responsabilités, et rien d'autre :
+ *   1. la garde d'authentification ;
+ *   2. la pile — les onglets, la feuille Jëf, les destinations secondaires ;
+ *   3. le tiroir, monté UNE fois au-dessus de tout, piloté par `useUiStore`.
+ *
+ * La barre d'onglets a été descendue dans `(tabs)/_layout.tsx`. Les deux
+ * groupes sont entre parenthèses : ils ne paraissent pas dans l'URL, donc
+ * `/home`, `/campaigns`, `/donate`… sont inchangés. Aucun lien profond ne casse.
+ *
+ * ⚠ `donate` n'est plus un onglet. §2 : « le bouton central n'est pas un onglet
+ * mais un déclencheur de flux modal — contribuer n'est pas une destination,
+ * c'est une action. » Il est ici, en feuille, par-dessus l'onglet courant.
+ */
+import { Redirect, Stack, useSegments } from "expo-router";
+import { View, StyleSheet } from "react-native";
 
-import { useAuthStore } from "@/store/auth.store";
-import { Colors } from "@/constants/colors";
-import { HapticTab } from "@/components/haptic-tab";
 import { Sidebar } from "@/components/navigation/Sidebar";
-
-function DonateTabButton({ onPress }: { onPress?: PressableProps["onPress"] }) {
-  return (
-    <Pressable onPress={onPress} style={styles.donateButton}>
-      <View style={styles.donateCircle}>
-        <Plus size={20} color="#FFF" strokeWidth={2} />
-      </View>
-      <Text style={styles.donateLabel}>Jëfs</Text>
-    </Pressable>
-  );
-}
-
-function MenuTabButton({ onPress }: { onPress?: PressableProps["onPress"] }) {
-  return (
-    <Pressable onPress={onPress} style={styles.menuButton}>
-      <AlignLeft size={20} color={Colors.ink.faint} />
-      <Text style={styles.menuLabel}>Menu</Text>
-    </Pressable>
-  );
-}
+import { useAuthStore } from "@/store/auth.store";
+import { Radius, Surface } from "@/theme";
 
 export default function AppLayout() {
-  const { isAuthenticated, isLoading, user } = useAuthStore();
-  const insets = useSafeAreaInsets();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { isAuthenticated, isLoading } = useAuthStore();
+  const segments = useSegments();
 
-  if (isLoading) {
-    return null;
-  }
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Redirect href="/login" />;
 
-  if (!isAuthenticated) {
-    return <Redirect href="/login" />;
-  }
+  /**
+   * La route active, pour marquer la ligne courante du tiroir. Les segments
+   * sont p. ex. `["(app)", "(tabs)", "home"]` : on ne garde que le dernier,
+   * les groupes n'étant pas des segments d'URL.
+   */
+  const activeRoute = `/${segments[segments.length - 1] ?? ""}`;
 
   return (
     <View style={styles.shell}>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarButton: HapticTab,
-          tabBarActiveTintColor: Colors.accent.DEFAULT,
-          tabBarInactiveTintColor: Colors.ink.faint,
-          tabBarLabelStyle: {
-            fontFamily: "Inter_600SemiBold",
-            fontSize: 11,
-            marginBottom: 0,
-          },
-          tabBarStyle: {
-            position: "absolute",
-            left: 20,
-            right: 20,
-            bottom: Math.max(insets.bottom, Platform.OS === "ios" ? 16 : 14),
-            height: Math.max(
-              insets.bottom + 64,
-              Platform.OS === "ios" ? 80 : 72,
-            ),
-            borderRadius: 26,
-            backgroundColor: "rgba(255,255,255,0.96)",
-            borderTopWidth: 0,
-            borderWidth: 1,
-            borderColor: "rgba(26, 92, 58, 0.08)",
-            paddingTop: 8,
-            paddingBottom: Math.max(
-              insets.bottom,
-              Platform.OS === "ios" ? 20 : 12,
-            ),
-            paddingHorizontal: 10,
-            boxShadow: "0 10px 28px rgba(14, 24, 16, 0.10)",
-          },
-          tabBarItemStyle: {
-            paddingVertical: 6,
-            borderRadius: 18,
-          },
-          tabBarIconStyle: {
-            marginTop: 2,
-          },
-        }}
-      >
-        <Tabs.Screen
-          name="home"
-          options={{
-            title: "Accueil",
-            tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="campaigns"
-          options={{
-            title: "Ndiguels",
-            tabBarIcon: ({ color, size }) => (
-              <Heart size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
+
+        {/*
+          Le flux Jëf. Feuille pleine hauteur : les cinq étapes portent un pavé
+          numérique, un palier intermédiaire les couperait en deux.
+          ⚠ `sheetGrabberVisible` est iOS seulement — sur Android, la feuille se
+          referme au geste et au bouton retour, sans poignée dessinée.
+        */}
+        <Stack.Screen
           name="donate"
           options={{
-            title: "Jëfs",
-            tabBarButton: (props) => (
-              <DonateTabButton onPress={props.onPress} />
-            ),
+            presentation: "formSheet",
+            sheetAllowedDetents: [1],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: Radius.card + 4,
+            sheetExpandsWhenScrolledToEdge: true,
           }}
         />
-        <Tabs.Screen
-          name="explore"
-          options={{
-            title: "Actualités",
-            tabBarIcon: ({ color, size }) => <Newspaper size={size} color={color} />,
-            href: user?.role === "admin" ? null : "/(app)/explore",
-          }}
-        />
-        <Tabs.Screen
-          name="events"
-          options={{
-            title: "Événements",
-            tabBarIcon: ({ color, size }) => <Calendar size={size} color={color} />,
-            href: user?.role === "admin" ? "/(app)/events" : null,
-          }}
-        />
-        <Tabs.Screen
-          name="menu"
-          options={{
-            title: "Menu",
-            tabBarButton: () => (
-              <MenuTabButton onPress={() => setDrawerOpen(true)} />
-            ),
-          }}
-        />
-        <Tabs.Screen name="chat" options={{ href: null }} />
-        <Tabs.Screen name="donations" options={{ href: null }} />
-        <Tabs.Screen name="daara" options={{ href: null }} />
-        <Tabs.Screen name="profile" options={{ href: null }} />
-        <Tabs.Screen name="announcements" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-      </Tabs>
 
-      <Sidebar
-        visible={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onNavigate={() => setDrawerOpen(false)}
-      />
+        {/* Destinations secondaires — empilées, pas modales. */}
+        <Stack.Screen name="daara" />
+        <Stack.Screen name="donations" />
+        <Stack.Screen name="explore" />
+        <Stack.Screen name="events" />
+        <Stack.Screen name="notifications" />
+        <Stack.Screen name="announcements" />
+      </Stack>
+
+      <Sidebar activeRoute={activeRoute} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  shell: {
-    flex: 1,
-  },
-  donateButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: -18,
-    width: 72,
-  },
-  donateCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.accent.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "0 10px 24px rgba(26, 92, 58, 0.35)",
-  },
-  donateLabel: {
-    marginTop: 4,
-    fontSize: 8,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-    letterSpacing: 0.5,
-  },
-  menuButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-    width: 72,
-  },
-  menuLabel: {
-    marginTop: 4,
-    fontSize: 8,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    letterSpacing: 0.5,
-  },
+  shell: { flex: 1, backgroundColor: Surface.default },
 });

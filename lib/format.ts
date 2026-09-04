@@ -11,19 +11,29 @@
  * coupe jamais en fin de ligne.
  */
 
-/** Espace fine insécable — U+202F. C'est le séparateur de milliers du kit. */
-const THIN_NBSP = "\u202F";
+/**
+ * Espace INSÉCABLE — U+00A0.
+ *
+ * On avait d'abord posé l'espace FINE insécable (U+202F), plus juste
+ * typographiquement. Constat sur la capture du 2026-09-04 : elle ne rendait
+ * pas — « 127 000FCFA » au lieu de « 127 000 FCFA ». Plus Jakarta Sans ne
+ * porte pas ce glyphe et la fonte de secours l'avale.
+ *
+ * U+00A0 est dans toutes les fontes. Ne pas revenir à U+202F sans l'avoir
+ * vérifié à l'écran.
+ */
+export const NBSP = "\u00A0";
 
 /** 1250000 → « 1 250 000 » */
 export function formatNumber(value: number): string {
   const rounded = Math.trunc(Math.abs(value));
   const sign = value < 0 ? "-" : "";
-  return sign + String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, THIN_NBSP);
+  return sign + String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
 }
 
 /** 1250000 → « 1 250 000 FCFA ». Le FCFA n'a pas de décimales. */
 export function formatFCFA(value: number): string {
-  return `${formatNumber(value)}${THIN_NBSP}FCFA`;
+  return `${formatNumber(value)}${NBSP}FCFA`;
 }
 
 /** 0,62 → « 62 % ». Espace insécable avant le signe, comme le veut le français. */

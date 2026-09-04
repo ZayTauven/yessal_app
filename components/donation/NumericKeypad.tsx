@@ -11,6 +11,12 @@
  *
  *   Pavé maison plutôt que le clavier système : le clavier numérique d'Android
  *   varie d'un constructeur à l'autre et pousse l'écran vers le haut.
+ *
+ * ⚠ Le pavé travaille sur une CHAÎNE de chiffres, pas sur un nombre. Un numéro
+ * de téléphone commençant par 0 en dépend, et `Number("077…")` le perdrait.
+ * Ce que la chaîne représente — un montant, un numéro — regarde l'appelant :
+ * `AmountSelector` en fait un nombre, l'écran de connexion un numéro. C'est ce
+ * qui évite d'avoir deux pavés dans le produit.
  */
 import { Delete } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -24,16 +30,24 @@ import {
 } from "react-native";
 import { Border, Ink, Pastel, Radius, Space, Surface, UIType, continuous } from "@/theme";
 
-/** Garde-fou de saisie : 100 millions de FCFA. Au-delà, la touche ne répond plus. */
-const MAX_AMOUNT = 100_000_000;
+/** Hauteur de touche du contrat. */
+const KEY_HEIGHT = 72;
 
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0"] as const;
+const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
 interface NumericKeypadProps {
-  value: number;
-  onChange: (next: number) => void;
-  /** Plafond de saisie. */
-  max?: number;
+  /** Les chiffres saisis, sans séparateur. */
+  value: string;
+  onChange: (next: string) => void;
+  /** Nombre maximal de chiffres. 9 pour un numéro sénégalais. */
+  maxLength?: number;
+  /**
+   * La touche « 000 ». Vraie pour un montant — c'est le contrat ; fausse pour
+   * un numéro de téléphone, où elle n'a aucun sens.
+   */
+  thousandsKey?: boolean;
+  /** 72 par défaut. Réductible quand le pavé vit dans une feuille basse. */
+  keyHeight?: number;
   /** Retour haptique à chaque frappe — vrai par défaut. */
   haptics?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -42,7 +56,9 @@ interface NumericKeypadProps {
 export function NumericKeypad({
   value,
   onChange,
-  max = MAX_AMOUNT,
+  maxLength = 12,
+  thousandsKey = true,
+  keyHeight = KEY_HEIGHT,
   haptics = true,
   style,
 }: NumericKeypadProps) {
@@ -51,20 +67,25 @@ export function NumericKeypad({
   }
 
   function press(key: string) {
-    const next = Number(`${value || ""}${key}`);
-    if (!Number.isFinite(next) || next > max) return;
+    const next = value + key;
+    if (next.length > maxLength) return;
     tap();
     onChange(next);
   }
 
   function backspace() {
+    if (!value) return;
     tap();
-    onChange(Math.floor(value / 10));
+    onChange(value.slice(0, -1));
   }
+
+  const keys: string[] = thousandsKey
+    ? [...DIGITS, "000", "0"]
+    : [...DIGITS, "0"];
 
   return (
     <View style={[styles.grid, style]}>
-      {KEYS.map((key) => (
+      {keys.map((key) => (
         <Pressable
           key={key}
           onPress={() => press(key)}
@@ -72,7 +93,10 @@ export function NumericKeypad({
           accessibilityLabel={key}
           style={({ pressed }) => [
             styles.key,
+            { height: keyHeight },
             styles.digitKey,
+            /* Sans la touche « 000 », le « 0 » prend sa place centrale. */
+            !thousandsKey && key === "0" && styles.keyCentered,
             pressed && styles.keyPressed,
           ]}
         >
@@ -84,7 +108,12 @@ export function NumericKeypad({
         onPress={backspace}
         accessibilityRole="button"
         accessibilityLabel="Effacer le dernier chiffre"
-        style={({ pressed }) => [styles.key, styles.backKey, pressed && styles.keyPressed]}
+        style={({ pressed }) => [
+          styles.key,
+          { height: keyHeight },
+          styles.backKey,
+          pressed && styles.keyPressed,
+        ]}
       >
         <Delete size={24} color={Ink[900]} strokeWidth={1.5} />
       </Pressable>
@@ -98,12 +127,16 @@ const styles = StyleSheet.create({
     /** Trois colonnes, écart de 8 : (100 % − 2 × 8) / 3. */
     width: "31.5%",
     flexGrow: 1,
-    height: 72,
     borderRadius: Radius.card,
     ...continuous,
     alignItems: "center",
     justifyContent: "center",
   },
+  /**
+   * Sans « 000 », la dernière rangée n'a que « 0 » et l'effacement. Le décalage
+   * d'une colonne remet le « 0 » sous le « 8 », là où le pouce l'attend.
+   */
+  keyCentered: { marginLeft: "34.25%" },
   digitKey: {
     backgroundColor: Surface.default,
     borderWidth: 1,

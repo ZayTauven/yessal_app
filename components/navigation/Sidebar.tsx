@@ -1,516 +1,362 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * Sidebar — le tiroir de navigation.
+ *
+ * Planche « Accueil et Onglets » : panneau de 302 px à gauche, fond blanc,
+ * voile violet-950 à 42 %. En-tête d'identité, liste de destinations, et un
+ * pied qui porte l'invitation et la déconnexion.
+ *
+ * « Le menu porte ce que les onglets ne peuvent pas. » Quatre onglets suffisent
+ * au quotidien ; Mon Daara, les tutelles, les paramètres et la vue collecteur
+ * sont des destinations occasionnelles. La vue collecteur porte une pastille de
+ * rôle, parce qu'elle change ce que l'application montre.
+ *
+ * Réécriture complète (phase C). L'ancien tiroir portait à lui seul 12 des 26
+ * problèmes de lint du projet : `useRef(new Animated.Value()).current` lu
+ * pendant le rendu, et un `setState` synchrone dans un effet. Reanimated
+ * supprime les deux — la valeur animée n'est plus une ref lue au rendu, et la
+ * présence est pilotée par un style animé, pas par un état React.
+ */
+import { useEffect } from "react";
 import {
-  Animated,
-  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
-  type GestureResponderEvent,
 } from "react-native";
-import { Image as ExpoImage } from "expo-image";
-import { useRouter } from "expo-router";
-import {
-  ArrowRight,
-  Calendar,
-  Heart,
-  LogOut,
-  MessageSquare,
-  Newspaper,
-  NotebookPen,
-  ShieldCheck,
-  UserCircle2,
-  Users,
-  Wallet,
-} from "lucide-react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter, type Href } from "expo-router";
+import { HeartHandshake, X } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
+import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/store/auth.store";
+import { useUiStore } from "@/store/ui.store";
+import type { UserRole } from "@/types/auth.types";
+import {
+  Font,
+  Ink,
+  Radius,
+  Shadow,
+  Space,
+  Status,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
-type MenuItem = {
+/** Largeur du contrat. Bornée sur les petits écrans — 302 sur un 320 étouffe. */
+const PANEL_WIDTH = 302;
+
+const OPEN_MS = 260;
+const CLOSE_MS = 200;
+
+interface DrawerItem {
   label: string;
-  sub: string;
-  icon: React.ComponentType<{ size?: number; color?: string }>;
-  route: string;
-};
+  /**
+   * Typée `Href` et non `string` : `typedRoutes` est actif, donc une route
+   * mal orthographiée ici échoue à la compilation au lieu de mener à un écran
+   * blanc au clic. C'est le seul intérêt de `typedRoutes`, autant s'en servir.
+   */
+  route: Href;
+  /** Rôles autorisés. Absent = tout le monde. */
+  roles?: UserRole[];
+  /** Pastille : un nombre de non-lus, ou le mot « Rôle ». */
+  badge?: "role";
+}
 
-const MENU_ITEMS: MenuItem[] = [
+/**
+ * L'ordre est celui de la planche. Les quatre premières entrées doublent les
+ * onglets — c'est voulu : le tiroir est aussi une carte du produit, et un
+ * utilisateur qui l'ouvre doit y retrouver où il est.
+ */
+const ITEMS: DrawerItem[] = [
+  { label: "Accueil", route: "/home" },
+  { label: "Ndiguels", route: "/campaigns" },
+  { label: "Mon Daara", route: "/daara" },
+  { label: "Messages", route: "/chat" },
+  { label: "Mes Jëfs", route: "/donations" },
+  { label: "Mes tutelles", route: "/profile/tutelle" },
+  { label: "Actualités", route: "/explore" },
+  { label: "Événements", route: "/events", roles: ["admin"] },
   {
-    label: "Mon profil",
-    sub: "Compte & sécurité",
-    icon: UserCircle2,
-    route: "/profile",
+    label: "Vue collecteur",
+    route: "/donate",
+    roles: ["collector", "chef_daara", "admin"],
+    badge: "role",
   },
-  {
-    label: "Mes Jëfs",
-    sub: "Historique et suivi",
-    icon: Wallet,
-    route: "/donations",
-  },
-  { label: "Ndiguels", sub: "Ndiguels actifs", icon: Heart, route: "/campaigns" },
-  {
-    label: "Mon Daara",
-    sub: "Membres et collecteurs",
-    icon: Users,
-    route: "/daara",
-  },
-  {
-    label: "Tutelle familiale",
-    sub: "Gestion des proches",
-    icon: NotebookPen,
-    route: "/profile/tutelle",
-  },
-  {
-    label: "Messagerie",
-    sub: "Chat communautaire",
-    icon: MessageSquare,
-    route: "/chat",
-  },
-  {
-    label: "Actualités",
-    sub: "Le journal confrérique",
-    icon: Newspaper,
-    route: "/explore",
-  },
-  {
-    label: "Événements",
-    sub: "Calendrier des fêtes",
-    icon: Calendar,
-    route: "/events",
-  },
+  { label: "Aide & contact", route: "/contact" },
 ];
 
-type SidebarProps = {
-  visible: boolean;
-  onClose: () => void;
-  onNavigate?: () => void;
+const ROLE_LABELS: Record<UserRole, string> = {
+  admin: "Administrateur",
+  chef_daara: "Chef de Daara",
+  collector: "Collecteur",
+  member: "Talibé",
+  tutelle: "Tutelle",
 };
 
-export function Sidebar({ visible, onClose, onNavigate }: SidebarProps) {
+interface SidebarProps {
+  /** Route active, pour marquer la ligne courante. Ex. « /home ». */
+  activeRoute?: string;
+}
+
+export function Sidebar({ activeRoute }: SidebarProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user, logout } = useAuthStore();
-  const drawerWidth = Math.min(Math.round(width * 0.86), 360);
-  const translateX = useRef(new Animated.Value(-drawerWidth)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const [rendered, setRendered] = useState(visible);
+  const { drawerOpen, closeDrawer } = useUiStore();
+
+  const panelWidth = Math.min(PANEL_WIDTH, Math.round(width * 0.86));
+  const progress = useSharedValue(0);
 
   useEffect(() => {
-    if (visible) {
-      setRendered(true);
-      Animated.parallel([
-        Animated.timing(translateX, {
-          toValue: 0,
-          duration: 280,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
-      return;
-    }
-
-    Animated.parallel([
-      Animated.timing(translateX, {
-        toValue: -drawerWidth,
-        duration: 220,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 180,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) {
-        setRendered(false);
-      }
+    progress.value = withTiming(drawerOpen ? 1 : 0, {
+      duration: drawerOpen ? OPEN_MS : CLOSE_MS,
+      easing: drawerOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
     });
-  }, [backdropOpacity, drawerWidth, translateX, visible]);
+  }, [drawerOpen, progress]);
 
-  const initials = useMemo(
-    () =>
-      `${user?.first_name?.[0] ?? "Y"}${user?.last_name?.[0] ?? ""}`.toUpperCase(),
-    [user?.first_name, user?.last_name],
-  );
+  /**
+   * `display` fait sortir le tiroir de l'arbre tactile une fois refermé.
+   * Il est piloté DANS le style animé, sur le fil natif : pas d'état React,
+   * donc pas de rendu en cascade — c'est ce qui coûtait 12 avertissements.
+   */
+  const backdrop = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    display: progress.value === 0 ? "none" : "flex",
+  }));
 
-  const avatarSource = (user as any)?.avatar_url
-    ? { uri: (user as any).avatar_url }
-    : (user as any)?.avatar
-    ? { uri: (user as any).avatar }
-    : null;
+  const panel = useAnimatedStyle(() => ({
+    transform: [{ translateX: -panelWidth * (1 - progress.value) }],
+    display: progress.value === 0 ? "none" : "flex",
+  }));
 
-  const roleLabel = (role?: string) => {
-    switch (role) {
-      case "member": return "Talibé";
-      case "chef_daara": return "Chef de Daara";
-      case "collector": return "Collecteur";
-      case "admin": return "Administrateur";
-      default: return role?.replace(/_/g, " ") ?? "Compte membre";
-    }
-  };
+  const role = user?.role;
+  const items = ITEMS.filter((item) => !item.roles || (role && item.roles.includes(role)));
 
-  const goTo = (route: string) => {
-    onNavigate?.();
-    router.push(route as any);
-  };
+  const fullName = user ? `${user.first_name} ${user.last_name}`.trim() : "Membre Yessal";
+  const daaraName = user?.daara_name ?? user?.daara?.name;
+  const subtitle = [role ? ROLE_LABELS[role] : null, daaraName]
+    .filter(Boolean)
+    .join(" · ");
 
-  const handleLogout = async () => {
-    onNavigate?.();
+  function go(route: Href) {
+    closeDrawer();
+    router.push(route);
+  }
+
+  async function handleLogout() {
+    closeDrawer();
     await logout();
-    router.replace("/login" as any);
-  };
-
-  const handleBackdropPress = (_event: GestureResponderEvent) => {
-    onClose();
-  };
-
-  if (!rendered) {
-    return null;
+    router.replace("/login");
   }
 
   return (
     <View style={styles.screen} pointerEvents="box-none">
-      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+      <Animated.View style={[styles.backdrop, backdrop]}>
         <Pressable
           style={StyleSheet.absoluteFill}
-          onPress={handleBackdropPress}
+          onPress={closeDrawer}
+          accessibilityRole="button"
+          accessibilityLabel="Fermer le menu"
         />
       </Animated.View>
 
       <Animated.View
         style={[
-          styles.drawer,
-          { width: drawerWidth, transform: [{ translateX }] },
+          styles.panel,
+          { width: panelWidth, paddingTop: insets.top + Space.xl },
+          panel,
         ]}
       >
+        <View style={styles.identity}>
+          <Avatar
+            uri={user?.avatar_url ?? user?.avatar}
+            name={fullName}
+            size={52}
+          />
+          <View style={styles.identityText}>
+            <Text style={styles.name} numberOfLines={1}>
+              {fullName}
+            </Text>
+            {subtitle ? (
+              <Text style={styles.role} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={closeDrawer}
+            style={styles.close}
+            accessibilityRole="button"
+            accessibilityLabel="Fermer le menu"
+          >
+            <X size={16} color={Ink[900]} strokeWidth={1.8} />
+          </Pressable>
+        </View>
+
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.hero}>
-            <ExpoImage
-              source={require("@/assets/images/family.jpg")}
-              style={styles.heroImage}
-              contentFit="cover"
-            />
-            <View style={styles.heroOverlay} />
-            <View style={styles.heroContent}>
-              <View style={styles.heroTopRow}>
-                <View style={styles.logoBox}>
-                  <ExpoImage
-                    source={require("@/assets/images/embleme.png")}
-                    style={styles.logoImage}
-                    contentFit="contain"
-                  />
-                </View>
-                <Pressable onPress={onClose} style={styles.closeButton}>
-                  <Text style={styles.closeText}>Fermer</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.profileRow}>
-                <View style={styles.avatar}>
-                  {avatarSource ? (
-                    <ExpoImage
-                      source={avatarSource}
-                      style={styles.avatarImage}
-                      contentFit="cover"
-                    />
-                  ) : (
-                    <Text style={styles.avatarText}>{initials}</Text>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>
-                    {user
-                      ? `${user.first_name} ${user.last_name}`
-                      : "Membre Yessal"}
-                  </Text>
-                  <Text style={styles.role}>
-                    {roleLabel(user?.role)} · {user?.status ?? ""}
-                  </Text>
-                  <View style={styles.daaraPill}>
-                    <ShieldCheck size={12} color="#FFF" />
-                    <Text style={styles.daaraText}>
-                      {/*TODO: display actual daara name */}
-                      {user?.daara_name ?? user?.daara?.name ?? "Daara lié"}
-                    </Text>
+          {items.map((item) => {
+            const active = activeRoute === item.route;
+            return (
+              <Pressable
+                key={item.label}
+                onPress={() => go(item.route)}
+                accessibilityRole="link"
+                accessibilityState={{ selected: active }}
+                style={({ pressed }) => [
+                  styles.item,
+                  active && styles.itemActive,
+                  pressed && !active && styles.itemPressed,
+                ]}
+              >
+                <View style={[styles.dot, active && styles.dotActive]} />
+                <Text
+                  style={[styles.itemLabel, active && styles.itemLabelActive]}
+                  numberOfLines={1}
+                >
+                  {item.label}
+                </Text>
+                {item.badge === "role" ? (
+                  <View style={styles.roleBadge}>
+                    <Text style={styles.roleBadgeLabel}>Rôle</Text>
                   </View>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Navigation</Text>
-            <View style={styles.list}>
-              {MENU_ITEMS.filter((item) => {
-                if (item.route === "/events") return user?.role === "admin";
-                return true;
-              }).concat(
-                ["collector", "chef_daara", "admin"].includes(user?.role ?? "")
-                  ? [{ label: "Collecte physique", sub: "Enregistrer une contribution", icon: ShieldCheck, route: "/donate" }]
-                  : []
-              ).map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Pressable
-                    key={item.label}
-                    onPress={() => goTo(item.route)}
-                    style={styles.item}
-                  >
-                    <View style={styles.iconWrap}>
-                      <Icon size={18} color={Colors.accent.DEFAULT} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemTitle}>{item.label}</Text>
-                      <Text style={styles.itemSub}>{item.sub}</Text>
-                    </View>
-                    <ArrowRight size={16} color={Colors.ink.faint} />
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Actions rapides</Text>
-            <View style={styles.quickRow}>
-              <Pressable
-                style={styles.quickCard}
-                onPress={() => goTo("/donate")}
-              >
-                <Wallet size={18} color={Colors.accent.DEFAULT} />
-                <Text style={styles.quickText}>Faire un Jëfs</Text>
+                ) : null}
               </Pressable>
-              <Pressable
-                style={styles.quickCard}
-                onPress={() => goTo("/campaigns")}
-              >
-                <Heart size={18} color={Colors.accent.DEFAULT} />
-                <Text style={styles.quickText}>Ndiguels</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <Pressable style={styles.logoutRow} onPress={handleLogout}>
-            <LogOut size={18} color={Colors.status.error} />
-            <Text style={styles.logoutText}>Déconnexion</Text>
-          </Pressable>
+            );
+          })}
         </ScrollView>
+
+        <View style={[styles.footer, { paddingBottom: insets.bottom + Space.xl }]}>
+          <Pressable
+            onPress={() => go("/daara")}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.invite, pressed && styles.itemPressed]}
+          >
+            {/* Pictogramme provisoire — le jeu de dix tracés originaux reste dû. */}
+            <View style={styles.invitePicto}>
+              <HeartHandshake size={24} color={Violet[900]} strokeWidth={1.5} />
+            </View>
+            <Text style={styles.inviteLabel}>Inviter un proche au Daara</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleLogout}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.logout, pressed && styles.itemPressed]}
+          >
+            <Text style={styles.logoutLabel}>Se déconnecter</Text>
+          </Pressable>
+        </View>
       </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 50,
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(7, 13, 9, 0.52)",
-  },
-  drawer: {
-    height: "100%",
-    backgroundColor: Colors.surface.subtle,
-    borderTopRightRadius: 28,
-    borderBottomRightRadius: 28,
-    overflow: "hidden",
-    boxShadow: "12px 0 30px rgba(10, 18, 12, 0.22)",
-  },
-  scroll: {
-    paddingBottom: 36,
-  },
-  hero: {
-    height: 220,
-    position: "relative",
-  },
-  heroImage: {
-    ...StyleSheet.absoluteFill,
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(26, 92, 58, 0.72)",
-  },
-  heroContent: {
-    flex: 1,
+  screen: { ...StyleSheet.absoluteFill, zIndex: 50 },
+  /** Violet-950 à 42 % — la valeur de la planche. */
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(25,11,61,0.42)" },
+  panel: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: Surface.default,
+    boxShadow: Shadow.tabbar,
     paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 20,
-    justifyContent: "space-between",
+    gap: Space.xl,
   },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  logoBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
+
+  identity: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  identityText: { flex: 1, gap: 2 },
+  name: { ...UIType.rowTitle, color: Violet[900] },
+  role: { ...Type.label, color: Ink[500] },
+  close: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.chip,
+    backgroundColor: Surface.btn,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
-  logoImage: {
-    width: 30,
-    height: 30,
-  },
-  closeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.16)",
-  },
-  closeText: {
-    color: "#FFF",
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-  },
-  profileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  avatarImage: {
-    width: 56,
-    height: 56,
-  },
-  avatarText: {
-    color: "#FFF",
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-  },
-  name: {
-    color: "#FFF",
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-  },
-  role: {
-    marginTop: 2,
-    color: "rgba(255,255,255,0.84)",
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  daaraPill: {
-    marginTop: 8,
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.14)",
-  },
-  daaraText: {
-    color: "#FFF",
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-  },
-  section: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-  },
-  sectionLabel: {
-    color: Colors.ink.faint,
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 10,
-  },
-  list: {
-    gap: 10,
-  },
+
+  list: { flex: 1 },
+  listContent: { gap: 2 },
   item: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
+    height: 52,
+    borderRadius: Radius.card,
+    ...continuous,
+    paddingHorizontal: 14,
+    gap: Space.md,
   },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
+  itemActive: { backgroundColor: Violet[100] },
+  itemPressed: { opacity: 0.72 },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.chip,
+    backgroundColor: Ink[100],
+  },
+  dotActive: { backgroundColor: Violet[500] },
+  itemLabel: { flex: 1, fontFamily: Font.semibold, fontSize: 15, lineHeight: 19, color: Ink[900] },
+  itemLabelActive: { fontFamily: Font.bold, color: Violet[900] },
+  roleBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.chip,
+    backgroundColor: Surface.btn,
+  },
+  roleBadgeLabel: { ...UIType.badgeLabel, color: Ink[500] },
+
+  footer: { gap: Space.md },
+  invite: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.md,
+    padding: 14,
+    borderRadius: Radius.card,
+    ...continuous,
+    backgroundColor: Violet[100],
+  },
+  invitePicto: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    ...continuous,
+    backgroundColor: Violet[200],
     alignItems: "center",
     justifyContent: "center",
   },
-  itemTitle: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  itemSub: {
-    marginTop: 2,
-    color: Colors.ink.muted,
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  quickRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  quickCard: {
+  inviteLabel: {
     flex: 1,
-    minHeight: 96,
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    gap: 8,
-    alignItems: "flex-start",
-    justifyContent: "space-between",
+    fontFamily: Font.semibold,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Violet[900],
   },
-  quickText: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-  },
-  logoutRow: {
-    marginHorizontal: 16,
-    marginTop: 18,
-    flexDirection: "row",
+  logout: {
+    height: 44,
+    borderRadius: Radius.button,
+    backgroundColor: Surface.btn,
     alignItems: "center",
-    gap: 10,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: "rgba(196, 54, 54, 0.06)",
+    justifyContent: "center",
   },
-  logoutText: {
-    color: Colors.status.error,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
+  logoutLabel: { ...UIType.chipLabel, color: Status.error },
 });
