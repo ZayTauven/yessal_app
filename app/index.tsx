@@ -1,6 +1,6 @@
 import { Redirect } from "expo-router";
 import { useAuthStore } from "@/store/auth.store";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { Colors } from "@/constants/colors";
 
 export default function Index() {
@@ -8,7 +8,7 @@ export default function Index() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-surface-subtle">
+      <View style={styles.centered}>
         <ActivityIndicator color={Colors.accent.DEFAULT} size="large" />
       </View>
     );
@@ -17,3 +17,12 @@ export default function Index() {
   if (isAuthenticated) return <Redirect href={"/home" as any} />;
   return <Redirect href={"/onboarding" as any} />;
 }
+
+const styles = StyleSheet.create({
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.surface.subtle,
+  },
+});

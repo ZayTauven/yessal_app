@@ -41,8 +41,9 @@ import type { Tutelle } from "@/types/content.types";
 
 const PAYMENT_LOGOS: Record<string, any> = {
   orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/sans-contact.png"),
-  paypal: require("@/assets/images/pay-pal.png"),
+  wave: require("@/assets/images/wave.png"),
+  bictorys: require("@/assets/images/carte-paiement.png"),
+  manual: require("@/assets/images/collecteur.png"),
 };
 
 interface DirectoryUser {
@@ -69,28 +70,26 @@ const PAYMENT_METHODS: {
   {
     value: "orange_money",
     label: "Orange Money",
-    hint: "Mobile money",
+    hint: "Sans frais",
     icon: Wallet,
   },
-  { value: "wave", label: "Wave", hint: "Paiement rapide", icon: Heart },
-  { value: "visa", label: "Visa", hint: "Carte bancaire", icon: ShieldCheck },
+  { value: "wave", label: "Wave", hint: "Sans frais", icon: Wallet },
   {
-    value: "mastercard",
-    label: "Mastercard",
-    hint: "Carte bancaire",
+    value: "bictorys",
+    label: "Carte bancaire",
+    hint: "Visa, Mastercard",
     icon: ShieldCheck,
   },
   {
-    value: "collector",
-    label: "Collecteur",
-    hint: "Collecte physique",
-    icon: Wallet,
-  },
-  { value: "paypal", label: "PayPal", hint: "International", icon: HandCoins },
-  {
     value: "virement",
-    label: "Virement",
-    hint: "Banque / Chèque",
+    label: "Virement bancaire",
+    hint: "Référence à saisir",
+    icon: HandCoins,
+  },
+  {
+    value: "manual",
+    label: "Collecteur",
+    hint: "Espèces, en main propre",
     icon: Wallet,
   },
 ];
@@ -225,7 +224,7 @@ export default function DonateScreen() {
     const next = !collectMode;
     setCollectMode(next);
     if (next) {
-      setPaymentMethod("collector");
+      setPaymentMethod("manual");
       setSelectedMemberId(null);
     } else {
       setPaymentMethod("orange_money");
@@ -295,7 +294,7 @@ export default function DonateScreen() {
       const donation = await ContentService.createDonation({
         campaign: selectedCampaign.id,
         amount: finalAmount,
-        payment_method: collectMode ? "collector" : paymentMethod,
+        payment_method: collectMode ? "manual" : paymentMethod,
         beneficiary: selectedBeneficiary?.id ?? null,
         external_ref: paymentMethod === "virement" ? wireRef.trim() : null,
         ...(collectMode && selectedMemberId
@@ -304,7 +303,7 @@ export default function DonateScreen() {
       } as any);
 
       // 2. Handle digital/physical payments
-      if (collectMode || paymentMethod === "collector") {
+      if (collectMode || paymentMethod === "manual") {
         const memberName = selectedMember
           ? getMemberName(selectedMember)
           : null;
@@ -318,8 +317,8 @@ export default function DonateScreen() {
         return;
       }
 
-      // 2. If it's a digital payment or virement, initiate payment
-      if (paymentMethod !== "paypal") {
+      // 2. Paiement numérique ou virement : on initie
+      {
         const paymentResult = await ContentService.payDonation(
           donation.id,
           paymentMethod,
@@ -335,7 +334,7 @@ export default function DonateScreen() {
           return;
         }
 
-        if (paymentMethod === "visa" || paymentMethod === "mastercard") {
+        if (paymentMethod === "bictorys") {
           if (paymentResult.checkout_url) {
             const { Linking } = await import("react-native");
             await Linking.openURL(paymentResult.checkout_url);

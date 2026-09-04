@@ -20,13 +20,18 @@ import {
   Wallet,
 } from "lucide-react-native";
 
+// L'historique affiche aussi des dons anciens : les valeurs héritées restent ici.
 const PAYMENT_LOGOS: Record<string, any> = {
   orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/sans-contact.png"),
-  paypal: require("@/assets/images/pay-pal.png"),
-  mastercard: require("@/assets/images/mastercard.png"),
-  visa: require("@/assets/images/carte-paiement.png"),
+  wave: require("@/assets/images/wave.png"),
+  bictorys: require("@/assets/images/carte-paiement.png"),
+  virement: require("@/assets/images/banque.png"),
+  manual: require("@/assets/images/collecteur.png"),
+  // héritées — plus jamais émises, encore présentes en base
   collector: require("@/assets/images/collecteur.png"),
+  visa: require("@/assets/images/carte-paiement.png"),
+  mastercard: require("@/assets/images/mastercard.png"),
+  paypal: require("@/assets/images/pay-pal.png"),
 };
 
 import { Colors } from "@/constants/colors";
@@ -84,13 +89,14 @@ function methodLabel(method: Donation["payment_method"]) {
   const labels: Record<string, string> = {
     orange_money: "Orange Money",
     wave: "Wave",
-    paypal: "PayPal",
-    bictorys: "Bictorys",
+    bictorys: "Carte bancaire",
     virement: "Virement",
+    manual: "Collecteur",
+    // héritées, pour les dons déjà en base
     collector: "Collecteur",
-    manual: "Manuel",
-    visa: "Visa",
-    mastercard: "Mastercard",
+    visa: "Carte bancaire",
+    mastercard: "Carte bancaire",
+    paypal: "PayPal",
   };
   return labels[method] ?? method;
 }

@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
   },
   confetti: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     opacity: 0.25,
   },
   iconWrap: {

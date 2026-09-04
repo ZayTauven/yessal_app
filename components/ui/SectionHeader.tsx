@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FAF8F3",
   },
   bgBase: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#FAF8F3",
   },
   bgBlobLeft: {

@@ -12,7 +12,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "yessalmobile",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,

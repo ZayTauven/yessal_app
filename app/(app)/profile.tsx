@@ -539,7 +539,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.accent.DEFAULT,
   },
   avatarImage: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   avatarInitials: {
     color: Colors.accent.DEFAULT,

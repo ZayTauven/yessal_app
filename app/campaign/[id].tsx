@@ -24,18 +24,19 @@ const PRIVILEGED_ROLES = ["admin", "chef_daara", "collector"];
 
 const PAYMENT_LOGOS: Record<string, any> = {
   orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/sans-contact.png"),
-  paypal: require("@/assets/images/pay-pal.png"),
+  wave: require("@/assets/images/wave.png"),
+  bictorys: require("@/assets/images/carte-paiement.png"),
+  virement: require("@/assets/images/banque.png"),
+  manual: require("@/assets/images/collecteur.png"),
 };
 
+// Les moyens réellement acceptés, alignés sur `PaymentMethod`.
 const PAYMENT_METHODS = [
   { key: "orange_money", label: "Orange Money" },
   { key: "wave", label: "Wave" },
-  { key: "visa", label: "Carte Visa" },
-  { key: "mastercard", label: "Mastercard" },
-  { key: "paypal", label: "PayPal" },
-  { key: "collector", label: "Collecteur" },
+  { key: "bictorys", label: "Carte bancaire" },
   { key: "virement", label: "Virement" },
+  { key: "manual", label: "Collecteur" },
 ];
 
 function parseId(value?: string | string[]) {

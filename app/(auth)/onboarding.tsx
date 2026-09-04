@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   bgBase: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#FDFBF8",
   },
   bgBlobTop: {
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(26, 92, 58, 0.03)",
   },
   textWrap: {
