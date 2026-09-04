@@ -6,9 +6,11 @@
  * aucun onglet n'y mène, aucun lien ne la cite. On y arrive par l'URL
  * `/gallery` (`npx expo start`, puis `yessalmobile://gallery`).
  *
- * ⚠ Les pictogrammes sont ceux de Lucide, EN ATTENTE. Le jeu de dix tracés
- * originaux du brief §3.5 reste dû avant la fin de la phase D — les tracés de
- * la planche viennent de Fundio et ne peuvent pas être livrés.
+ * Les pictogrammes d'interface restent ceux de Lucide, et c'est voulu : le jeu
+ * livré par le commanditaire le 2026-09-04 (`assets/pictos/`) est un jeu
+ * ILLUSTRATIF — des tracés dessinés à la main, faits pour être vus à 56 px sur
+ * un aplat pastel. Une flèche de retour ou une cloche de notification demande
+ * autre chose. Voir §12 du plan.
  */
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";

@@ -31,9 +31,10 @@
  * éthiopienne, `daara-2x1` une cour d'école d'Afrique de l'Est. Ne pas les
  * réintroduire.
  *
- * ⚠ Les pictogrammes sont ceux de Lucide, EN ATTENTE. Le jeu de dix tracés
- * monoline originaux (brief §3.5) reste dû — ceux de la planche viennent de
- * Fundio et ne peuvent pas être livrés.
+ * Les pictogrammes sont ceux fournis par le commanditaire le 2026-09-04,
+ * retravaillés — bandeau d'attribution amputé, recadrage sur le tracé, teinte
+ * Violet[900]. Recette et crédits : `assets/pictos/ATTRIBUTION.md`. Ils
+ * remplacent les tracés Lucide qui tenaient la place.
  */
 import { useEffect } from "react";
 import {
@@ -55,14 +56,6 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import {
-  HandCoins,
-  HandHeart,
-  HeartHandshake,
-  PiggyBank,
-  UtensilsCrossed,
-} from "lucide-react-native";
-
 import { Button } from "@/components/ui/Button";
 import {
   Border,
@@ -107,8 +100,30 @@ const ROLL_COMMUNITY: Frame[] = [
   { source: require("@/assets/photos/reel/scene-plats.jpg"), focus: 0.5 },
 ];
 
-const PICTOS_A = [HandHeart, PiggyBank, HeartHandshake];
-const PICTOS_B = [UtensilsCrossed, HeartHandshake, HandCoins];
+/**
+ * Les deux bandes ne défilent pas au hasard : chacune est un quatuor qui décrit
+ * l'un des deux actes du produit, ceux que la pastille nomme.
+ *
+ * Un NDIGUEL, c'est un appel lancé, une caisse, une échéance, et des membres
+ * jusqu'au bout du monde. Un JËF, c'est un repas servi, une main tendue, un
+ * proche porté, la générosité.
+ *
+ * Quatre par bande et non trois : les tracés fournis sont plus fins que les
+ * Lucide qu'ils remplacent, la bande respirait trop.
+ */
+const PICTOS_NDIGUEL: ImageSource[] = [
+  require("@/assets/pictos/appel.png"),
+  require("@/assets/pictos/collecte.png"),
+  require("@/assets/pictos/echeance.png"),
+  require("@/assets/pictos/diaspora.png"),
+];
+
+const PICTOS_JEF: ImageSource[] = [
+  require("@/assets/pictos/repas.png"),
+  require("@/assets/pictos/main-tendue.png"),
+  require("@/assets/pictos/proche.png"),
+  require("@/assets/pictos/generosite.png"),
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Géométrie et rythmes
@@ -130,8 +145,15 @@ const FLIP_OFFSET_MS = 1800;
 
 const PICTO_SIZE = 56;
 const PICTO_GAP = Space.lg;
-/** Une période = une copie complète de la bande. Le défilement boucle dessus. */
-const MARQUEE_PERIOD = PICTOS_A.length * (PICTO_SIZE + PICTO_GAP);
+/**
+ * Une période = une copie complète de la bande. Le défilement boucle dessus.
+ *
+ * Elle se calcule PAR BANDE. Une constante unique tirée de la longueur de la
+ * première marchait tant que les deux bandes avaient le même nombre de
+ * pictogrammes ; le jour où elles divergeaient, la seconde aurait sauté à
+ * chaque tour. Le piège est levé, pas contourné.
+ */
+const marqueePeriod = (count: number) => count * (PICTO_SIZE + PICTO_GAP);
 
 export default function Onboarding() {
   const router = useRouter();
@@ -162,23 +184,23 @@ export default function Onboarding() {
             style={{ width: cell, height: photoHeight }}
           />
           <MarqueeTile
-            pictos={PICTOS_B}
+            pictos={PICTOS_JEF}
             tone={Pastel.teal}
             direction={1}
             durationMs={17000}
             size={cell}
-            accessibilityLabel="Les actions solidaires du Daara"
+            accessibilityLabel="Les Jëfs : un repas servi, une main tendue, un proche porté"
           />
         </View>
 
         <View style={[styles.column, styles.columnOffset]}>
           <MarqueeTile
-            pictos={PICTOS_A}
+            pictos={PICTOS_NDIGUEL}
             tone={Pastel.peach}
             direction={-1}
             durationMs={14000}
             size={cell}
-            accessibilityLabel="Les campagnes de dons du Daara"
+            accessibilityLabel="Les Ndiguels : un appel, une collecte, une échéance"
           />
           <FlipCard
             roll={ROLL_COMMUNITY}
@@ -200,7 +222,13 @@ export default function Onboarding() {
           <Text style={styles.pillLabel}>Ndiguels et Jëfs</Text>
         </View>
 
-        <Text style={styles.title}>Le Daara dans{"\n"}votre poche</Text>
+        {/*
+          Titre arrêté par le commanditaire le 2026-09-04. Il remplace « Le
+          Daara dans votre poche ». La coupe est posée à la main : « Bienvenue
+          sur Yessal Gui » tient sur deux lignes à 32/800, et laissée libre
+          elle tomberait après « Yessal », séparant le nom du produit.
+        */}
+        <Text style={styles.title}>Bienvenue sur{"\n"}Yessal Gui</Text>
         <Text style={styles.subtitle}>
           {"Suivez les Ndiguels, faites vos Jëfs et portez vos proches, où que vous soyez."}
         </Text>
@@ -317,7 +345,7 @@ function FlipFace({
 }
 
 interface MarqueeTileProps {
-  pictos: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>[];
+  pictos: ImageSource[];
   tone: string;
   /** −1 défile vers la gauche, 1 vers la droite. */
   direction: 1 | -1;
@@ -340,8 +368,9 @@ function MarqueeTile({
   size,
   accessibilityLabel,
 }: MarqueeTileProps) {
-  const from = direction === -1 ? 0 : -MARQUEE_PERIOD;
-  const to = direction === -1 ? -MARQUEE_PERIOD : 0;
+  const period = marqueePeriod(pictos.length);
+  const from = direction === -1 ? 0 : -period;
+  const to = direction === -1 ? -period : 0;
   const x = useSharedValue(from);
 
   useEffect(() => {
@@ -363,10 +392,20 @@ function MarqueeTile({
       accessibilityLabel={accessibilityLabel}
     >
       <Animated.View style={[styles.strip, strip]}>
-        {[...pictos, ...pictos].map((Picto, i) => (
-          <View key={i} style={styles.picto}>
-            <Picto size={PICTO_SIZE} color={Violet[900]} strokeWidth={1.4} />
-          </View>
+        {/*
+          Le tracé est DÉJÀ teinté en Violet[900] dans le fichier — pas de
+          `tintColor` à l'exécution, dont le rendu diffère selon la plateforme.
+          L'alpha est conservé, donc une teinte pourrait encore l'emporter si
+          une tuile changeait de ton.
+        */}
+        {[...pictos, ...pictos].map((picto, i) => (
+          <ExpoImage
+            key={i}
+            source={picto}
+            style={styles.picto}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+          />
         ))}
       </Animated.View>
     </View>
@@ -405,13 +444,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   strip: { flexDirection: "row", alignItems: "center", paddingLeft: PICTO_GAP },
-  picto: {
-    width: PICTO_SIZE,
-    height: PICTO_SIZE,
-    marginRight: PICTO_GAP,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  picto: { width: PICTO_SIZE, height: PICTO_SIZE, marginRight: PICTO_GAP },
 
   spacer: { flex: 1, minHeight: Space.xxl },
 

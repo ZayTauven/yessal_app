@@ -82,21 +82,28 @@ export function CampaignCard({
       accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
       style={({ pressed }) => [styles.card, pressed && styles.pressed, style]}
     >
+      {/*
+        Sans photographie, PAS de voile : transparent → noir posé sur un fond
+        clair donne un dégradé gris délavé, et le texte blanc devient illisible
+        (constaté sur capture le 2026-09-04). Le fond de la carte est
+        violet-900 — le blanc y tient à 14,5:1 dans les deux cas.
+      */}
       {source ? (
-        <ExpoImage
-          source={source}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={160}
-        />
+        <>
+          <ExpoImage
+            source={source}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={160}
+          />
+          <LinearGradient
+            colors={[...ScrimPhoto.colors]}
+            locations={[...ScrimPhoto.locations]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        </>
       ) : null}
-
-      <LinearGradient
-        colors={[...ScrimPhoto.colors]}
-        locations={[...ScrimPhoto.locations]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
 
       {badge ? <Badge label={badge} tone="onPhoto" style={styles.badge} /> : null}
 
@@ -145,7 +152,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card,
     ...continuous,
     overflow: "hidden",
-    backgroundColor: Violet[100],
+    backgroundColor: Violet[900],
     justifyContent: "flex-end",
   },
   pressed: { opacity: 0.88 },

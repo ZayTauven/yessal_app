@@ -37,7 +37,7 @@ import {
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Menu, Plus, PiggyBank } from "lucide-react-native";
+import { Bell, Menu, Newspaper, PiggyBank, Plus } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, Dot } from "@/components/ui/Badge";
@@ -47,6 +47,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Skeleton, SkeletonCampaignCard } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
+import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA, formatPercent } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
@@ -322,7 +323,10 @@ export default function HomeScreen() {
                         contentFit="cover"
                       />
                     ) : (
-                      <View style={[styles.newsCover, styles.newsCoverEmpty]} />
+                      /* Violet-100 seul se lisait comme un trou sur fond blanc. */
+                      <View style={[styles.newsCover, styles.newsCoverEmpty]}>
+                        <Newspaper size={24} color={Violet[300]} strokeWidth={1.5} />
+                      </View>
                     )}
                     <View style={styles.newsText}>
                       <Text style={styles.newsTitle} numberOfLines={2}>
@@ -392,14 +396,18 @@ function RailCard({
       accessibilityLabel={campaign.name}
       style={styles.railCard}
     >
-      {campaign.image ? (
-        <ExpoImage
-          source={{ uri: campaign.image }}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          transition={160}
-        />
-      ) : null}
+      {/*
+        `campaignVisual` garantit une image : celle du Ndiguel, ou à défaut une
+        photographie authentique de la confrérie. Le voile revient donc
+        toujours — et le fond violet-900 reste sous l'image, le temps qu'elle
+        charge, pour que le titre blanc ne passe jamais par une phase illisible.
+      */}
+      <ExpoImage
+        source={campaignVisual(campaign, "wide")}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={160}
+      />
       <LinearGradient
         colors={[...ScrimPhoto.colors]}
         locations={[...ScrimPhoto.locations]}
@@ -506,7 +514,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card,
     ...continuous,
     overflow: "hidden",
-    backgroundColor: Violet[100],
+    backgroundColor: Violet[900],
     justifyContent: "flex-end",
   },
   railBadge: { position: "absolute", top: Space.md, left: Space.md },
@@ -549,7 +557,11 @@ const styles = StyleSheet.create({
 
   newsCard: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14 },
   newsCover: { width: 60, height: 60, borderRadius: Radius.card, ...continuous },
-  newsCoverEmpty: { backgroundColor: Violet[100] },
+  newsCoverEmpty: {
+    backgroundColor: Violet[100],
+    alignItems: "center",
+    justifyContent: "center",
+  },
   newsText: { flex: 1, gap: 3 },
   newsTitle: { ...UIType.rowTitle, color: Ink[900] },
   newsMeta: { ...Type.label, color: Ink[300] },

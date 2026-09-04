@@ -14,6 +14,25 @@ export interface Campaign {
   daara_name?: string | null;
   created_at: string;
   updated_at?: string;
+  /**
+   * La photographie du Ndiguel, téléversée depuis l'administration web.
+   * C'est le NOM RÉEL du champ — `events/models.py:39`, rendu par
+   * `CampaignSerializer` (`events/serializers.py:57`).
+   */
+  illustrative_photo?: string | null;
+  /**
+   * ⚠ N'EXISTE PAS dans la réponse de l'API. Déclaré ici par erreur, il a fait
+   * croire pendant toute la phase D qu'aucun Ndiguel ne portait d'image : le
+   * code lisait `campaign.image`, toujours `undefined`, et le pis-aller de
+   * `lib/campaign-visuals.ts` s'appliquait à 100 % des Ndiguels — y compris à
+   * ceux qui avaient bel et bien une photographie.
+   *
+   * Conservé le temps que `app/(app)/campaign/[id].tsx` passe au système de la
+   * refonte ; c'est le dernier écran à le lire. **À supprimer ensuite** —
+   * laisser un champ fantôme dans un type, c'est reposer le piège.
+   *
+   * @deprecated lire `illustrative_photo`.
+   */
   image?: string | null;
 }
 

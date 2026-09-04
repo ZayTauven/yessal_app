@@ -44,6 +44,7 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { NumericKeypad } from "@/components/donation/NumericKeypad";
 import { NBSP } from "@/lib/format";
+import { consumePendingRoute } from "@/lib/pending-route";
 import { useAuthStore } from "@/store/auth.store";
 import {
   Border,
@@ -87,8 +88,27 @@ export default function Login() {
   /** Erreur de saisie locale, distincte de l'erreur renvoyée par le serveur. */
   const [localError, setLocalError] = useState("");
 
+  /**
+   * OÙ ATTERRIT-ON APRÈS LA CONNEXION ?
+   *
+   * Sur l'écran demandé, s'il y en avait un. Un membre qui reçoit le lien d'un
+   * Ndiguel par WhatsApp alors qu'il est déconnecté est renvoyé ici par la
+   * garde de `app/(app)/_layout.tsx`, qui a mémorisé sa destination ; il doit
+   * y atterrir, pas sur l'accueil. Sinon — cas courant — l'accueil.
+   *
+   * `consumePendingRoute` lit ET efface : un rejeu qui traînerait se
+   * rejouerait à la connexion suivante. Elle ne rend qu'une route interne
+   * connue, et rien au-delà de dix minutes ; voir `lib/pending-route.ts`.
+   */
   useEffect(() => {
-    if (isAuthenticated) router.replace("/home");
+    if (!isAuthenticated) return;
+    let alive = true;
+    consumePendingRoute().then((target) => {
+      if (alive) router.replace(target ?? "/home");
+    });
+    return () => {
+      alive = false;
+    };
   }, [isAuthenticated, router]);
 
   useEffect(() => clearError, [clearError]);
