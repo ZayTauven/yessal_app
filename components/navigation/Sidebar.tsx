@@ -51,6 +51,7 @@ import {
   UIType,
   Violet,
   continuous,
+  passThrough,
 } from "@/theme";
 
 /** Largeur du contrat. Bornée sur les petits écrans — 302 sur un 320 étouffe. */
@@ -162,7 +163,7 @@ export function Sidebar({ activeRoute }: SidebarProps) {
   }
 
   return (
-    <View style={styles.screen} pointerEvents="box-none">
+    <View style={[styles.screen, passThrough]}>
       <Animated.View style={[styles.backdrop, backdrop]}>
         <Pressable
           style={StyleSheet.absoluteFill}

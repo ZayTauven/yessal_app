@@ -53,7 +53,7 @@ import {
 import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, ChevronLeft, Search, UserCheck } from "lucide-react-native";
+import { Check, ChevronLeft, Copy, Search, UserCheck } from "lucide-react-native";
 
 import { AmountSelector } from "@/components/donation/AmountSelector";
 import { NumericKeypad } from "@/components/donation/NumericKeypad";
@@ -73,11 +73,12 @@ import { canCollect } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
 import type { Tutelle } from "@/types/content.types";
-import type { Donation, PaymentMethod } from "@/types/donation.types";
+import type { BankAccount, Donation, PaymentMethod } from "@/types/donation.types";
 import {
   Border,
   Font,
   GUTTER,
+  HIT,
   Ink,
   Pastel,
   Radius,
@@ -489,7 +490,7 @@ export default function DonateScreen() {
           members={members}
           memberId={memberId}
           memberQuery={memberQuery}
-          phone={user?.phone ?? null}
+          email={user?.email ?? null}
           submitting={submitting}
           onBack={goBack}
           onEditAmount={() => setStep("amount")}
@@ -670,7 +671,7 @@ interface MethodStepProps {
   members: DirectoryUser[];
   memberId: number | null;
   memberQuery: string;
-  phone: string | null;
+  email: string | null;
   submitting: boolean;
   onBack: () => void;
   onEditAmount: () => void;
@@ -689,7 +690,7 @@ function MethodStep({
   members,
   memberId,
   memberQuery,
-  phone,
+  email,
   submitting,
   onBack,
   onEditAmount,
@@ -781,9 +782,23 @@ function MethodStep({
       </ScrollView>
 
       <View style={styles.footer}>
-        {!collectMode && phone ? (
+        {/*
+          La phrase annonçait « une confirmation par SMS », pour TOUS les
+          moyens de paiement, dès qu'un numéro était connu. C'était faux :
+          `send_to_user` vit dans `yessal-backend/core/mail.py` et il n'y a
+          aucune intégration SMS dans le dépôt. Pour un virement bancaire, rien
+          n'arrivait jamais.
+
+          Elle dit maintenant le seul canal qui existe, et seulement à qui
+          peut le recevoir — un membre inscrit par téléphone seul n'a pas
+          d'adresse, et il vaut mieux ne rien promettre que promettre à vide.
+
+          ⚠ Orange Money et Wave envoient, EUX, un SMS de validation : c'est
+          leur écran, pas le nôtre. On ne se l'attribue pas.
+        */}
+        {!collectMode && email ? (
           <Text style={styles.hint}>
-            Vous recevrez une confirmation par SMS au {phone}.
+            Vous recevrez une confirmation par courriel à {email}.
           </Text>
         ) : null}
         <Button
@@ -816,15 +831,46 @@ function WireStep({
   onBack: () => void;
   onDone: () => void;
 }) {
+  /*
+    L'écran demandait la référence d'un virement sans jamais dire OÙ virer.
+    Les coordonnées n'existaient qu'à deux endroits, tous deux hors d'atteinte
+    du mobile : les variables d'environnement du tableau de bord, et le
+    courriel `virement_instructions` — envoyé APRÈS la déclaration, donc trop
+    tard, et jamais reçu par un membre inscrit sans adresse e-mail.
+
+    `null` couvre les deux cas où l'on n'a rien à montrer — configuration
+    absente côté serveur (503) ou réseau muet. On n'affiche alors pas
+    l'encadré, et la déclaration reste possible : la référence, elle, vient de
+    la banque du membre, pas de nous.
+  */
+  const [bank, setBank] = useState<BankAccount | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    ContentService.getBankAccount().then((data) => {
+      if (active) setBank(data);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <>
-      <Header title="Référence du virement" onBack={onBack} />
-      <View style={styles.wire}>
+      <Header title="Virement bancaire" onBack={onBack} />
+      <ScrollView
+        style={styles.wireScroll}
+        contentContainerStyle={styles.wire}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.wireIntro}>
-          Effectuez le virement de {formatFCFA(amount)}, puis saisissez la référence
-          que votre banque vous a donnée. Elle permet de rapprocher les fonds de
-          votre Jëf.
+          Virez {formatFCFA(amount)} sur le compte ci-dessous, puis saisissez la
+          référence que votre banque vous a donnée. Elle permet de rapprocher les
+          fonds de votre Jëf.
         </Text>
+
+        {bank ? <BankPanel bank={bank} /> : null}
+
         <Input
           label="Référence"
           placeholder="Ex. VIR-2026-00184"
@@ -833,10 +879,85 @@ function WireStep({
           autoCapitalize="characters"
           autoCorrect={false}
         />
-      </View>
+      </ScrollView>
       <Button label="Valider" onPress={onDone} disabled={!value.trim()} />
     </>
   );
+}
+
+/**
+ * Les coordonnées du compte, recopiables.
+ *
+ * ⚠ L'IBAN se recopie caractère par caractère, souvent debout devant un
+ * guichet. Trois précautions, et aucune n'est décorative :
+ *   — chiffres à chasse fixe, pour qu'une colonne de chiffres reste lisible ;
+ *   — groupement par quatre à l'affichage, mais copie de la valeur BRUTE :
+ *     un IBAN collé avec des espaces est refusé par la plupart des banques ;
+ *   — bouton de copie sur l'IBAN seul, le seul champ où une faute coûte le
+ *     virement.
+ */
+function BankPanel({ bank }: { bank: BankAccount }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyIban = useCallback(async () => {
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(bank.iban);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [bank.iban]);
+
+  return (
+    <Card style={styles.bank}>
+      <Text style={styles.bankTitle}>Compte à créditer</Text>
+
+      <View style={styles.bankRow}>
+        <Text style={styles.bankLabel}>Titulaire</Text>
+        <Text style={styles.bankValue}>{bank.account_name}</Text>
+      </View>
+
+      {bank.bank_name ? (
+        <View style={styles.bankRow}>
+          <Text style={styles.bankLabel}>Banque</Text>
+          <Text style={styles.bankValue}>{bank.bank_name}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.bankRow}>
+        <Text style={styles.bankLabel}>IBAN</Text>
+        <Text style={styles.bankIban} selectable>
+          {formatIban(bank.iban)}
+        </Text>
+        <Pressable
+          onPress={copyIban}
+          accessibilityRole="button"
+          accessibilityLabel="Copier l'IBAN"
+          hitSlop={8}
+          style={styles.bankCopy}
+        >
+          {copied ? (
+            <Check size={16} color={montant} strokeWidth={2} />
+          ) : (
+            <Copy size={16} color={Violet[700]} strokeWidth={1.6} />
+          )}
+          <Text style={[styles.bankCopyLabel, copied && styles.bankCopiedLabel]}>
+            {copied ? "IBAN copié" : "Copier"}
+          </Text>
+        </Pressable>
+      </View>
+
+      {bank.bic ? (
+        <View style={styles.bankRow}>
+          <Text style={styles.bankLabel}>BIC</Text>
+          <Text style={styles.bankValue}>{bank.bic}</Text>
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+/** « SN28XXXX… » → « SN28 XXXX … ». Affichage seulement : la copie reste brute. */
+function formatIban(iban: string): string {
+  return iban.replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim();
 }
 
 function DoneStep({
@@ -1030,8 +1151,33 @@ const styles = StyleSheet.create({
 
   footer: { gap: Space.md, paddingTop: Space.sm },
 
-  wire: { flex: 1, gap: Space.lg, marginTop: Space.xl },
+  wireScroll: { flex: 1 },
+  wire: { gap: Space.lg, marginTop: Space.xl, paddingBottom: Space.lg },
   wireIntro: { ...Type.body, color: Ink[500] },
+
+  bank: { gap: Space.md },
+  bankTitle: { ...Type.label, color: Ink[500], textTransform: "uppercase" },
+  bankRow: { gap: 2 },
+  bankLabel: { ...Type.micro, color: Ink[300] },
+  bankValue: { ...UIType.rowTitle, color: Ink[900] },
+  /* Chasse fixe : un IBAN se relit chiffre à chiffre, il ne doit pas danser. */
+  bankIban: {
+    ...UIType.rowTitle,
+    color: Ink[900],
+    fontVariant: ["tabular-nums"],
+    letterSpacing: 0.4,
+  },
+  bankCopy: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.xs,
+    alignSelf: "flex-start",
+    marginTop: Space.xs,
+    minHeight: HIT,
+    paddingVertical: Space.xs,
+  },
+  bankCopyLabel: { ...UIType.chipLabel, color: Violet[700] },
+  bankCopiedLabel: { color: montant },
 
   done: { alignItems: "center", paddingTop: Space.xxl, paddingBottom: Space.xl },
   celebration: {

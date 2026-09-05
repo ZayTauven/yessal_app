@@ -243,6 +243,24 @@ export const Radius = {
 /** À étaler sur tout conteneur au rayon non-capsule. */
 export const continuous = { borderCurve: "continuous" } as const;
 
+/**
+ * Transparence au toucher — en STYLE, pas en prop.
+ *
+ * `<View pointerEvents="none">` est déprécié depuis React Native 0.71 et
+ * l'avertissement remonte à chaque rendu sur Expo Web :
+ * « props.pointerEvents is deprecated. Use style.pointerEvents ». La valeur
+ * a simplement déménagé dans le style ; on la nomme ici pour ne pas la
+ * réécrire à neuf endroits.
+ *
+ *   `noTouch`     la vue ET ses enfants ignorent le toucher — voiles,
+ *                 dégradés, pastilles décoratives posées sur une photo.
+ *   `passThrough` la vue laisse passer, ses enfants pressables captent. Ce
+ *                 qu'il faut au-dessus d'une couche cliquable : le texte ne
+ *                 vole pas la touche, le bouton la prend.
+ */
+export const noTouch = { pointerEvents: "none" } as const;
+export const passThrough = { pointerEvents: "box-none" } as const;
+
 /** Échelle de 4. */
 export const Space = {
   xs: 4,

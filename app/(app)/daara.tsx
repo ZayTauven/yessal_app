@@ -106,6 +106,8 @@ import {
   Violet,
   continuous,
   montant,
+  noTouch,
+  passThrough,
 } from "@/theme";
 
 /**
@@ -309,7 +311,7 @@ export default function DaaraScreen() {
         Ndiguel : un blanc à 92 % disparaîtrait sur le corps blanc, un gris
         clair se lit sur la photographie comme sur le blanc.
       */}
-      <View style={[styles.topBar, { top: insets.top + Space.sm }]} pointerEvents="box-none">
+      <View style={[styles.topBar, passThrough, { top: insets.top + Space.sm }]}>
         <IconButton
           icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
           accessibilityLabel="Revenir"
@@ -347,8 +349,7 @@ function Hero({ daara, topInset }: { daara: Daara | null; topInset: number }) {
       <LinearGradient
         colors={ScrimPhoto.colors}
         locations={ScrimPhoto.locations}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, noTouch]}
       />
 
       <View style={styles.heroText}>

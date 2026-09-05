@@ -104,3 +104,40 @@ export interface CampaignEtat {
   donation_count: number;
   contributions: Contributor[];
 }
+
+/**
+ * Lancer un Ndiguel depuis le téléphone.
+ *
+ * ⚠ QUI PEUT ? Pas seulement les responsables : `IsCampaignOrganizer` ouvre la
+ * création à `admin`, `chef_daara`, `collector` ET `member`
+ * (`events/views.py:19`, `CAMPAIGN_CREATOR_ROLES`). Seule la tutelle en est
+ * exclue. Un talibé peut donc lancer un appel — c'est déjà vrai au tableau de
+ * bord, et le mobile ne le savait pas faire.
+ *
+ * `deadline` au format `AAAA-MM-JJ` : c'est un `DateField`, pas un
+ * `DateTimeField`. Envoyer un ISO complet fait un 400.
+ *
+ * `goal_amount` facultatif, et son absence a un SENS affiché : la fiche montre
+ * « Objectif ouvert · chaque contribution compte » au lieu d'une barre.
+ */
+export interface CreateCampaignPayload {
+  name: string;
+  deadline: string;
+  description?: string | null;
+  objective?: string | null;
+  goal_amount?: number | null;
+  fete?: number | null;
+  /** Le statut par défaut du modèle est `pending` ; le web crée en `active`. */
+  status?: CampaignStatus;
+}
+
+/** Une tâche de Ndiguel — `events/campaign-todos/`. */
+export interface CampaignTodo {
+  id: number;
+  campaign: number;
+  title: string;
+  description?: string | null;
+  is_completed: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

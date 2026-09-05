@@ -38,7 +38,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Dot } from "@/components/ui/Badge";
-import { GUTTER, Ink, Radius, Shadow, Space, UIType, Violet } from "@/theme";
+import { GUTTER, Ink, Radius, Shadow, Space, UIType, Violet, passThrough } from "@/theme";
 
 const BAR_HEIGHT = 64;
 const CENTER_SIZE = 56;
@@ -84,8 +84,7 @@ export function TabBar({ items, activeKey, center, style }: TabBarProps) {
 
   return (
     <View
-      style={[styles.wrapper, { bottom: insets.bottom + BAR_INSET }, style]}
-      pointerEvents="box-none"
+      style={[styles.wrapper, passThrough, { bottom: insets.bottom + BAR_INSET }, style]}
     >
       <BlurView intensity={24} tint="light" style={styles.bar}>
         {items.slice(0, half).map((item) => (

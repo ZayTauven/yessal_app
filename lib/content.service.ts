@@ -6,8 +6,12 @@ import type {
   Announcement,
   AppNotification,
   Chat,
+  ChatInvitation,
   ChatMember,
+  CreateGroupChatPayload,
   CreateTutellePayload,
+  MemberSearchResult,
+  MessagingPilotage,
   Daara,
   DaaraCollector,
   DirectoryUser,
@@ -19,11 +23,13 @@ import type {
 import type {
   Campaign,
   CampaignEtat,
+  CampaignTodo,
   Contributor,
+  CreateCampaignPayload,
   FeteCampaign,
   FeteEtat,
 } from "@/types/campaign.types";
-import type { CreateDonationPayload, Donation } from "@/types/donation.types";
+import type { BankAccount, CreateDonationPayload, Donation } from "@/types/donation.types";
 import { Config } from "@/constants/configs";
 
 type PaginatedResponse<T> = { results?: T[] } | T[];
@@ -470,6 +476,22 @@ export const ContentService = {
     return api.post<any>(`contributions/${id}/pay/`, { payment_method, wire_reference });
   },
 
+  /**
+   * Les coordonnées du compte à créditer par virement.
+   *
+   * Renvoie `null` quand le serveur dit 503 — la configuration bancaire
+   * manque. L'appelant montre alors l'écran sans les coordonnées plutôt qu'un
+   * IBAN vide, et surtout sans planter : on ne bloque pas une déclaration de
+   * virement parce qu'on n'a pas su afficher un encadré.
+   */
+  async getBankAccount(): Promise<BankAccount | null> {
+    try {
+      return await api.get<BankAccount>("contributions/bank-account/");
+    } catch {
+      return null;
+    }
+  },
+
   async getChats(): Promise<Chat[]> {
     const data = await api.get<PaginatedResponse<any>>("comms/");
     return unwrapList(data).map(normalizeChat);
@@ -593,5 +615,135 @@ export const ContentService = {
   async getNewsPost(slug: string): Promise<NewsPost> {
     const data = await api.get<any>(`news/posts/${slug}/`);
     return normalizeNewsPost(data);
+  },
+  /* ══════════════════════════════════════════════════════════════════════
+   * OUVRIR UNE CONVERSATION
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * Ce que le pilotage autorise pour ce membre.
+   *
+   * Les écrans lisent ces drapeaux AVANT de proposer un geste. Un chef de
+   * Daara peut fermer la création de groupe (`allow_group_creation`) ou la
+   * recherche hors-Daara ; proposer le bouton quand même mène à un 403 que
+   * l'utilisateur lit comme une panne.
+   *
+   * En cas d'échec réseau on renvoie le jeu PERMISSIF. Un pilotage
+   * injoignable ne doit pas verrouiller l'application : le serveur reste de
+   * toute façon l'autorité, il refusera lui-même si c'est le cas.
+   */
+  async getMessagingPilotage(): Promise<MessagingPilotage> {
+    try {
+      return await api.get<MessagingPilotage>("comms/pilotage/");
+    } catch {
+      return {
+        allow_cross_daara_search: true,
+        allow_member_invite: true,
+        allow_group_creation: true,
+        allow_invite_accept_decline: true,
+        allow_member_visibility_setting: true,
+        allow_file_sharing: true,
+      };
+    }
+  },
+
+  /**
+   * Chercher un membre à qui écrire.
+   *
+   * ⚠ Le serveur RENVOIE UNE LISTE VIDE en dessous de deux caractères
+   * (`MemberSearchView.get`), il ne renvoie pas d'erreur. On s'arrête donc
+   * avant l'appel plutôt que de dépenser un aller-retour sur une 3G pour
+   * recevoir `[]`.
+   *
+   * La liste est déjà filtrée par le serveur selon la visibilité de CHAQUE
+   * destinataire et le pilotage du demandeur : un membre absent du résultat
+   * n'est pas introuvable, il a choisi de ne pas l'être.
+   */
+  async searchMembers(query: string): Promise<MemberSearchResult[]> {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const data = await api.get<PaginatedResponse<any>>(
+      `comms/search-members/?q=${encodeURIComponent(q)}`,
+    );
+    return unwrapList(data);
+  },
+
+  /** Les invitations reçues ET envoyées, tous statuts confondus. */
+  async getInvitations(): Promise<ChatInvitation[]> {
+    const data = await api.get<PaginatedResponse<any>>("comms/invitations/");
+    return unwrapList(data);
+  },
+
+  /**
+   * Demander un tête-à-tête. Le fil naît à l'acceptation, pas ici.
+   *
+   * Le serveur refuse en 400 pour deux raisons parfaitement normales — un fil
+   * existe déjà, une invitation est déjà en attente — et en 403 si le
+   * destinataire ou le pilotage l'interdit. L'appelant traduit ; ce ne sont
+   * pas des pannes.
+   */
+  async createInvitation(recipientId: number): Promise<ChatInvitation> {
+    return api.post<ChatInvitation>("comms/invitations/", { recipient: recipientId });
+  },
+
+  /** Accepter : crée le `Chat` DIRECT et renvoie le fil, prêt à ouvrir. */
+  async acceptInvitation(id: number): Promise<Chat> {
+    const data = await api.post<any>(`comms/invitations/${id}/accept/`, {});
+    return normalizeChat(data.chat ?? data);
+  },
+
+  async declineInvitation(id: number): Promise<void> {
+    await api.post(`comms/invitations/${id}/decline/`, {});
+  },
+
+  /**
+   * Ouvrir un salon.
+   *
+   * `POST /comms/` ne fait QUE des groupes — `ChatViewSet.create` force
+   * `chat_type = GROUP` quoi qu'on envoie. Les modes autres que `manual`
+   * peuplent le salon côté serveur (tout le Daara, ses collecteurs, ses
+   * chefs…), ce qui évite de téléverser quatre cents identifiants depuis un
+   * téléphone.
+   */
+  async createGroupChat(payload: CreateGroupChatPayload): Promise<Chat> {
+    const data = await api.post<any>("comms/", payload);
+    return normalizeChat(data);
+  },
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * LANCER UN NDIGUEL
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * Créer un Ndiguel.
+   *
+   * On envoie du JSON et non un `FormData` : la photographie d'illustration
+   * n'est pas du périmètre mobile pour l'instant, et `campaignVisual` fournit
+   * déjà un visuel de repli authentique quand le Ndiguel n'en porte pas.
+   *
+   * `status: "active"` explicitement — le modèle crée en `pending`, ce qui
+   * masquerait le Ndiguel de l'accueil (`home.tsx` ne garde que les actifs).
+   * Le tableau de bord fait exactement le même choix.
+   */
+  async createCampaign(payload: CreateCampaignPayload): Promise<Campaign> {
+    const data = await api.post<any>("events/campaigns/", {
+      status: "active",
+      ...payload,
+    });
+    return normalizeCampaign(data);
+  },
+
+  async addCampaignTodo(campaignId: number, title: string): Promise<CampaignTodo> {
+    return api.post<CampaignTodo>("events/campaign-todos/", {
+      campaign: campaignId,
+      title,
+      is_completed: false,
+    });
+  },
+
+  async toggleCampaignTodo(todoId: number, isCompleted: boolean): Promise<CampaignTodo> {
+    return api.patch<CampaignTodo>(`events/campaign-todos/${todoId}/`, {
+      is_completed: isCompleted,
+    });
   },
 };

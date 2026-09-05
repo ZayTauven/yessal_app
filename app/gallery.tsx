@@ -4,7 +4,7 @@
  * Sortie vérifiable de la phase B : les dix-sept composants du contrat, à
  * leur taille réelle, avec leurs états. Ce n'est pas un écran du produit —
  * aucun onglet n'y mène, aucun lien ne la cite. On y arrive par l'URL
- * `/gallery` (`npx expo start`, puis `yessalmobile://gallery`).
+ * `/gallery` (`npx expo start`, puis `yessalgui://gallery`).
  *
  * Les pictogrammes d'interface restent ceux de Lucide, et c'est voulu : le jeu
  * livré par le commanditaire le 2026-09-04 (`assets/pictos/`) est un jeu

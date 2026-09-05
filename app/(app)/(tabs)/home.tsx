@@ -69,6 +69,8 @@ import {
   UIType,
   Violet,
   continuous,
+  noTouch,
+  passThrough,
 } from "@/theme";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -405,13 +407,23 @@ function RailCard({
   const ratio = goal > 0 ? Math.min(campaign.collected_amount / goal, 1) : 0;
   const countdown = formatCountdown(campaign.deadline);
 
+  /*
+    ⚠ LA CARTE N'EST PAS UN BOUTON, ET NE PEUT PAS L'ÊTRE.
+
+    Elle l'était : un `Pressable` d'ouverture englobait tout, CTA compris. Le
+    « Faire un Jëf » était donc un bouton DANS un bouton — HTML invalide sur
+    Expo Web (« <button> cannot be a descendant of <button> », erreur
+    d'hydratation), et sur natif un imbriquement que les lecteurs d'écran
+    annoncent comme un seul contrôle aux deux actions confondues.
+
+    La zone d'ouverture est maintenant une COUCHE, posée sous le contenu :
+    un frère du CTA, plus son ancêtre. Le contenu par-dessus laisse passer les
+    touches (`pointerEvents: "box-none"` : la vue elle-même est transparente au
+    toucher, ses enfants pressables ne le sont pas), sauf le bouton, qui les
+    capte. Résultat inchangé au doigt, correct dans l'arbre.
+  */
   return (
-    <Pressable
-      onPress={onOpen}
-      accessibilityRole="button"
-      accessibilityLabel={campaign.name}
-      style={styles.railCard}
-    >
+    <View style={styles.railCard}>
       {/*
         `campaignVisual` garantit une image : celle du Ndiguel, ou à défaut une
         photographie authentique de la confrérie. Le voile revient donc
@@ -427,15 +439,25 @@ function RailCard({
       <LinearGradient
         colors={[...ScrimPhoto.colors]}
         locations={[...ScrimPhoto.locations]}
+        style={[StyleSheet.absoluteFill, noTouch]}
+      />
+
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={campaign.name}
         style={StyleSheet.absoluteFill}
-        pointerEvents="none"
       />
 
       {countdown ? (
-        <Badge label={countdown} tone="onPhoto" style={styles.railBadge} />
+        <Badge
+          label={countdown}
+          tone="onPhoto"
+          style={[styles.railBadge, noTouch]}
+        />
       ) : null}
 
-      <View style={styles.railBottom}>
+      <View style={[styles.railBottom, passThrough]}>
         <Text style={styles.railTitle} numberOfLines={2}>
           {campaign.name}
         </Text>
@@ -460,7 +482,7 @@ function RailCard({
 
         <Button label="Faire un Jëf" onPress={onDonate} size="md" style={styles.railCta} />
       </View>
-    </Pressable>
+    </View>
   );
 }
 

@@ -58,6 +58,25 @@ export interface Donation {
   updated_at?: string;
 }
 
+/**
+ * Le compte à créditer par virement, servi par
+ * `GET /contributions/bank-account/`.
+ *
+ * L'écran du virement demandait la référence d'un virement dont il n'avait
+ * jamais montré la destination. Django ne les envoyait que par courriel, après
+ * coup — inatteignable pour un membre inscrit par téléphone seul.
+ *
+ * `null` signifie que le serveur a répondu 503 : la configuration manque. On
+ * ne montre alors AUCUN champ plutôt qu'un IBAN vide.
+ */
+export interface BankAccount {
+  bank_name: string;
+  iban: string;
+  bic: string;
+  account_name: string;
+  reference_format: string;
+}
+
 export interface CreateDonationPayload {
   campaign: number;
   amount: number;

@@ -81,6 +81,8 @@ import {
   Violet,
   continuous,
   montant,
+  noTouch,
+  passThrough,
 } from "@/theme";
 
 /** Hauteur de la photographie, mesurée sur la planche. */
@@ -203,7 +205,7 @@ export default function CampaignDetail() {
       )}
 
       {/* Le chevron épinglé — voir l'en-tête du fichier. */}
-      <View style={[styles.backSlot, { top: insets.top + Space.sm }]} pointerEvents="box-none">
+      <View style={[styles.backSlot, passThrough, { top: insets.top + Space.sm }]}>
         <IconButton
           icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
           accessibilityLabel="Revenir"
@@ -251,8 +253,7 @@ function Hero({ campaign }: { campaign: Campaign | null }) {
       <LinearGradient
         colors={ScrimPhoto.colors}
         locations={ScrimPhoto.locations}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, noTouch]}
       />
 
       {campaign ? (
@@ -457,8 +458,7 @@ function ActionBar({
       <LinearGradient
         colors={["rgba(255,255,255,0)", Surface.default]}
         locations={[0, 0.42]}
-        style={styles.actionFade}
-        pointerEvents="none"
+        style={[styles.actionFade, noTouch]}
       />
       <View style={styles.actionRow}>
         <Button

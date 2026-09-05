@@ -257,3 +257,83 @@ export interface AnalyticsResponse {
   daara?: string | null;
   announcements: Announcement[];
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * OUVRIR UNE CONVERSATION
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Le mobile lisait les fils sans jamais pouvoir en ouvrir un : l'état vide des
+ * Messages disait « le chef de votre Daara vous écrira ici », et il fallait
+ * passer par le tableau de bord pour qu'un talibé ait le moindre message.
+ *
+ * ⚠ Un tête-à-tête ne se CRÉE pas. `POST /comms/` ne fait que des GROUPES —
+ * `ChatViewSet.create` force `chat_type = GROUP`. Un fil direct naît d'une
+ * INVITATION acceptée : `POST /comms/invitations/`, puis
+ * `POST /comms/invitations/{id}/accept/` chez le destinataire, qui crée alors
+ * le `Chat` DIRECT et ses deux adhésions. C'est un consentement, pas une
+ * lourdeur : on n'ouvre pas un fil dans la boîte de quelqu'un sans son accord.
+ */
+
+/** Un membre trouvé par `GET /comms/search-members/?q=`. */
+export interface MemberSearchResult {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  avatar?: string | null;
+  avatar_url?: string | null;
+  daara_name?: string | null;
+}
+
+export type InvitationStatus = "pending" | "accepted" | "declined" | "expired";
+
+/** `ChatInvitationSerializer`. `sender` et `recipient` sont développés. */
+export interface ChatInvitation {
+  id: number;
+  sender: MemberSearchResult;
+  recipient: MemberSearchResult;
+  chat?: number | null;
+  chat_name?: string | null;
+  status: InvitationStatus;
+  created_at: string;
+  expires_at?: string | null;
+}
+
+/**
+ * Ce que le pilotage autorise, pour CE membre — `GET /comms/pilotage/`.
+ *
+ * Un chef de Daara peut fermer la création de groupe ou la recherche
+ * hors-Daara. L'écran lit ces drapeaux AVANT de proposer le geste : un bouton
+ * qui mène à un 403 est pire qu'un bouton absent.
+ */
+export interface MessagingPilotage {
+  id?: number;
+  daara?: number | null;
+  daara_name?: string | null;
+  allow_cross_daara_search: boolean;
+  allow_member_invite: boolean;
+  allow_group_creation: boolean;
+  allow_invite_accept_decline: boolean;
+  allow_member_visibility_setting: boolean;
+  allow_file_sharing: boolean;
+}
+
+/** Les modes de peuplement d'un salon — `CreateGroupChatSerializer.invite_mode`. */
+export type GroupInviteMode =
+  | "manual"
+  | "daara_all"
+  | "daara_members"
+  | "daara_collectors"
+  | "daara_chefs"
+  | "global_chefs"
+  | "global_collectors";
+
+export interface CreateGroupChatPayload {
+  name: string;
+  invite_mode: GroupInviteMode;
+  /** Requis en mode `manual`, ignoré autrement. */
+  member_ids?: number[];
+  daara_id?: number | null;
+  campaign_id?: number | null;
+}

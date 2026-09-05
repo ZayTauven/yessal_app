@@ -26,7 +26,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonCampaignCard } from "@/components/ui/Skeleton";
 import { formatFCFA, formatPercent } from "@/lib/format";
-import { Font, Radius, ScrimPhoto, Space, Type, Violet, continuous } from "@/theme";
+import { Font, Radius, ScrimPhoto, Space, Type, Violet, continuous, noTouch } from "@/theme";
 
 /** Hauteur du contrat. La carte ne s'étire pas : c'est un format, pas une boîte. */
 const CARD_HEIGHT = 200;
@@ -99,8 +99,7 @@ export function CampaignCard({
           <LinearGradient
             colors={[...ScrimPhoto.colors]}
             locations={[...ScrimPhoto.locations]}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, noTouch]}
           />
         </>
       ) : null}
