@@ -273,18 +273,24 @@ export interface AnalyticsResponse {
  * lourdeur : on n'ouvre pas un fil dans la boîte de quelqu'un sans son accord.
  */
 
-/** Un membre trouvé par `GET /comms/search-members/?q=`. */
-export interface MemberSearchResult {
-  id: number;
-  first_name?: string;
-  last_name?: string;
-  email?: string | null;
-  phone?: string | null;
-  role?: string | null;
-  avatar?: string | null;
-  avatar_url?: string | null;
-  daara_name?: string | null;
-}
+/**
+ * Un membre trouvé par `GET /comms/search-members/?q=`.
+ *
+ * ⚠ C'est EXACTEMENT `ChatMember` — `{id, name, avatar, daara_name, role}`,
+ * servi par le même `UserBriefSerializer` (`comms/serializers.py:31`). Un
+ * premier jet avait inventé `first_name`, `last_name`, `email` et
+ * `avatar_url` : aucun de ces champs n'existe sur cette route, et l'écran
+ * aurait affiché « Membre 42 » pour tout le monde, faute de trouver un prénom.
+ *
+ * C'est la faute que le plan relève à répétition — un type qui ment sur la
+ * forme de l'API. On alias plutôt que de recopier : le jour où le serializer
+ * bouge, il n'y a qu'un endroit à corriger.
+ *
+ * Deux choses sont donc déjà faites côté serveur, et il ne faut pas les
+ * refaire : `name` retombe sur l'adresse puis le numéro quand l'état civil est
+ * vide, et `avatar` résout `avatar` PUIS `avatar_url`.
+ */
+export type MemberSearchResult = ChatMember;
 
 export type InvitationStatus = "pending" | "accepted" | "declined" | "expired";
 

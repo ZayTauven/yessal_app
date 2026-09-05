@@ -94,6 +94,8 @@ function normalizeCampaign(item: any): Campaign {
      * cas où » — c'est ce genre de repli qui masque l'erreur suivante.
      */
     illustrative_photo: absoluteMediaUrl(item.illustrative_photo),
+    is_manageable: Boolean(item.is_manageable),
+    todos: Array.isArray(item.todos) ? item.todos : [],
   };
 }
 

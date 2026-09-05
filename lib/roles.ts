@@ -44,3 +44,51 @@ const COLLECT_ROLES: readonly string[] = ["admin", "chef_daara", "collector"];
 export function canCollect(role: UserRole | string | null | undefined): boolean {
   return COLLECT_ROLES.includes(role ?? "");
 }
+
+/*
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Les libellés des rôles — repris du web, qui les avait déjà unifiés
+ * ═══════════════════════════════════════════════════════════════════════════
+ * `front-web/src/lib/roles.ts` porte cette table depuis qu'elle avait divergé
+ * dans huit fichiers. Côté mobile elle est encore recopiée dans `profile.tsx`
+ * et `daara.tsx` — deux `ROLE_LABELS` locaux. On pose la source ici pour les
+ * écrans neufs ; les deux anciennes tables les rejoindront, mais pas dans ce
+ * lot : `daara.tsx` mêle rôle et TITRE dans le même emplacement (« Amir » sur
+ * une ligne d'annuaire, « Chef du Daara » sur la carte juste au-dessus), et
+ * c'est une question d'affichage à trancher, pas un doublon à supprimer.
+ *
+ * Les clés suivent `User.Role` côté Django (`accounts/models.py`), et les
+ * libellés sont ceux du web au mot près : un membre qui passe du tableau de
+ * bord au téléphone doit lire la même chose sur la même personne.
+ */
+export const ROLE_LABEL: Record<string, string> = {
+  member: "Talibé",
+  collector: "Collecteur",
+  chef_daara: "Chef de Daara",
+  tutelle: "Tutelle",
+  admin: "Administrateur",
+};
+
+const ROLE_LABEL_LONG: Record<string, string> = {
+  ...ROLE_LABEL,
+  collector: "Talibé · Collecteur",
+};
+
+/**
+ * Forme courte. Renvoie la clé telle quelle si le rôle est inconnu — mieux
+ * vaut afficher `superviseur` que rien du tout le jour où Django en ajoute un.
+ */
+export function roleLabel(role?: string | null): string {
+  if (!role) return "—";
+  return ROLE_LABEL[role] ?? role;
+}
+
+/**
+ * Forme qui rappelle le rattachement, là où l'on désigne une PERSONNE dans sa
+ * communauté. Un collecteur reste un talibé ; le taire donnerait à croire
+ * qu'il s'agit d'un autre statut.
+ */
+export function roleLabelLong(role?: string | null): string {
+  if (!role) return "—";
+  return ROLE_LABEL_LONG[role] ?? role;
+}

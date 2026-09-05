@@ -29,24 +29,44 @@
  *   échanges, filtrer une liste qu'on voit entière n'a pas d'objet.
  */
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MessagesSquare, Menu } from "lucide-react-native";
+import { Check, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
 
 import { ChatRow } from "@/components/chat/ChatRow";
+import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/Button";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { ContentService } from "@/lib/content.service";
+import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
-import type { Chat } from "@/types/content.types";
-import { GUTTER, Ink, Space, Surface, Type, Violet } from "@/theme";
+import type { Chat, ChatInvitation } from "@/types/content.types";
+import { GUTTER, HIT, Ink, Space, Surface, Type, UIType, Violet } from "@/theme";
 
 interface ListState {
   status: "loading" | "ready" | "failed";
   chats: Chat[];
+  /**
+   * Les demandes de conversation REÇUES et encore en attente.
+   *
+   * Sans elles, tout le parcours d'ouverture d'un fil se termine dans le vide :
+   * un membre envoie sa demande, le destinataire ne la voit nulle part, et le
+   * `Chat` direct — qui ne naît QUE de l'acceptation — n'existe jamais. La
+   * notification en parle, mais une notification se lit une fois et se perd.
+   */
+  invitations: ChatInvitation[];
 }
 
 /**
@@ -65,12 +85,32 @@ function byRecency(a: Chat, b: Chat): number {
  * de l'effet — c'est ce que `react-hooks/set-state-in-effect` exige, et c'est
  * le même montage que `fetchDetail` dans `campaign/[id].tsx`.
  */
-async function fetchChats(): Promise<ListState> {
+async function fetchChats(userId?: number): Promise<ListState> {
   try {
-    const chats = await ContentService.getChats();
-    return { status: "ready", chats: [...chats].sort(byRecency) };
+    /*
+      Les deux appels partent ensemble. L'échec des INVITATIONS n'est pas
+      fatal — on peut lire ses conversations sans elles ; celui des
+      conversations l'est.
+    */
+    const [chats, invitations] = await Promise.all([
+      ContentService.getChats(),
+      ContentService.getInvitations().catch(() => [] as ChatInvitation[]),
+    ]);
+    return {
+      status: "ready",
+      chats: [...chats].sort(byRecency),
+      /*
+        On ne garde QUE ce qui appelle une réponse de cet utilisateur : reçues,
+        et en attente. Ses propres demandes envoyées n'ont pas leur place en
+        tête de liste — il n'y a rien à y faire, et elles disparaîtront d'elles
+        mêmes en devenant des conversations.
+      */
+      invitations: invitations.filter(
+        (i) => i.status === "pending" && i.recipient?.id === userId,
+      ),
+    };
   } catch {
-    return { status: "failed", chats: [] };
+    return { status: "failed", chats: [], invitations: [] };
   }
 }
 
@@ -79,26 +119,61 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const openDrawer = useUiStore((state) => state.openDrawer);
 
-  const [state, setState] = useState<ListState>({ status: "loading", chats: [] });
+  const userId = useAuthStore((s) => s.user?.id);
+
+  const [state, setState] = useState<ListState>({
+    status: "loading",
+    chats: [],
+    invitations: [],
+  });
   const [refreshing, setRefreshing] = useState(false);
+  const [answering, setAnswering] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
-    fetchChats().then((next) => {
+    fetchChats(userId).then((next) => {
       if (active) setState(next);
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [userId]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    setState(await fetchChats());
+    setState(await fetchChats(userId));
     setRefreshing(false);
-  }, []);
+  }, [userId]);
 
-  const { status, chats } = state;
+  /*
+    Accepter ouvre le fil et y mène directement : c'est le geste qu'on venait
+    faire. Refuser recharge la liste — l'invitation disparaît, sans confirmation
+    supplémentaire. Un refus se reprend en redemandant, ce n'est pas destructif.
+  */
+  const answer = useCallback(
+    async (invitation: ChatInvitation, accept: boolean) => {
+      setAnswering(invitation.id);
+      try {
+        if (accept) {
+          const chat = await ContentService.acceptInvitation(invitation.id);
+          router.push(`/chat/${chat.id}`);
+        } else {
+          await ContentService.declineInvitation(invitation.id);
+        }
+        setState(await fetchChats(userId));
+      } catch {
+        Alert.alert(
+          "Réponse non enregistrée",
+          "La demande a peut-être déjà reçu une réponse. Tirez pour rafraîchir.",
+        );
+      } finally {
+        setAnswering(null);
+      }
+    },
+    [router, userId],
+  );
+
+  const { status, chats, invitations } = state;
 
   return (
     <View style={styles.screen}>
@@ -109,6 +184,17 @@ export default function MessagesScreen() {
           accessibilityLabel="Ouvrir le menu"
         />
         <Text style={styles.title}>Messages</Text>
+        {/*
+          Le bouton qui manquait. L'ancien écran avait un « Nouveau groupe » qui
+          ouvrait une alerte renvoyant au tableau de bord — un bouton dont la
+          seule action était de dire qu'il ne faisait rien. Celui-ci mène à un
+          écran qui ouvre réellement une conversation.
+        */}
+        <IconButton
+          icon={<SquarePen size={19} color={Ink[900]} strokeWidth={1.6} />}
+          onPress={() => router.push("/chat/new")}
+          accessibilityLabel="Nouvelle conversation"
+        />
       </View>
 
       <ScrollView
@@ -121,6 +207,25 @@ export default function MessagesScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Violet[500]} />
         }
       >
+        {invitations.length > 0 ? (
+          <View style={styles.invites}>
+            <Text style={styles.invitesTitle}>
+              {invitations.length === 1
+                ? "Une demande de conversation"
+                : `${invitations.length} demandes de conversation`}
+            </Text>
+            {invitations.map((invitation) => (
+              <InvitationRow
+                key={invitation.id}
+                invitation={invitation}
+                busy={answering === invitation.id}
+                disabled={answering !== null}
+                onAnswer={(accept) => answer(invitation, accept)}
+              />
+            ))}
+          </View>
+        ) : null}
+
         {status === "loading" ? (
           <>
             <SkeletonListRow />
@@ -146,12 +251,18 @@ export default function MessagesScreen() {
 
             Elle renvoie maintenant là où les annonces vivent réellement.
           */
+          /*
+            ⚠ Le corps disait aussi « le chef de votre Daara vous écrira ici »,
+            ce qui décrivait fidèlement l'impuissance de l'écran : il n'y avait
+            AUCUN moyen d'ouvrir un fil depuis le téléphone. Maintenant qu'il y
+            en a un, l'état vide propose le geste au lieu de faire attendre.
+          */
           <EmptyState
             picto={<MessagesSquare size={56} color={Violet[900]} strokeWidth={1.5} />}
             title="Aucun message"
-            body="Le chef de votre Daara vous écrira ici. Les annonces publiées se lisent à part."
-            actionLabel="Voir les annonces"
-            onAction={() => router.push("/announcements")}
+            body="Écrivez à un membre de votre Daara, ou ouvrez un salon. Les annonces publiées se lisent à part."
+            actionLabel="Nouvelle conversation"
+            onAction={() => router.push("/chat/new")}
             card={false}
             style={styles.state}
           />
@@ -169,8 +280,106 @@ export default function MessagesScreen() {
   );
 }
 
+/**
+ * Une demande reçue, avec ses deux réponses.
+ *
+ * ⚠ Les deux boutons sont des FRÈRES de la ligne, pas des enfants d'une ligne
+ * pressable : une cible tactile imbriquée dans une autre rend la plus petite
+ * inatteignable sur Android — et sur Expo Web c'est un `<button>` dans un
+ * `<button>`, HTML invalide. Même règle que la carte du rail de l'accueil.
+ */
+function InvitationRow({
+  invitation,
+  busy,
+  disabled,
+  onAnswer,
+}: {
+  invitation: ChatInvitation;
+  busy: boolean;
+  disabled: boolean;
+  onAnswer: (accept: boolean) => void;
+}) {
+  /* Même contrat que la recherche : `UserBriefSerializer` sert `name`, déjà
+     composé et déjà replié sur l'adresse ou le numéro. */
+  const sender = invitation.sender;
+  const name = sender?.name?.trim() || "Un membre";
+
+  return (
+    <View style={styles.invite}>
+      <Avatar uri={sender?.avatar} name={name} size={40} />
+      <View style={styles.inviteText}>
+        <Text style={styles.inviteName} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.inviteMeta} numberOfLines={1}>
+          souhaite vous écrire
+        </Text>
+      </View>
+      <View style={styles.inviteActions}>
+        <Pressable
+          onPress={() => onAnswer(false)}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Refuser la demande de ${name}`}
+          style={({ pressed }) => [styles.inviteBtn, pressed && styles.invitePressed]}
+        >
+          <X size={18} color={Ink[500]} strokeWidth={1.8} />
+        </Pressable>
+        <Pressable
+          onPress={() => onAnswer(true)}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={`Accepter la demande de ${name}`}
+          style={({ pressed }) => [
+            styles.inviteBtn,
+            styles.inviteAccept,
+            pressed && styles.invitePressed,
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color={Violet[900]} />
+          ) : (
+            <Check size={18} color={Violet[900]} strokeWidth={2} />
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Surface.default },
+
+  invites: { gap: Space.xs, paddingBottom: Space.lg },
+  invitesTitle: {
+    ...Type.label,
+    color: Ink[500],
+    textTransform: "uppercase",
+    paddingBottom: Space.xs,
+  },
+  invite: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.md,
+    paddingVertical: Space.sm,
+    paddingHorizontal: Space.md,
+    backgroundColor: Violet[100],
+    borderRadius: 14,
+  },
+  inviteText: { flex: 1, gap: 2 },
+  inviteName: { ...UIType.rowTitle, color: Violet[900] },
+  inviteMeta: { ...Type.micro, color: Ink[500] },
+  inviteActions: { flexDirection: "row", gap: Space.xs },
+  inviteBtn: {
+    width: HIT,
+    height: HIT,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Surface.default,
+  },
+  inviteAccept: { backgroundColor: Violet[300] },
+  invitePressed: { opacity: 0.6 },
 
   header: {
     flexDirection: "row",

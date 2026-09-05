@@ -31,7 +31,7 @@ import {
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronRight, Menu, Scroll, Search, X } from "lucide-react-native";
+import { ChevronRight, Menu, Plus, Scroll, Search, X } from "lucide-react-native";
 
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
@@ -102,6 +102,7 @@ export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
   const showsAmounts = canSeeAmounts(user?.role);
+  const role = user?.role;
 
   const [state, setState] = useState<ListState>({ status: "loading", campaigns: [] });
   const [refreshing, setRefreshing] = useState(false);
@@ -164,6 +165,23 @@ export default function CampaignsScreen() {
           }}
           accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher un Ndiguel"}
         />
+        {/*
+          ⚠ Ouvert à TOUS les rôles sauf la tutelle, et ce n'est pas une
+          négligence : `CAMPAIGN_CREATOR_ROLES` (`events/views.py:19`) autorise
+          `member` au même titre qu'un chef. Un talibé lance donc un appel
+          depuis son téléphone comme il pouvait déjà le faire au tableau de
+          bord. On ne masque pas ici un droit que le serveur accorde.
+
+          `canCollect` ne s'applique PAS : elle désigne qui encaisse pour
+          autrui, ce qui est une autre question.
+        */}
+        {role !== "tutelle" ? (
+          <IconButton
+            icon={<Plus size={20} color={Ink[900]} strokeWidth={1.8} />}
+            onPress={() => router.push("/campaign/new")}
+            accessibilityLabel="Lancer un Ndiguel"
+          />
+        ) : null}
       </View>
 
       {searchOpen ? (

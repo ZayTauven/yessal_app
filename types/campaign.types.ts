@@ -56,6 +56,23 @@ export interface Campaign {
    * où la forme de l'API se traduit, et donc le seul endroit qui doit le faire.
    */
   illustrative_photo?: string | null;
+  /**
+   * Vrai si CE membre peut gérer le Ndiguel — `can_be_managed_by` côté Django.
+   *
+   * ⚠ Ce n'est pas « en être l'auteur ». La règle est : `admin` et
+   * `chef_daara` toujours ; le responsable désigné tant que la gestion est
+   * ouverte. Un talibé qui LANCE un Ndiguel n'en devient pas le responsable —
+   * `perform_create` ne pose `organizer` que s'il a été transmis. Il ne peut
+   * donc pas en gérer les tâches ensuite.
+   */
+  is_manageable?: boolean;
+  /**
+   * Les tâches. ⚠ Le serveur les sert UNIQUEMENT à qui peut gérer le Ndiguel
+   * et renvoie `[]` aux autres (`CampaignSerializer.get_todos`). Un tableau
+   * vide ne veut donc pas dire « aucune tâche » : il peut vouloir dire « ce
+   * n'est pas votre affaire ». C'est `is_manageable` qui tranche.
+   */
+  todos?: CampaignTodo[];
 }
 
 export interface Contributor {

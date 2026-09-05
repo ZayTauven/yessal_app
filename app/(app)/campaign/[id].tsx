@@ -43,6 +43,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,12 +54,13 @@ import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, MessageSquare, Share2 } from "lucide-react-native";
+import { Check, ChevronLeft, MessageSquare, Plus, Share2 } from "lucide-react-native";
 
 import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { campaignVisual } from "@/lib/campaign-visuals";
@@ -66,11 +68,12 @@ import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA, formatNumber, formatPercent } from "@/lib/format";
 import { canSeeAmounts } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
-import type { Campaign, CampaignEtat } from "@/types/campaign.types";
+import type { Campaign, CampaignEtat, CampaignTodo } from "@/types/campaign.types";
 import {
   Border,
   Font,
   GUTTER,
+  HIT,
   Ink,
   Radius,
   ScrimPhoto,
@@ -198,6 +201,16 @@ export default function CampaignDetail() {
                   campaign={campaign}
                   onMessage={() => router.push("/chat")}
                 />
+
+                {/*
+                  Les tâches n'apparaissent qu'à qui peut gérer le Ndiguel. Le
+                  serveur applique déjà la règle — il renvoie `todos: []` aux
+                  autres — mais on ne s'appuie pas sur un tableau vide pour
+                  décider d'un affichage : `[]` voudrait dire à la fois « aucune
+                  tâche » et « ce n'est pas votre affaire ». `is_manageable`
+                  tranche, et c'est le champ fait pour ça.
+                */}
+                {campaign.is_manageable ? <Taches campaign={campaign} /> : null}
               </>
             )}
           </View>
@@ -398,6 +411,113 @@ function Description({
   );
 }
 
+/**
+ * Les tâches du Ndiguel — la liste de ce qu'il reste à faire.
+ *
+ * Réservée au responsable, au chef de Daara et à l'administrateur. C'est le
+ * pendant mobile de ce que le tableau de bord propose depuis toujours ; le
+ * mobile ne savait ni en ajouter ni en cocher.
+ *
+ * ── L'état est optimiste, et il se reprend ──────────────────────────────────
+ *
+ * Cocher part au serveur, mais l'écran bascule AVANT la réponse. Sur une 3G
+ * intermittente, attendre un aller-retour pour voir une case se remplir donne
+ * l'impression que le geste n'a pas été pris. En cas d'échec, la case revient
+ * à son état d'avant et le dit — plutôt que de rester cochée sur un serveur
+ * qui ne sait rien.
+ */
+function Taches({ campaign }: { campaign: Campaign }) {
+  const [todos, setTodos] = useState<CampaignTodo[]>(campaign.todos ?? []);
+  const [titre, setTitre] = useState("");
+  const [ajout, setAjout] = useState(false);
+
+  const ajouter = useCallback(async () => {
+    const valeur = titre.trim();
+    if (!valeur) return;
+    setAjout(true);
+    try {
+      const todo = await ContentService.addCampaignTodo(campaign.id, valeur);
+      setTodos((prev) => [todo, ...prev]);
+      setTitre("");
+    } catch {
+      Alert.alert("Tâche non ajoutée", "Elle n'est pas partie. Vérifiez votre connexion.");
+    } finally {
+      setAjout(false);
+    }
+  }, [campaign.id, titre]);
+
+  const basculer = useCallback(async (todo: CampaignTodo) => {
+    const vise = !todo.is_completed;
+    setTodos((prev) =>
+      prev.map((t) => (t.id === todo.id ? { ...t, is_completed: vise } : t)),
+    );
+    try {
+      await ContentService.toggleCampaignTodo(todo.id, vise);
+    } catch {
+      setTodos((prev) =>
+        prev.map((t) => (t.id === todo.id ? { ...t, is_completed: !vise } : t)),
+      );
+      Alert.alert("Non enregistré", "La tâche est revenue à son état précédent.");
+    }
+  }, []);
+
+  const restant = todos.filter((t) => !t.is_completed).length;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>
+        {/* Le décompte dit l'essentiel : ce qui reste, pas ce qui existe. */}
+        {todos.length === 0
+          ? "À faire"
+          : restant === 0
+            ? `À faire · tout est fait`
+            : `À faire · ${restant} sur ${todos.length}`}
+      </Text>
+
+      {todos.map((todo) => (
+        <Pressable
+          key={todo.id}
+          onPress={() => basculer(todo)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: todo.is_completed }}
+          accessibilityLabel={todo.title}
+          style={({ pressed }) => [styles.todo, pressed && styles.todoPressed]}
+        >
+          <View style={[styles.todoBox, todo.is_completed && styles.todoBoxDone]}>
+            {todo.is_completed ? (
+              <Check size={14} color={Surface.default} strokeWidth={2.4} />
+            ) : null}
+          </View>
+          <Text
+            style={[styles.todoLabel, todo.is_completed && styles.todoLabelDone]}
+            numberOfLines={2}
+          >
+            {todo.title}
+          </Text>
+        </Pressable>
+      ))}
+
+      <View style={styles.todoAdd}>
+        <Input
+          placeholder="Ajouter une tâche"
+          value={titre}
+          onChangeText={setTitre}
+          onSubmitEditing={ajouter}
+          returnKeyType="done"
+          containerStyle={styles.todoInput}
+        />
+        <IconButton
+          icon={<Plus size={20} color={Violet[900]} strokeWidth={1.9} />}
+          onPress={ajouter}
+          disabled={ajout || !titre.trim()}
+          accessibilityLabel="Ajouter la tâche"
+          tone="accent"
+        />
+      </View>
+    </View>
+  );
+}
+
 function Organisateur({
   campaign,
   onMessage,
@@ -572,6 +692,33 @@ const styles = StyleSheet.create({
   section: { gap: Space.sm },
   sectionTitle: { ...Type.cardTitle, color: Ink[900] },
   description: { ...Type.body, color: Ink[900] },
+
+  todo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.md,
+    minHeight: HIT,
+    paddingVertical: Space.xs,
+  },
+  todoPressed: { opacity: 0.6 },
+  todoBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: Violet[300],
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  todoBoxDone: { backgroundColor: Violet[700], borderColor: Violet[700] },
+  todoLabel: { ...Type.body, color: Ink[900], flex: 1 },
+  /* Barrée ET estompée : la couleur seule ne dit rien à qui ne la distingue pas. */
+  todoLabelDone: {
+    color: Ink[300],
+    textDecorationLine: "line-through",
+  },
+  todoAdd: { flexDirection: "row", alignItems: "center", gap: Space.sm },
+  todoInput: { flex: 1 },
   more: { alignSelf: "flex-start" },
   moreLabel: { fontFamily: Font.bold, fontSize: 14, lineHeight: 21, color: Violet[700] },
 
