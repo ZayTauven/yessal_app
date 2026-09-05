@@ -1,6 +1,65 @@
-import { useEffect, useState } from "react";
+/**
+ * app/(app)/daara.tsx — Mon Daara.
+ *
+ * Planche « Accueil et Onglets », état `isDaara`. Écran de pile, atteint par le
+ * tiroir : une photographie qui porte le nom, la carte du chef, trois
+ * compteurs, les visages du Daara, puis ses chantiers en cours.
+ *
+ * ── Ce que le serveur sait, et ce qu'il ne sait pas ─────────────────────────
+ *
+ * Tout ce qui est dessiné ici vient de `DaaraSerializer`
+ * (`accounts/serializers.py`), servi imbriqué dans `GET /api/profile/`. Ses
+ * champs sont : `id`, `ldd`, `name`, `chef`, `is_active`, les deux horodatages,
+ * `members_count`, `chef_full_name` et `collectors`. **Rien d'autre.**
+ *
+ * Trois conséquences, toutes visibles à l'écran :
+ *
+ * 1. **Le modèle `Daara` ne porte AUCUNE photographie.** La planche en montre
+ *    une (`assets/photos/daara-2x1.jpg`). Celle d'ici est donc un pis-aller
+ *    assumé — un rassemblement authentique fourni par le commanditaire, muet
+ *    sur l'identité du Daara, exactement comme les portraits de Sokhna Aïda le
+ *    sont pour un Ndiguel sans image (`lib/campaign-visuals.ts`). Elle cédera
+ *    la place le jour où le modèle gagnera un champ image.
+ * 2. **Le compteur de gauche ET la section disent « Membres », pas « Talibés ».**
+ *
+ *    ⚠ La phase E n'avait renommé QUE le compteur : la section qui liste les
+ *    mêmes personnes est restée « Les talibés » jusqu'à la capture du
+ *    2026-09-05, où l'on voit « Membres 4 », « Collecteurs 1 » et quatre
+ *    visages sous « Les talibés » — le chef et le collecteur y compris. Le
+ *    texte d'état vide juste en dessous disait déjà « Aucun membre », les deux
+ *    mots se contredisaient dans le même bloc.
+ *    `get_members_count` compte TOUS les rattachés — chef et collecteurs
+ *    compris. Écrire « 412 talibés » là où le serveur dit « 412 rattachés »
+ *    donnerait un chiffre faux de quelques unités, et personne ne saurait
+ *    lesquelles.
+ * 3. **Il n'y a ni description, ni code, ni adresse de Daara.** L'ancien écran
+ *    affichait une carte « Description » qui ne pouvait, structurellement, dire
+ *    que « Aucune description disponible » : le champ n'existe pas sur le
+ *    modèle. Elle est partie avec le reste.
+ *
+ * ── Le décompte des Ndiguels ────────────────────────────────────────────────
+ *
+ * `GET /api/events/campaigns/` n'est PAS filtré par Daara — `CampaignViewSet`
+ * rend `Campaign.objects.all()`. Le filtre est donc posé ici, sur
+ * `campaign.daara`. Même remarque pour l'annuaire : `DirectoryUserViewSet` ne
+ * restreint au Daara de l'appelant que pour `member` et `chef_daara` ; un
+ * collecteur ou un administrateur reçoit toute la communauté.
+ *
+ * ── Ce que le vide dit, et ce que l'échec dit ───────────────────────────────
+ *
+ * `members` et `campaigns` valent `null` quand l'appel a échoué, `[]` quand il
+ * a répondu vide. La distinction n'est pas décorative : un compteur à « 0 »
+ * après une coupure réseau est un mensonge, alors qu'un tiret ne prétend rien.
+ *
+ * ⚠ LES MONTANTS SONT SOUMIS AU RÔLE (`lib/roles.ts`). Un talibé ne voit pas la
+ * somme collectée d'un chantier ; il en voit l'état et l'échéance. L'écran ne
+ * rétrécit pas — la colonne de droite change de contenu, pas de largeur.
+ * Ce masquage est une règle d'AFFICHAGE, pas une frontière de sécurité :
+ * l'en-tête de `lib/roles.ts` le dit et le porte au registre de dette.
+ */
+import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,662 +67,765 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Image as ExpoImage } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
+import { Stack, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  Activity,
   Building2,
-  Hash,
-  Layers,
-  MapPin,
-  MessageSquare,
+  ChevronLeft,
+  Hammer,
+  Menu,
   Phone,
-  UserCircle,
-  Users2,
 } from "lucide-react-native";
-import { useAuthStore } from "@/store/auth.store";
 
-import { Colors } from "@/constants/colors";
-import { Avatar } from "@/components/ui/Avatar";
-import { Button } from "@/components/ui/Button";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { Skeleton, SkeletonListRow } from "@/components/ui/Skeleton";
+import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
+import { formatCountdown, formatFCFA, formatNumber } from "@/lib/format";
+import { canSeeAmounts } from "@/lib/roles";
+import { useAuthStore } from "@/store/auth.store";
+import { useUiStore } from "@/store/ui.store";
+import type { Daara, DirectoryUser, UserRole } from "@/types/auth.types";
+import type { Campaign, CampaignStatus } from "@/types/campaign.types";
+import {
+  Font,
+  GUTTER,
+  Ink,
+  Radius,
+  ScrimPhoto,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
+
+/**
+ * La photographie d'en-tête. Voir l'en-tête du fichier : le modèle `Daara` n'en
+ * porte pas, c'est un pis-aller. Ce fichier dormait sans appelant depuis la
+ * phase D — il est authentique, il retrouve un emploi.
+ */
+const HERO_PHOTO = require("@/assets/photos/reel/rassemblement-a-2x1.jpg");
+
+/** Hauteur utile de la photographie, mesurée sur la planche. */
+const HERO_HEIGHT = 236;
+/** Visages montrés avant « et N autres ». */
+const FACES = 5;
+/** L'annuaire se déplie par tranches — un Daara peut compter 400 membres. */
+const DIRECTORY_PAGE = 20;
+/** Chantiers listés avant le renvoi vers la liste complète. */
+const CHANTIERS = 5;
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  admin: "Administrateur",
+  chef_daara: "Chef de Daara",
+  collector: "Collecteur",
+  member: "Talibé",
+  tutelle: "Tutelle",
+};
+
+/**
+ * Un Ndiguel est un chantier du Daara : ce sont les mots de la planche, pas
+ * ceux de l'API. `CampaignStatus` en compte quatre, la planche n'en montre
+ * qu'un — les trois autres se disent quand même, sans quoi un chantier achevé
+ * se lirait comme un chantier ouvert.
+ */
+const CHANTIER_LABELS: Record<CampaignStatus, string> = {
+  active: "Chantier ouvert",
+  pending: "Chantier en préparation",
+  completed: "Chantier achevé",
+  inactive: "Chantier suspendu",
+};
+
+interface DaaraState {
+  status: "loading" | "ready" | "failed";
+  /** `null` avec `status: "ready"` : le compte n'est rattaché à aucun Daara. */
+  daara: Daara | null;
+  /** `null` = l'annuaire n'a pas répondu. `[]` = il a répondu vide. */
+  members: DirectoryUser[] | null;
+  /** `null` = la liste des Ndiguels n'a pas répondu. `[]` = aucun. */
+  campaigns: Campaign[] | null;
+}
+
+/** ⚠ Pas de `as const` : il figerait les champs en `readonly`. */
+const EMPTY: Omit<DaaraState, "status" | "daara"> = { members: null, campaigns: null };
+
+function fullName(person: { first_name?: string | null; last_name?: string | null }): string {
+  return `${person.first_name ?? ""} ${person.last_name ?? ""}`.trim() || "Membre";
+}
+
+/**
+ * Les trois appels partent ENSEMBLE, bien que le filtrage des deux derniers
+ * dépende de l'identifiant du premier : ce filtrage a lieu après, une fois tout
+ * résolu. Les enchaîner triplerait l'attente sur une 3G intermittente.
+ *
+ * Seul l'échec du profil fait basculer l'écran en erreur — sans le Daara il n'y
+ * a rien à montrer. Un annuaire ou une liste de Ndiguels manquante retire une
+ * section, elle ne condamne pas l'écran.
+ *
+ * ⚠ La fonction rend un état COMPLET, et elle est asynchrone : le `setState` de
+ * l'appelant vit après l'`await`, donc hors du chemin synchrone que
+ * `react-hooks/set-state-in-effect` refuse (React Compiler actif).
+ */
+async function fetchDaara(): Promise<DaaraState> {
+  const [daara, members, campaigns] = await Promise.all([
+    /* `undefined` = l'appel a échoué ; `null` = il a répondu « aucun Daara ». */
+    ContentService.getMyDaara().catch(() => undefined),
+    ContentService.getDirectory().catch(() => null),
+    ContentService.getCampaigns().catch(() => null),
+  ]);
+
+  if (daara === undefined) return { status: "failed", daara: null, ...EMPTY };
+  if (daara === null) return { status: "ready", daara: null, ...EMPTY };
+
+  return {
+    status: "ready",
+    daara,
+    members: members?.filter((m) => m.daara?.id === daara.id) ?? null,
+    campaigns: campaigns?.filter((c) => c.daara === daara.id) ?? null,
+  };
+}
 
 export default function DaaraScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const openDrawer = useUiStore((s) => s.openDrawer);
   const { user } = useAuthStore();
-  const [daara, setDaara] = useState<any>(null);
-  const [directory, setDirectory] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const showsAmounts = canSeeAmounts(user?.role);
 
-  const loadData = async () => {
-    try {
-      const [daaraData, directoryData] = await Promise.all([
-        ContentService.getMyDaara(),
-        ContentService.getDirectory(),
-      ]);
-      setDaara(daaraData);
-      setDirectory(directoryData);
-    } catch (error) {
-      console.error("Error loading Daara data:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const [state, setState] = useState<DaaraState>({
+    status: "loading",
+    daara: null,
+    ...EMPTY,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  /** 0 = annuaire replié. La planche montre les visages, pas la liste. */
+  const [directoryLimit, setDirectoryLimit] = useState(0);
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    fetchDaara().then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const getMemberName = (m: any) =>
-    m.name ?? (`${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "Membre");
+  const reload = useCallback(async () => {
+    setState((previous) => ({ ...previous, status: "loading" }));
+    setState(await fetchDaara());
+  }, []);
 
-  // L'API peut retourner ldd comme un objet ou un ID selon le sérialiseur
-  const lddObj =
-    daara && typeof daara.ldd === "object" && daara.ldd !== null
-      ? (daara.ldd as any)
-      : null;
-  const lddName = daara?.ldd_name ?? lddObj?.name ?? null;
-  const lddCode = lddObj?.code ?? null;
-  const lddLocation = lddObj?.location ?? null;
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setState(await fetchDaara());
+    setRefreshing(false);
+  }, []);
 
-  const roleLabel = (role: string) => {
-    switch (role) {
-      case "member":
-        return "Talibé";
-      case "chef_daara":
-        return "Chef de Daara";
-      case "collector":
-        return "Collecteur";
-      case "admin":
-        return "Administrateur";
-      default:
-        return role.replace(/_/g, " ");
-    }
-  };
+  const { status, daara, members, campaigns } = state;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={loadData} />
-        }
-      >
-        {loading && !daara ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator color={Colors.accent.DEFAULT} size="large" />
-            <Text style={styles.loadingText}>Chargement de votre Daara...</Text>
-          </View>
-        ) : !daara ? (
-          <View style={styles.emptyState}>
-            <Building2 size={64} color={Colors.ink.faint} />
-            <Text style={styles.emptyTitle}>Aucun Daara affilié</Text>
-            <Text style={styles.emptySubtitle}>
-              Contactez votre Chef Daara pour être rattaché à une communauté.
-            </Text>
-            <Button
-              label="Réessayer"
-              onPress={loadData}
-              variant="outline"
-              style={{ marginTop: 20 }}
+    <View style={styles.screen}>
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {status === "failed" ? (
+        <View style={[styles.centered, { paddingTop: insets.top + Space.huge }]}>
+          <ErrorState body="Votre Daara n'a pas pu être chargé." onRetry={reload} />
+        </View>
+      ) : status === "ready" && !daara ? (
+        <View style={[styles.centered, { paddingTop: insets.top + Space.huge }]}>
+          <EmptyState
+            picto={<Building2 size={56} color={Violet[900]} strokeWidth={1.5} />}
+            title="Aucun Daara rattaché"
+            body="Votre compte n'est rattaché à aucune communauté. Le chef de votre Daara peut vous y ajouter."
+            actionLabel="Actualiser"
+            onAction={reload}
+            card={false}
+          />
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + Space.xxxl }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor={Violet[500]}
+              progressViewOffset={insets.top}
             />
-          </View>
-        ) : (
-          <>
-            {/* Header Banner - Web Aligned */}
-            <View style={styles.headerBanner}>
-              <View style={styles.headerInfo}>
-                <View style={styles.headerLabelRow}>
-                  <Building2 size={14} color="rgba(255,255,255,0.7)" />
-                  <Text style={styles.headerLabel}>Mon Daara</Text>
-                </View>
-                <Text style={styles.daaraName}>{daara.name}</Text>
-                <View style={styles.headerMeta}>
-                  {lddName && (
-                    <View style={styles.metaItem}>
-                      <Layers size={12} color="rgba(255,255,255,0.8)" />
-                      <Text style={styles.metaText}>{lddName}</Text>
-                    </View>
-                  )}
-                  {lddLocation && (
-                    <View style={styles.metaItem}>
-                      <MapPin size={12} color="rgba(255,255,255,0.8)" />
-                      <Text style={styles.metaText}>{lddLocation}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-              <View style={styles.headerIconContainer}>
-                <Building2 size={32} color="#FFF" />
-              </View>
-            </View>
+          }
+        >
+          <Hero daara={daara} topInset={insets.top} />
 
-            {/* Info chips: LDD + Code + Statut */}
-            <View style={styles.infoChipsRow}>
-              {lddName ? (
-                <View style={styles.infoChip}>
-                  <Layers size={13} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.infoChipText}>{lddName}</Text>
-                </View>
-              ) : null}
-              {lddCode ? (
-                <View style={styles.infoChip}>
-                  <Hash size={13} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.infoChipText}>{lddCode}</Text>
-                </View>
-              ) : null}
-              <View
-                style={[
-                  styles.infoChip,
-                  daara.is_active ? styles.chipActive : styles.chipInactive,
-                ]}
-              >
-                <Activity
-                  size={13}
-                  color={daara.is_active ? "#22C55E" : "#EF4444"}
+          <View style={styles.body}>
+            {!daara ? (
+              <LoadingBody />
+            ) : (
+              <>
+                <ChefCard
+                  daara={daara}
+                  members={members}
+                  onWrite={() => router.push("/chat")}
                 />
-                <Text
-                  style={[
-                    styles.infoChipText,
-                    { color: daara.is_active ? "#22C55E" : "#EF4444" },
-                  ]}
-                >
-                  {daara.is_active ? "Actif" : "Inactif"}
-                </Text>
-              </View>
-            </View>
 
-            {/* Quick Stats Grid */}
-            <View style={styles.statsGrid}>
-              <GlassCard style={styles.statCard}>
-                <View style={styles.statHeader}>
-                  <Text style={styles.statLabel}>Chef de Daara</Text>
-                  <UserCircle size={14} color={Colors.ink.faint} />
-                </View>
-                <View style={styles.statBody}>
-                  <Text style={styles.statMainValue}>
-                    {daara.chef_full_name || "Non désigné"}
-                  </Text>
-                  <Text style={styles.statSubValue}>
-                    {daara.members_count || 0} membres
-                  </Text>
-                </View>
-              </GlassCard>
+                <Counters daara={daara} campaigns={campaigns} />
 
-              <GlassCard style={styles.statCard}>
-                <View style={styles.statHeader}>
-                  <Text style={styles.statLabel}>Description</Text>
-                </View>
-                <View style={styles.statBody}>
-                  <Text style={styles.statValue} numberOfLines={3}>
-                    {daara.description || "Aucune description disponible."}
-                  </Text>
-                </View>
-              </GlassCard>
-            </View>
+                <Talibes
+                  members={members}
+                  limit={directoryLimit}
+                  onToggle={() =>
+                    setDirectoryLimit((current) => (current === 0 ? DIRECTORY_PAGE : 0))
+                  }
+                  onMore={() => setDirectoryLimit((current) => current + DIRECTORY_PAGE)}
+                />
 
-            {/* Collectors Section */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Collecteurs</Text>
-              {daara.collectors && daara.collectors.length > 0 ? (
-                <View style={styles.collectorList}>
-                  {daara.collectors.map((c: any) => (
-                    <GlassCard key={c.id} style={styles.collectorCard}>
-                      <View style={styles.collectorInfo}>
-                        <Avatar
-                          uri={c.avatar_url ?? c.avatar}
-                          name={getMemberName(c)}
-                          size={40}
-                          borderRadius={12}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.collectorName}>
-                            {getMemberName(c)}
-                          </Text>
-                          <Text style={styles.collectorPhone}>
-                            {c.phone || "Pas de numéro"}
-                          </Text>
-                        </View>
-                        {c.phone && (
-                          <Pressable
-                            style={styles.callBtn}
-                            onPress={() => {
-                              const { Linking } = require("react-native");
-                              Linking.openURL(`tel:${c.phone}`);
-                            }}
-                          >
-                            <Phone size={16} color={Colors.accent.DEFAULT} />
-                          </Pressable>
-                        )}
-                      </View>
-                    </GlassCard>
-                  ))}
-                </View>
-              ) : (
-                <GlassCard style={styles.emptyCollectorCard}>
-                  <Text style={styles.emptyCollectorText}>
-                    Aucun collecteur désigné.
-                  </Text>
-                </GlassCard>
-              )}
-            </View>
+                <Chantiers
+                  campaigns={campaigns}
+                  showsAmounts={showsAmounts}
+                  onOpen={(id) => router.push(`/campaign/${id}`)}
+                  onSeeAll={() => router.push("/campaigns")}
+                  onRetry={reload}
+                />
+              </>
+            )}
+          </View>
+        </ScrollView>
+      )}
 
-            {/* Directory Section - Other Members */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeaderRow}>
-                <Users2 size={20} color={Colors.accent.DEFAULT} />
-                <Text style={styles.sectionTitleMain}>
-                  Les membres de mon Daara
-                </Text>
-              </View>
-
-              {/* Bouton Chat de groupe du Daara */}
-              <Pressable
-                style={styles.groupChatBtn}
-                onPress={() => router.push("/chat" as any)}
-              >
-                <View style={styles.groupChatIcon}>
-                  <MessageSquare size={18} color="#FFF" />
-                </View>
-                <Text style={styles.groupChatText}>
-                  Ouvrir le Chat du Daara
-                </Text>
-              </Pressable>
-
-              <View style={styles.directoryList}>
-                {directory.filter((m) => m.id !== user?.id).length > 0 ? (
-                  directory
-                    .filter((m) => m.id !== user?.id)
-                    .map((member) => (
-                      <GlassCard key={member.id} style={styles.memberCard}>
-                        <View style={styles.memberRow}>
-                          <Avatar
-                            uri={member.avatar_url ?? member.avatar}
-                            name={getMemberName(member)}
-                            size={38}
-                            borderRadius={12}
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.memberName}>
-                              {getMemberName(member)}
-                            </Text>
-                            <Text style={styles.memberRole}>
-                              {roleLabel(member.role)}
-                            </Text>
-                          </View>
-                          {member.phone && (
-                            <Pressable
-                              style={styles.callBtn}
-                              onPress={() => {
-                                const { Linking } = require("react-native");
-                                Linking.openURL(`tel:${member.phone}`);
-                              }}
-                            >
-                              <Phone size={16} color={Colors.accent.DEFAULT} />
-                            </Pressable>
-                          )}
-                        </View>
-                      </GlassCard>
-                    ))
-                ) : (
-                  <Text style={styles.emptyDirectoryText}>
-                    Aucun autre membre trouvé.
-                  </Text>
-                )}
-              </View>
-            </View>
-          </>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+      {/*
+        Les deux boutons sont ÉPINGLÉS, là où la planche les pose DANS la
+        photographie — donc défilants. Passé 236 px, l'utilisateur n'aurait plus
+        ni retour ni tiroir. Ton `neutral` pour la même raison qu'au détail d'un
+        Ndiguel : un blanc à 92 % disparaîtrait sur le corps blanc, un gris
+        clair se lit sur la photographie comme sur le blanc.
+      */}
+      <View style={[styles.topBar, { top: insets.top + Space.sm }]} pointerEvents="box-none">
+        <IconButton
+          icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
+          accessibilityLabel="Revenir"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/home"))}
+        />
+        <IconButton
+          icon={<Menu size={20} color={Ink[900]} strokeWidth={1.6} />}
+          accessibilityLabel="Ouvrir le menu"
+          onPress={openDrawer}
+        />
+      </View>
+    </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La photographie porte le sur-titre et le nom. `topInset` s'AJOUTE à la
+ * hauteur dessinée : sans cela la barre d'état mangerait 40 des 236 px et le
+ * nom remonterait dans le dégradé.
+ */
+function Hero({ daara, topInset }: { daara: Daara | null; topInset: number }) {
+  /** La zone territoriale et son chef-lieu. `location` est celui de la LDD. */
+  const ldd = [daara?.ldd?.name, daara?.ldd?.location].filter(Boolean).join(" · ");
+
+  return (
+    <View style={[styles.hero, { height: HERO_HEIGHT + topInset }]}>
+      <ExpoImage
+        source={HERO_PHOTO}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        accessibilityIgnoresInvertColors
+      />
+      <LinearGradient
+        colors={ScrimPhoto.colors}
+        locations={ScrimPhoto.locations}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      <View style={styles.heroText}>
+        <View style={styles.heroOverlineRow}>
+          <Text style={styles.heroOverline}>Mon Daara</Text>
+          {/* Un Daara désactivé se dit : le taire ferait passer un Daara clos pour ouvert. */}
+          {daara && !daara.is_active ? <Badge label="Inactif" tone="onPhoto" /> : null}
+        </View>
+        {daara ? (
+          <>
+            <Text style={styles.heroTitle} numberOfLines={2}>
+              {daara.name}
+            </Text>
+            {ldd ? (
+              <Text style={styles.heroLdd} numberOfLines={1}>
+                {ldd}
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <Skeleton width="70%" height={26} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Le chef. `chef_full_name` est le seul champ nominatif du sérialiseur : ni
+ * portrait, ni identifiant utilisable pour le joindre. Le portrait est donc
+ * retrouvé dans l'annuaire par le MÊME cheminement que
+ * `DaaraSerializer.get_chef_full_name` — d'abord le chef déclaré sur le Daara,
+ * à défaut le premier `chef_daara` rattaché. Deux cheminements qui
+ * divergeraient mettraient un visage sur un autre nom.
+ */
+function ChefCard({
+  daara,
+  members,
+  onWrite,
+}: {
+  daara: Daara;
+  members: DirectoryUser[] | null;
+  onWrite: () => void;
+}) {
+  const name = daara.chef_full_name?.trim();
+
+  if (!name) {
+    return (
+      <Card>
+        <Text style={styles.note}>Aucun chef n&apos;est désigné pour ce Daara.</Text>
+      </Card>
+    );
+  }
+
+  const row =
+    members?.find((m) => m.id === daara.chef) ??
+    members?.find((m) => m.role === "chef_daara");
+
+  return (
+    <Card padded={false} style={styles.chef}>
+      <Avatar uri={row?.avatar_url ?? row?.avatar} name={name} size={44} />
+      <View style={styles.chefText}>
+        <Text style={styles.chefName} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.chefRole}>Chef du Daara</Text>
+      </View>
+      {/*
+        « Écrire » mène à la messagerie, pas à une conversation : `comms/`
+        n'expose pas d'ouverture par utilisateur. Même arbitrage qu'au détail
+        d'un Ndiguel — un bouton qui ne fait rien est pire qu'un bouton absent.
+      */}
+      <Button
+        label="Écrire"
+        onPress={onWrite}
+        variant="secondary"
+        size="md"
+        fullWidth={false}
+        style={styles.chefWrite}
+      />
+    </Card>
+  );
+}
+
+/**
+ * Trois compteurs, trois sources distinctes — et c'est le point : aucun n'est
+ * calculé à partir d'un autre.
+ *
+ * ⚠ Le compteur des Ndiguels affiche un TIRET, pas un zéro, quand la liste n'a
+ * pas répondu. « 0 Ndiguel actif » sur une coupure réseau est un mensonge, et
+ * c'est celui qui ferait renoncer un talibé à contribuer.
+ */
+function Counters({ daara, campaigns }: { daara: Daara; campaigns: Campaign[] | null }) {
+  const active = campaigns?.filter((c) => c.status === "active").length ?? null;
+
+  return (
+    <View style={styles.counters}>
+      <Counter label="Membres" value={formatNumber(daara.members_count)} />
+      <Counter label="Ndiguels actifs" value={active === null ? "—" : formatNumber(active)} />
+      <Counter label="Collecteurs" value={formatNumber(daara.collectors.length)} />
+    </View>
+  );
+}
+
+function Counter({ label, value }: { label: string; value: string }) {
+  return (
+    <Card padded={false} style={styles.counter}>
+      <Text style={styles.counterLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.counterValue}>{value}</Text>
+    </Card>
+  );
+}
+
+/**
+ * Les visages, et l'annuaire replié dessous.
+ *
+ * La planche ne montre que la pile et un lien « Annuaire ». Ce lien n'a AUCUNE
+ * destination : il n'existe pas de route d'annuaire dans l'application, et en
+ * créer une sortirait de ce lot. Il déplie donc la liste sur place — c'est
+ * exactement ce que l'ancien écran affichait en permanence, et c'est la seule
+ * façon de retrouver le numéro d'un membre. Replié par défaut : la planche a
+ * raison, on ouvre « Mon Daara » pour voir son Daara, pas pour lire 400 lignes.
+ *
+ * ⚠ « et N autres » se compte sur l'ANNUAIRE, pas sur `members_count`. Les deux
+ * chiffres peuvent différer — l'annuaire ne rend que les rôles de la communauté
+ * — et mélanger les sources donnerait un reste négatif le jour où ils
+ * divergeront pour de bon.
+ */
+function Talibes({
+  members,
+  limit,
+  onToggle,
+  onMore,
+}: {
+  members: DirectoryUser[] | null;
+  limit: number;
+  onToggle: () => void;
+  onMore: () => void;
+}) {
+  if (members === null) {
+    return (
+      <View style={styles.section}>
+        <SectionTitle title="Les membres" />
+        <Text style={styles.note}>L&apos;annuaire n&apos;a pas pu être chargé.</Text>
+      </View>
+    );
+  }
+
+  if (members.length === 0) {
+    return (
+      <View style={styles.section}>
+        <SectionTitle title="Les membres" />
+        <Text style={styles.note}>Aucun membre n&apos;est encore rattaché à ce Daara.</Text>
+      </View>
+    );
+  }
+
+  const faces: StackedPerson[] = members.slice(0, FACES).map((m) => ({
+    uri: m.avatar_url ?? m.avatar,
+    name: fullName(m),
+  }));
+  const others = members.length - faces.length;
+  const shown = members.slice(0, limit);
+
+  return (
+    <View style={styles.section}>
+      <SectionTitle
+        title="Les membres"
+        actionLabel={limit === 0 ? "Annuaire" : "Replier"}
+        onAction={onToggle}
+      />
+
+      <View style={styles.faces}>
+        {/* Pas de `total` : la pastille « +N » ferait doublon avec « et N autres ». */}
+        <AvatarStack people={faces} size={40} max={FACES} />
+        {others > 0 ? (
+          <Text style={styles.facesLabel}>
+            {others === 1 ? "et 1 autre" : `et ${formatNumber(others)} autres`}
+          </Text>
+        ) : null}
+      </View>
+
+      {limit > 0 ? (
+        <View style={styles.directory}>
+          {shown.map((member) => (
+            <MemberRow key={member.id} member={member} />
+          ))}
+          {members.length > shown.length ? (
+            <Button
+              label={`Afficher ${formatNumber(members.length - shown.length)} membres de plus`}
+              onPress={onMore}
+              variant="secondary"
+              size="md"
+              style={styles.directoryMore}
+            />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Une ligne d'annuaire. Le bouton d'appel n'est pas sur la planche ; il était
+ * sur l'ancien écran et il est gardé — un annuaire dont on ne peut pas appeler
+ * les entrées n'en est pas un. Il ne paraît que si le numéro existe : `phone`
+ * est facultatif côté modèle, un compte peut n'avoir qu'une adresse.
+ */
+function MemberRow({ member }: { member: DirectoryUser }) {
+  const name = fullName(member);
+  const phone = member.phone?.trim();
+
+  return (
+    <View style={styles.member}>
+      <Avatar uri={member.avatar_url ?? member.avatar} name={name} size={40} />
+      <View style={styles.memberText}>
+        <Text style={styles.memberName} numberOfLines={1}>
+          {name}
+        </Text>
+        <Text style={styles.memberRole} numberOfLines={1}>
+          {member.title_name?.trim() || ROLE_LABELS[member.role] || member.role}
+        </Text>
+      </View>
+      {phone ? (
+        <IconButton
+          icon={<Phone size={18} color={Ink[900]} strokeWidth={1.5} />}
+          accessibilityLabel={`Appeler ${name}`}
+          onPress={() => {
+            /* Pas d'application téléphone — un émulateur, une tablette. */
+            Linking.openURL(`tel:${phone}`).catch(() => undefined);
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * « La vie du Daara » — les Ndiguels du Daara, ouverts d'abord, puis par
+ * échéance la plus proche. L'échéance ne s'affiche que pour un chantier
+ * ouvert : « Chantier achevé · J-42 » n'a pas de sens, et « Clôturé » est déjà
+ * dit par l'état.
+ */
+function Chantiers({
+  campaigns,
+  showsAmounts,
+  onOpen,
+  onSeeAll,
+  onRetry,
+}: {
+  campaigns: Campaign[] | null;
+  showsAmounts: boolean;
+  onOpen: (id: number) => void;
+  onSeeAll: () => void;
+  onRetry: () => void;
+}) {
+  if (campaigns === null) {
+    return (
+      <View style={styles.section}>
+        <SectionTitle title="La vie du Daara" />
+        <ErrorState
+          body="Les Ndiguels de votre Daara n'ont pas pu être chargés."
+          onRetry={onRetry}
+        />
+      </View>
+    );
+  }
+
+  if (campaigns.length === 0) {
+    return (
+      <View style={styles.section}>
+        <SectionTitle title="La vie du Daara" />
+        <EmptyState
+          picto={<Hammer size={56} color={Violet[900]} strokeWidth={1.5} />}
+          title="Aucun chantier en cours"
+          body="Votre Daara n'a pas encore ouvert de Ndiguel. Vous serez prévenu dès qu'un appel est lancé."
+        />
+      </View>
+    );
+  }
+
+  const sorted = [...campaigns].sort((a, b) => {
+    const openness = Number(b.status === "active") - Number(a.status === "active");
+    if (openness !== 0) return openness;
+    return (a.deadline ?? "").localeCompare(b.deadline ?? "");
+  });
+  const overflow = sorted.length > CHANTIERS;
+
+  return (
+    <View style={styles.section}>
+      <SectionTitle
+        title="La vie du Daara"
+        actionLabel={overflow ? "Tout voir" : undefined}
+        onAction={overflow ? onSeeAll : undefined}
+      />
+      {sorted.slice(0, CHANTIERS).map((campaign) => (
+        <ChantierRow
+          key={campaign.id}
+          campaign={campaign}
+          showsAmounts={showsAmounts}
+          onPress={() => onOpen(campaign.id)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function ChantierRow({
+  campaign,
+  showsAmounts,
+  onPress,
+}: {
+  campaign: Campaign;
+  showsAmounts: boolean;
+  onPress: () => void;
+}) {
+  const countdown = campaign.status === "active" ? formatCountdown(campaign.deadline) : null;
+  const meta = [CHANTIER_LABELS[campaign.status], countdown === "Clôturé" ? null : countdown]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <Card
+      padded={false}
+      onPress={onPress}
+      accessibilityLabel={campaign.name}
+      style={styles.chantier}
+    >
+      <ExpoImage
+        source={campaignVisual(campaign, "square")}
+        style={styles.chantierPhoto}
+        contentFit="cover"
+        transition={160}
+      />
+      <View style={styles.chantierText}>
+        <Text style={styles.chantierName} numberOfLines={2}>
+          {campaign.name}
+        </Text>
+        <Text style={styles.chantierMeta} numberOfLines={1}>
+          {meta}
+        </Text>
+      </View>
+      {/*
+        La somme collectée ne se montre qu'aux rôles qui y ont droit
+        (`lib/roles.ts`). Pour un talibé la colonne disparaît, sans texte de
+        remplacement : l'état et l'échéance, à gauche, disent déjà où en est le
+        chantier.
+      */}
+      {showsAmounts ? (
+        <Text style={styles.chantierAmount} numberOfLines={1}>
+          {formatFCFA(campaign.collected_amount)}
+        </Text>
+      ) : null}
+    </Card>
+  );
+}
+
+function SectionTitle({
+  title,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.sectionTitle}>
+      <Text style={styles.sectionTitleLabel}>{title}</Text>
+      {actionLabel && onAction ? (
+        <Pressable onPress={onAction} accessibilityRole="button" hitSlop={12}>
+          <Text style={styles.sectionAction}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function LoadingBody() {
+  return (
+    <View style={styles.loading}>
+      <Skeleton width="100%" height={72} radius={Radius.card} />
+      <View style={styles.counters}>
+        <Skeleton height={72} radius={Radius.card} delay={150} style={styles.counter} />
+        <Skeleton height={72} radius={Radius.card} delay={150} style={styles.counter} />
+        <Skeleton height={72} radius={Radius.card} delay={150} style={styles.counter} />
+      </View>
+      <Skeleton width={140} height={18} delay={300} />
+      <SkeletonListRow />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  scroll: {
-    paddingHorizontal: 20,
-    paddingBottom: 120,
-    paddingTop: 20,
-    gap: 20,
-  },
-  loadingContainer: {
-    paddingTop: 100,
-    alignItems: "center",
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  emptyState: {
-    paddingTop: 80,
-    alignItems: "center",
-    textAlign: "center",
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: Colors.ink.muted,
-    textAlign: "center",
-    lineHeight: 22,
-    fontFamily: "Inter_400Regular",
-  },
-  headerBanner: {
-    backgroundColor: Colors.accent.DEFAULT, // Use primary color as fallback for gradient
-    borderRadius: 24,
-    padding: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  screen: { flex: 1, backgroundColor: Surface.alt },
+  centered: { flex: 1, paddingHorizontal: GUTTER },
+
+  hero: {
+    backgroundColor: Violet[900],
+    justifyContent: "flex-end",
     overflow: "hidden",
-    position: "relative",
   },
-  headerInfo: {
-    flex: 1,
-    zIndex: 2,
-  },
-  headerLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  headerLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_900Black",
-    color: "rgba(255,255,255,0.7)",
+  heroText: { paddingHorizontal: GUTTER, paddingBottom: Space.lg, gap: Space.xs },
+  heroOverline: {
+    ...Type.micro,
+    fontFamily: Font.semibold,
+    letterSpacing: 1.1,
     textTransform: "uppercase",
-    letterSpacing: 1,
+    color: "rgba(255,255,255,0.78)",
   },
-  daaraName: {
-    fontSize: 28,
-    fontFamily: "Inter_700Bold",
-    color: "#FFF",
-    letterSpacing: -0.5,
-  },
-  headerMeta: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginTop: 12,
-  },
-  metaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.8)",
-    fontFamily: "Inter_600SemiBold",
-  },
-  headerIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  infoChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  infoChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: Colors.accent.dim,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  chipActive: {
-    backgroundColor: "rgba(34, 197, 94, 0.08)",
-    borderColor: "rgba(34, 197, 94, 0.2)",
-  },
-  chipInactive: {
-    backgroundColor: "rgba(239, 68, 68, 0.08)",
-    borderColor: "rgba(239, 68, 68, 0.2)",
-  },
-  infoChipText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.accent.DEFAULT,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    padding: 16,
-    gap: 8,
-  },
-  statHeader: {
+  heroTitle: { ...Type.greeting, color: "#FFFFFF" },
+  heroLdd: { ...Type.label, color: "rgba(255,255,255,0.78)" },
+  heroOverlineRow: { flexDirection: "row", alignItems: "center", gap: Space.sm },
+
+  topBar: {
+    position: "absolute",
+    left: GUTTER,
+    right: GUTTER,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
   },
-  statLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_900Black",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 99,
-  },
-  statusActive: {
-    backgroundColor: "rgba(34, 197, 94, 0.1)",
-  },
-  statusInactive: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-  },
-  statusText: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-  },
-  statusTextActive: {
-    color: "#22C55E",
-  },
-  statusTextInactive: {
-    color: "#EF4444",
-  },
-  statBody: {
+
+  body: { paddingHorizontal: GUTTER, paddingTop: Space.lg, gap: Space.xl },
+  loading: { gap: Space.lg },
+  note: { ...UIType.stateBody, color: Ink[500] },
+
+  chef: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    alignItems: "center",
+    gap: Space.md,
+    paddingVertical: Space.md,
+    paddingHorizontal: Space.lg,
   },
-  statValue: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 18,
-    flex: 1,
-  },
-  statMainValue: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  statSubValue: {
-    fontSize: 11,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
-  },
-  section: {
-    marginTop: 10,
-  },
+  chefText: { flex: 1, minWidth: 0, gap: 2 },
+  chefName: { ...UIType.rowTitle, color: Ink[900] },
+  chefRole: { ...Type.label, color: Ink[500] },
+  chefWrite: { paddingHorizontal: Space.lg },
+
+  counters: { flexDirection: "row", gap: Space.sm },
+  counter: { flex: 1, padding: Space.lg, gap: Space.xs },
+  counterLabel: { ...Type.micro, color: Ink[500], letterSpacing: 0 },
+  /** `amountCard` est le cran 20/700 à chasse fixe — ici un effectif, d'où l'encre. */
+  counterValue: { ...Type.amountCard, color: Ink[900] },
+
+  section: { gap: Space.md },
   sectionTitle: {
-    fontSize: 12,
-    fontFamily: "Inter_900Black",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Space.md,
   },
-  sectionTitleMain: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  sectionHeaderRow: {
+  sectionTitleLabel: { ...Type.cardTitle, color: Ink[900] },
+  sectionAction: { fontFamily: Font.bold, fontSize: 12, color: Violet[700] },
+
+  faces: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  facesLabel: { ...Type.label, fontFamily: Font.semibold, color: Ink[500], flexShrink: 1 },
+  directory: { gap: Space.md },
+  directoryMore: { marginTop: Space.xs },
+
+  member: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  memberText: { flex: 1, minWidth: 0, gap: 2 },
+  memberName: { ...UIType.personName, color: Ink[900] },
+  memberRole: { ...Type.label, color: Ink[300] },
+
+  chantier: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-  },
-  collectorList: {
-    gap: 10,
-  },
-  collectorCard: {
-    padding: 12,
-  },
-  collectorInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  collectorAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitial: {
-    color: Colors.accent.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  collectorName: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  collectorPhone: {
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  emptyCollectorCard: {
-    padding: 20,
-    alignItems: "center",
-  },
-  emptyCollectorText: {
-    fontSize: 13,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  callBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  groupChatBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: Colors.accent.DEFAULT,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  groupChatIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  groupChatText: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: "#FFF",
-  },
-  memberAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  memberAvatarText: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  manageButton: {
-    marginVertical: 10,
-  },
-  directoryList: {
-    gap: 10,
-  },
-  memberCard: {
+    gap: 14,
     padding: 14,
   },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  memberName: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  memberRole: {
-    fontSize: 11,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_700Bold",
-    textTransform: "uppercase",
-    marginTop: 2,
-  },
-  chatButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyDirectoryText: {
-    fontSize: 13,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    marginTop: 10,
-  },
+  chantierPhoto: { width: 60, height: 60, borderRadius: Radius.card, ...continuous },
+  chantierText: { flex: 1, minWidth: 0, gap: 3 },
+  chantierName: { ...UIType.rowTitle, color: Ink[900] },
+  chantierMeta: { ...Type.label, color: Ink[300] },
+  chantierAmount: { ...UIType.quickAmount, color: montant },
 });

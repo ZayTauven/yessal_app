@@ -25,12 +25,11 @@
  *
  * 1. Il lit `illustrative_photo`. C'est la correction de fond ; le reste n'est
  *    que du pis-aller.
- * 2. Il résout les chemins relatifs. DRF ne rend une URL absolue que si la
- *    requête est dans le contexte du serializer ; sinon il rend `/media/…`.
- *    On ne parie pas là-dessus — un chemin qui commence par `/` est recollé à
- *    l'origine de l'API. Noter que `Config.API_URL` finit par `/api` : c'est
- *    l'ORIGINE qu'il faut, pas le chemin.
- * 3. À défaut seulement, il rend une photographie de la photothèque.
+ * 2. À défaut seulement, il rend une photographie de la photothèque.
+ *
+ * Il ne résout PAS les URL. `normalizeCampaign` (`lib/content.service.ts`) le
+ * fait déjà, par `absoluteMediaUrl` : c'est la frontière où la forme de l'API
+ * se traduit, et une seconde résolution ici aurait été une seconde vérité.
  *
  * ── Le pis-aller, et ce qu'il implique ─────────────────────────────────────
  *
@@ -56,8 +55,6 @@
  * indépendant par forme aurait donné l'impression d'un contenu qui bouge.
  */
 import type { ImageSource } from "expo-image";
-
-import { Config } from "@/constants/configs";
 
 /**
  * Un sujet, ses deux cadrages. Voir `AGENTS/Design-Analyse-UX/prepare_ndiguel_photos.py`
@@ -90,19 +87,12 @@ interface HasVisual {
   illustrative_photo?: string | null;
 }
 
-/** L'origine du serveur, sans le `/api` final : `/media/…` s'y raccroche. */
-const ORIGIN = Config.API_URL.replace(/\/api\/?$/, "");
-
 /**
- * Rend l'URL téléversée exploitable par `expo-image`, ou `null` si elle ne
- * ressemble à rien. Une chaîne vide traverserait le `if` de l'appelant sans
- * être une image.
+ * L'URL du serveur, ou `null`. Le `trim` n'est pas décoratif : une chaîne
+ * vide ou blanche traverserait un simple `if` sans être une image.
  */
 function serverPhoto(value: string | null | undefined): string | null {
-  const url = value?.trim();
-  if (!url) return null;
-  if (/^https?:\/\//i.test(url)) return url;
-  return `${ORIGIN}/${url.replace(/^\/+/, "")}`;
+  return value?.trim() || null;
 }
 
 /**

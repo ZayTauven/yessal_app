@@ -1,738 +1,399 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+/**
+ * app/(app)/(tabs)/profile.tsx — le Profil.
+ *
+ * **Allégé par le §3.4 du plan.** L'ancien écran faisait 738 lignes et
+ * mélangeait quatre choses : l'identité, un formulaire d'état civil complet
+ * (naissance, genre, statut marital, groupe sanguin, adresse, code postal), la
+ * sécurité, et les tutelles. La planche n'en garde qu'une : **qui je suis, ce
+ * que j'ai donné, et pour qui.** Le reste est passé aux Paramètres, derrière
+ * l'engrenage de l'en-tête.
+ *
+ * ── Ce qui a disparu, et où c'est parti ─────────────────────────────────────
+ *
+ * | Retiré d'ici | Devenu |
+ * |---|---|
+ * | Formulaire d'état civil (11 champs) | Aucun écran. **Voir plus bas.** |
+ * | Sécurité, mot de passe, sessions | `profile/settings.tsx` |
+ * | Préférences de notifications | `profile/settings.tsx`, et **elles règlent enfin quelque chose** |
+ * | Changement de photo | `profile/settings.tsx` |
+ * | Bandeau « Profil incomplet » | Retiré : il réclamait des champs que plus aucun écran ne demande |
+ *
+ * ⚠ **Le formulaire d'état civil n'a pas de nouveau domicile.** Onze champs
+ * — `birth_date`, `gender`, `marital_status`, `blood_type`, `residence_country`,
+ * `state`, `city`, `address`, `zip_code`, `title`… — que `ProfileUpdatePayload`
+ * accepte toujours et que plus aucun écran mobile n'écrit. Ce n'est pas un
+ * oubli : la planche ne les dessine nulle part, et deviner un écran pour eux
+ * aurait été inventer du produit. **Ils restent modifiables depuis
+ * l'administration web.** Porté au registre de dette.
+ *
+ * ── Deux écarts par rapport à la planche, tous deux pour ne pas mentir ──────
+ *
+ * 1. **« Moyens de paiement » est retiré.** La planche pose la ligne, mais le
+ *    §5.3 du plan a tranché au brief : pas de tokenisation, pas de carte
+ *    enregistrée. La ligne n'aurait mené nulle part. Remplacée par « Mes
+ *    Jëfs », qui existe.
+ * 2. **« Ndiguels suivis » devient « Ndiguels soutenus ».** Il n'y a pas de
+ *    notion de suivi dans ce produit — rien côté serveur ne dit qu'un membre
+ *    « suit » un Ndiguel. Ce qu'on sait compter, c'est à combien de Ndiguels
+ *    distincts il a donné cette année. C'est un vrai chiffre, et c'est même
+ *    celui qui l'intéresse.
+ *
+ * La ligne « Langue · Français » tombe pour la même raison qu'aux Paramètres :
+ * rien n'est traduit, un choix affiché serait un choix imaginaire.
+ */
+import { useCallback, useEffect, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  Bell,
-  LogOut,
-  Mail,
-  ShieldCheck,
-  UserCircle2,
-  Users,
-  KeyRound,
-  AlertCircle,
-  ChevronRight,
-  PencilLine,
-  FileText,
-  Camera,
-  Award,
-} from "lucide-react-native";
-import { Image as ExpoImage } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { ChevronRight, Menu, Settings } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { Button } from "@/components/ui/Button";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { SectionHeader } from "@/components/ui/SectionHeader";
-import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
+import { Avatar } from "@/components/ui/Avatar";
+import { IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { ContentService } from "@/lib/content.service";
+import { ProfileCompletionBanner } from "@/components/profile/ProfileCompletionBanner";
+import { useProfileCompletion } from "@/hooks/useProfileCompletion";
+import { formatFCFA, formatNumber } from "@/lib/format";
+import { ProfileService, type JefSummary } from "@/lib/profile.service";
 import { useAuthStore } from "@/store/auth.store";
-import { AuthService } from "@/lib/auth.service";
-import { TitleSelectionModal } from "@/components/profile/TitleSelectionModal";
-import type { TitleOption } from "@/types";
-
 import { useUiStore } from "@/store/ui.store";
-const quickActions = [
-  {
-    title: "Ma tutelle",
-    detail: "Gérez vos proches et leurs dons",
-    icon: Users,
-    route: "/profile/tutelle" as const,
-  },
-  {
-    title: "Sécurité du compte",
-    detail: "Mot de passe et sessions",
-    icon: ShieldCheck,
-    route: "/forgot" as const,
-  },
-  {
-    title: "Notifications",
-    detail: "Actualités, Jëfs et Ndiguels",
-    icon: Bell,
-  },
-  {
-    title: "Mes documents",
-    detail: "Vérification d'identité",
-    icon: FileText,
-    route: "/profile/documents" as const,
-  },
-];
+import type { Tutelle } from "@/types/content.types";
+import type { UserRole } from "@/types/auth.types";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  admin: "Administrateur",
+  chef_daara: "Chef de Daara",
+  collector: "Collecteur",
+  member: "Talibé",
+  tutelle: "Tutelle",
+};
+
+interface State {
+  status: "loading" | "ready" | "failed";
+  summary: JefSummary | null;
+  tutelles: Tutelle[];
+}
+
+/** ⚠ Pas de `as const` : il figerait le tableau en `readonly`. */
+const EMPTY: Omit<State, "status"> = { summary: null, tutelles: [] };
+
+/**
+ * Les deux appels partent ensemble. **Aucun des deux n'est fatal** : sans le
+ * résumé, les compteurs montrent un tiret ; sans les tutelles, la section est
+ * vide. Un profil qui refuse de s'afficher parce qu'un total n'est pas arrivé
+ * serait disproportionné — l'identité, elle, est déjà en mémoire.
+ */
+async function fetchProfile(userId: number): Promise<State> {
+  const year = new Date().getFullYear();
+  const [summary, tutelles] = await Promise.all([
+    ProfileService.getJefSummary(userId, year).catch(() => null),
+    ContentService.getTutelles().catch(() => [] as Tutelle[]),
+  ]);
+  return { status: "ready", summary, tutelles };
+}
 
 export default function ProfileScreen() {
-  const openDrawer = useUiStore((state) => state.openDrawer);
   const router = useRouter();
-  const { user, logout, updateProfile, isLoading } = useAuthStore();
-  const [titles, setTitles] = useState<TitleOption[]>([]);
-  const [showTitleModal, setShowTitleModal] = useState(false);
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
-  const [avatarUploading, setAvatarUploading] = useState(false);
-  const [firstName, setFirstName] = useState(user?.first_name ?? "");
-  const [lastName, setLastName] = useState(user?.last_name ?? "");
-  const [phone, setPhone] = useState(user?.phone ?? "");
-  // title may come from backend as a string or object, normalise it:
-  const resolvedTitle = typeof user?.title === "object" && user?.title !== null
-    ? (user?.title as any)?.name ?? ""
-    : (user?.title as string | undefined) ?? "";
-  const [birthDate, setBirthDate] = useState(user?.birth_date ?? "");
-  const [gender, setGender] = useState(user?.gender ?? "");
-  const [residenceCountry, setResidenceCountry] = useState(user?.residence_country ?? "");
-  const [city, setCity] = useState(user?.city ?? "");
-  const [address, setAddress] = useState(user?.address ?? "");
-  const [stateName, setStateName] = useState(user?.state ?? "");
-  const [zipCode, setZipCode] = useState(user?.zip_code ?? "");
-  const [maritalStatus, setMaritalStatus] = useState(user?.marital_status ?? "");
-  const [bloodType, setBloodType] = useState(user?.blood_type ?? "");
+  const user = useAuthStore((state) => state.user);
+  const openDrawer = useUiStore((state) => state.openDrawer);
+  const completion = useProfileCompletion();
 
-  const GENDER_OPTIONS = [
-    { label: "Homme", value: "male" },
-    { label: "Femme", value: "female" },
-  ];
+  const [state, setState] = useState<State>({ status: "loading", ...EMPTY });
 
-  const MARITAL_OPTIONS = [
-    { label: "Célibataire", value: "single" },
-    { label: "Marié(e)", value: "married" },
-    { label: "Divorcé(e)", value: "divorced" },
-    { label: "Veuf/Veuve", value: "widowed" },
-  ];
-
-  const BLOOD_OPTIONS = [
-    { label: "A+", value: "A+" },
-    { label: "A-", value: "A-" },
-    { label: "B+", value: "B+" },
-    { label: "B-", value: "B-" },
-    { label: "AB+", value: "AB+" },
-    { label: "AB-", value: "AB-" },
-    { label: "O+", value: "O+" },
-    { label: "O-", value: "O-" },
-  ];
-
-  const isIncomplete = useMemo(() => {
-    return !user?.phone || !user?.gender || !user?.city || !user?.birth_date || !user?.blood_type;
-  }, [user]);
+  const userId = user?.id ?? null;
 
   useEffect(() => {
-    setFirstName(user?.first_name ?? "");
-    setLastName(user?.last_name ?? "");
-    setPhone(user?.phone ?? "");
-    setBirthDate(user?.birth_date ?? "");
-    setGender(user?.gender ?? "");
-    setResidenceCountry(user?.residence_country ?? "");
-    setCity(user?.city ?? "");
-    setAddress(user?.address ?? "");
-    setStateName(user?.state ?? "");
-    setZipCode(user?.zip_code ?? "");
-    setMaritalStatus(user?.marital_status ?? "");
-    setBloodType(user?.blood_type ?? "");
-  }, [user]);
-
-  useEffect(() => {
-    AuthService.getTitles().then(setTitles).catch(console.warn);
-  }, []);
-
-  const initials = useMemo(
-    () => `${user?.first_name?.[0] ?? "Y"}${user?.last_name?.[0] ?? ""}`.toUpperCase(),
-    [user?.first_name, user?.last_name],
-  );
-
-  const handleLogout = () => {
-    Alert.alert("Déconnexion", "Voulez-vous vraiment fermer la session ?", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Déconnexion",
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/login" as any);
-        },
-      },
-    ]);
-  };
-
-  const handleSave = async () => {
-    try {
-      await updateProfile({
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        phone: phone.trim() || null,
-        title: resolvedTitle.trim() || null,
-        birth_date: birthDate.trim() || null,
-        gender: (gender.trim() as any) || null,
-        residence_country: residenceCountry.trim() || null,
-        city: city.trim() || null,
-        address: address.trim() || null,
-        state: stateName.trim() || null,
-        zip_code: zipCode.trim() || null,
-        marital_status: (maritalStatus.trim() as any) || null,
-        blood_type: bloodType.trim() || null,
-      });
-      Alert.alert("Profil mis à jour", "Vos informations ont bien été enregistrées.");
-    } catch {
-      // error handled by store
-    }
-  };
-
-  const handleRequestTitle = async (titleId: number) => {
-    try {
-      await AuthService.submitTitleRequest(titleId);
-      Alert.alert(
-        "Demande envoyée",
-        "Votre demande de changement de titre a été soumise à un administrateur."
-      );
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || "Impossible d'envoyer la demande.";
-      Alert.alert("Erreur", msg);
-    }
-  };
-
-  const handlePickAvatar = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission refusée", "Autorisez l'accès à la galerie pour changer la photo.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
+    if (!userId) return;
+    let active = true;
+    fetchProfile(userId).then((next) => {
+      if (active) setState(next);
     });
-    if (!result.canceled && result.assets[0]) {
-      const uri = result.assets[0].uri;
-      setAvatarUri(uri);
-      // Upload immediately
-      if (user?.id) {
-        setAvatarUploading(true);
-        try {
-          const formData = new FormData();
-          const filename = uri.split("/").pop() ?? "avatar.jpg";
-          const ext = filename.split(".").pop() ?? "jpg";
-          const mimeType = ext === "png" ? "image/png" : "image/jpeg";
-          formData.append("avatar", { uri, name: filename, type: mimeType } as any);
-          const updated = await AuthService.updateMe(formData as any);
-          // updateProfile in store manually:
-          const { user: _u, ...rest } = useAuthStore.getState();
-          useAuthStore.setState({ user: updated });
-        } catch (e) {
-          console.warn("Avatar upload failed:", e);
-          Alert.alert("Erreur", "Impossible d'enregistrer la photo pour le moment.");
-          setAvatarUri(null);
-        } finally {
-          setAvatarUploading(false);
-        }
-      }
-    }
-  };
+    return () => {
+      active = false;
+    };
+  }, [userId]);
 
-  const avatarSource = avatarUri
-    ? { uri: avatarUri }
-    : user?.avatar_url
-    ? { uri: user.avatar_url }
-    : user?.avatar
-    ? { uri: user.avatar }
-    : null;
+  const openTutelles = useCallback(() => router.push("/profile/tutelle"), [router]);
+
+  const fullName = `${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim();
+  const role = user?.role ? ROLE_LABELS[user.role] : null;
+  const daara = user?.daara_name ?? user?.daara?.name ?? null;
+  const { status, summary, tutelles } = state;
 
   return (
-    <View style={styles.container}>
-      <SectionHeader
-        onMenu={openDrawer}
-        title="Profil"
-        subtitle="Gérez votre compte et vos préférences"
-        icon={<UserCircle2 size={24} color="#FFF" />}
-      />
+    <SafeAreaView style={styles.screen} edges={["top"]}>
+      <View style={styles.header}>
+        <IconButton
+          icon={<Menu size={20} color={Ink[900]} strokeWidth={1.6} />}
+          accessibilityLabel="Ouvrir le menu"
+          onPress={openDrawer}
+        />
+        <Text style={styles.title}>Profil</Text>
+        <IconButton
+          icon={<Settings size={20} color={Ink[900]} strokeWidth={1.5} />}
+          accessibilityLabel="Paramètres"
+          onPress={() => router.push("/profile/settings")}
+        />
+      </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentInsetAdjustmentBehavior="automatic"
-        scrollIndicatorInsets={{ bottom: 180 }}
       >
-        {isIncomplete && (
-          <GlassCard style={styles.alertCard}>
-            <View style={styles.alertRow}>
-              <View style={styles.alertIcon}>
-                <AlertCircle size={24} color="#FFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.alertTitle}>Profil incomplet</Text>
-                <Text style={styles.alertText}>
-                  Complétez vos informations pour faciliter la gestion de vos dons et tutelles.
-                </Text>
-              </View>
-            </View>
-          </GlassCard>
-        )}
-        <GlassCard style={styles.accountCard}>
-          {/* Avatar with edit button */}
-          <View style={styles.avatarRow}>
-            <Pressable onPress={handlePickAvatar} style={styles.avatarWrap}>
-              <View style={styles.avatar}>
-                {avatarSource ? (
-                  <ExpoImage source={avatarSource} style={styles.avatarImage} contentFit="cover" />
-                ) : (
-                  <>
-                    <UserCircle2 size={34} color={Colors.accent.DEFAULT} />
-                    <Text style={styles.avatarInitials}>{initials}</Text>
-                  </>
-                )}
-              </View>
-              <View style={styles.avatarEditBadge}>
-                <Camera size={12} color="#FFF" />
-              </View>
-            </Pressable>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name}>
-                {user ? `${user.first_name} ${user.last_name}` : "Membre Yessal"}
+        {/*
+          Règle de produit Yessal, tenue aussi par `front-web` : l'alerte reste
+          tant que le profil n'est pas renseigné. `flush` — la gouttière est
+          déjà portée par le conteneur de défilement.
+        */}
+        <ProfileCompletionBanner state={completion} flush />
+
+        <View style={styles.identity}>
+          {/*
+            ⚠ CE BLOC NE LISAIT QUE `avatar_url`, ET MONTRAIT DONC DES INITIALES
+            À QUI AVAIT TÉLÉVERSÉ SA PHOTO. Le modèle porte DEUX champs pour une
+            seule chose : `avatar` est le fichier envoyé depuis l'application,
+            `avatar_url` une adresse extérieure. Un membre qui passe par
+            « Changer la photo » renseigne le PREMIER, et `avatar_url` reste nul.
+
+            L'accueil, lui, lisait bien `avatar_url ?? avatar` : la photographie
+            apparaissait en haut à droite et disparaissait sur le profil, ce que
+            les captures du 2026-09-05 montraient sans qu'on le remarque.
+
+            `Avatar` porte déjà les deux cas — photographie ou initiales — et
+            c'est la seule raison de ne pas réécrire ce choix à chaque écran.
+          */}
+          <Avatar
+            uri={user?.avatar_url ?? user?.avatar}
+            name={fullName}
+            size={68}
+          />
+          <View style={styles.identityText}>
+            <Text style={styles.name} numberOfLines={1}>
+              {fullName || "Mon compte"}
+            </Text>
+            <Text style={styles.meta} numberOfLines={1}>
+              {[role, daara].filter(Boolean).join(" · ")}
+            </Text>
+            {user?.phone ? (
+              <Text style={[styles.meta, styles.phone]} numberOfLines={1}>
+                {user.phone}
               </Text>
-              {resolvedTitle ? (
-                <View style={styles.titleChip}>
-                  <Award size={12} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.titleChipText}>{resolvedTitle}</Text>
-                </View>
-              ) : null}
-              <Text style={styles.role}>
-                {user?.role?.replace("_", " ") ?? "Compte membre"} · {user?.status ?? ""}
-              </Text>
-            </View>
+            ) : null}
           </View>
-
-          <View style={styles.metaRow}>
-            <View style={styles.metaChip}>
-              <Mail size={14} color={Colors.accent.DEFAULT} />
-              <Text style={styles.metaText}>{user?.email ?? "Email non renseigné"}</Text>
-            </View>
-            <View style={styles.metaChip}>
-              <Users size={14} color={Colors.accent.DEFAULT} />
-              <Text style={styles.metaText}>{user?.daara_name ?? user?.daara?.name ?? "Daara lié"}</Text>
-            </View>
-          </View>
-        </GlassCard>
-
-        <Text style={styles.sectionLabel}>Identité et Rôle</Text>
-        <GlassCard style={styles.formCard}>
-          <Input label="Prénom" value={firstName} onChangeText={setFirstName} />
-          <Input label="Nom" value={lastName} onChangeText={setLastName} />
-          <View style={styles.titleRow}>
-            <View style={{ flex: 1 }}>
-              <Input
-                label="Titre honorifique"
-                value={resolvedTitle || "Aucun titre"}
-                editable={false}
-                placeholder="Talibé"
-              />
-            </View>
-            <Pressable
-              onPress={() => setShowTitleModal(true)}
-              style={styles.requestBtn}
-            >
-              <Text style={styles.requestBtnText}>Changer</Text>
-            </Pressable>
-          </View>
-          <Input
-            label="Téléphone"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            placeholder="+221 ..."
-          />
-        </GlassCard>
-
-        <Text style={styles.sectionLabel}>Informations personnelles</Text>
-        <GlassCard style={styles.formCard}>
-          <Input 
-            label="Date de naissance" 
-            value={birthDate} 
-            onChangeText={setBirthDate} 
-            placeholder="AAAA-MM-JJ"
-          />
-          <Select
-            label="Genre"
-            value={gender}
-            options={GENDER_OPTIONS}
-            onSelect={setGender}
-            placeholder="Sélectionner le genre"
-          />
-          <Select
-            label="Statut marital"
-            value={maritalStatus}
-            options={MARITAL_OPTIONS}
-            onSelect={setMaritalStatus}
-            placeholder="Sélectionner le statut"
-          />
-          <Select
-            label="Groupe sanguin"
-            value={bloodType}
-            options={BLOOD_OPTIONS}
-            onSelect={setBloodType}
-            placeholder="Sélectionner le groupe"
-          />
-        </GlassCard>
-
-
-        <Text style={styles.sectionLabel}>Adresse et Résidence</Text>
-        <GlassCard style={styles.formCard}>
-          <Input 
-            label="Pays de résidence" 
-            value={residenceCountry} 
-            onChangeText={setResidenceCountry} 
-          />
-          <Input 
-            label="Région / État" 
-            value={stateName} 
-            onChangeText={setStateName} 
-          />
-          <Input 
-            label="Ville" 
-            value={city} 
-            onChangeText={setCity} 
-          />
-          <Input 
-            label="Adresse" 
-            value={address} 
-            onChangeText={setAddress} 
-          />
-          <Input 
-            label="Code postal" 
-            value={zipCode} 
-            onChangeText={setZipCode} 
-          />
-
-          <View style={styles.formActions}>
-            <Button
-              label="Mettre à jour le profil"
-              onPress={handleSave}
-              loading={isLoading}
-              icon={<PencilLine size={16} color="#fff" />}
-            />
-          </View>
-        </GlassCard>
-
-        <Text style={styles.sectionLabel}>Sécurité et accès</Text>
-        <GlassCard style={styles.securityCard}>
-          <Pressable
-            style={styles.securityRow}
-            onPress={() => router.push("/forgot" as any)}
-          >
-            <View style={styles.securityIcon}>
-              <KeyRound size={18} color={Colors.accent.DEFAULT} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.securityTitle}>Réinitialiser le mot de passe</Text>
-              <Text style={styles.securityText}>Envoyer un lien de récupération par email.</Text>
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={styles.securityRow}
-            onPress={() =>
-              Alert.alert(
-                "Sessions actives",
-                "La gestion détaillée des sessions sera branchée plus tard.",
-              )
-            }
-          >
-            <View style={styles.securityIcon}>
-              <ShieldCheck size={18} color={Colors.accent.DEFAULT} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.securityTitle}>Sessions actives</Text>
-              <Text style={styles.securityText}>Voir les connexions et renforcer la sécurité.</Text>
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={styles.securityRow}
-            onPress={() =>
-              Alert.alert(
-                "Notifications",
-                "Les préférences de notifications seront ajoutées dans une étape suivante.",
-              )
-            }
-          >
-            <View style={styles.securityIcon}>
-              <Bell size={18} color={Colors.accent.DEFAULT} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.securityTitle}>Préférences de notifications</Text>
-              <Text style={styles.securityText}>Actualités, Jëfs, Ndiguels et Rappels.</Text>
-            </View>
-            <ChevronRight size={18} color={Colors.ink.faint} />
-          </Pressable>
-        </GlassCard>
-
-        <Text style={styles.sectionLabel}>Accès rapides</Text>
-        <View style={styles.list}>
-          {quickActions.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Pressable
-                key={item.title}
-                style={styles.listItem}
-                onPress={() => {
-                  if (item.route) {
-                    router.push(item.route);
-                  } else {
-                    Alert.alert(
-                      item.title,
-                      "Cette section sera complétée dans un prochain sprint.",
-                    );
-                  }
-                }}
-              >
-                <View style={styles.listIcon}>
-                  <Icon size={18} color={Colors.accent.DEFAULT} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemTitle}>{item.title}</Text>
-                  <Text style={styles.itemDetail}>{item.detail}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
         </View>
 
-        <Button
-          label="Se déconnecter"
-          onPress={handleLogout}
-          icon={<LogOut size={16} color="#fff" />}
-        />
+        <View style={styles.stats}>
+          <Stat
+            label={`Mes Jëfs en ${new Date().getFullYear()}`}
+            value={summary ? formatFCFA(summary.total) : null}
+            loading={status === "loading"}
+            tone="montant"
+          />
+          <Stat
+            label="Ndiguels soutenus"
+            value={summary ? formatNumber(summary.campaignCount) : null}
+            loading={status === "loading"}
+          />
+        </View>
 
-        <TitleSelectionModal
-          visible={showTitleModal}
-          onClose={() => setShowTitleModal(false)}
-          titles={titles}
-          onSelect={handleRequestTitle}
-          currentTitle={user?.title}
-        />
+        <View style={styles.section}>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitle}>Mes tutelles</Text>
+            <Pressable onPress={openTutelles} accessibilityRole="button" hitSlop={Space.sm}>
+              <Text style={styles.sectionAction}>Ajouter</Text>
+            </Pressable>
+          </View>
+
+          {status === "loading" ? (
+            <Skeleton width="100%" height={72} radius={Radius.card} />
+          ) : tutelles.length === 0 ? (
+            <EmptyState
+              title="Aucune tutelle"
+              body="Ajoutez un proche pour faire un Jëf en son nom."
+              actionLabel="Ajouter un proche"
+              onAction={openTutelles}
+              card
+            />
+          ) : (
+            tutelles.map((tutelle) => (
+              <TutelleRow key={tutelle.id} tutelle={tutelle} onPress={openTutelles} />
+            ))
+          )}
+        </View>
+
+        <View style={styles.links}>
+          <LinkRow label="Mes Jëfs" onPress={() => router.push("/donations")} />
+          <LinkRow
+            label="Mes documents"
+            onPress={() => router.push("/profile/documents")}
+            last
+          />
+        </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Stat({
+  label,
+  value,
+  loading,
+  tone,
+}: {
+  label: string;
+  value: string | null;
+  loading: boolean;
+  tone?: "montant";
+}) {
+  return (
+    <Card style={styles.stat}>
+      <Text style={styles.statLabel}>{label}</Text>
+      {loading ? (
+        <Skeleton width="70%" height={22} />
+      ) : (
+        /*
+          Un tiret cadratin plutôt qu'un zéro quand le chiffre n'est pas arrivé :
+          « 0 FCFA » est une information, et elle serait fausse.
+        */
+        <Text style={[styles.statValue, tone === "montant" && styles.statMontant]}>
+          {value ?? "—"}
+        </Text>
+      )}
+    </Card>
+  );
+}
+
+function TutelleRow({ tutelle, onPress }: { tutelle: Tutelle; onPress: () => void }) {
+  const name = `${tutelle.first_name} ${tutelle.last_name}`.trim();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      style={styles.tutelle}
+    >
+      <Avatar uri={tutelle.avatar_url} name={name} size={44} />
+      <View style={styles.tutelleText}>
+        <Text style={styles.tutelleName} numberOfLines={1}>
+          {name}
+        </Text>
+        {/*
+          La planche ajoute « · 2 Jëfs en son nom ». Le compte par tutelle n'est
+          nulle part dans l'API — `DonationViewSet` filtre par donateur, pas par
+          bénéficiaire. On dit la relation, qui est vraie, plutôt qu'un chiffre
+          qu'il faudrait inventer.
+        */}
+        <Text style={styles.tutelleRelation} numberOfLines={1}>
+          {tutelle.relation}
+        </Text>
+      </View>
+      <ChevronRight size={20} color={Ink[300]} strokeWidth={1.5} />
+    </Pressable>
+  );
+}
+
+function LinkRow({
+  label,
+  onPress,
+  last,
+}: {
+  label: string;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[styles.link, last && styles.linkLast]}
+    >
+      <Text style={styles.linkLabel}>{label}</Text>
+      <ChevronRight size={20} color={Ink[300]} strokeWidth={1.5} />
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  content: {
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 180,
-    gap: 14,
-  },
-  accountCard: {
-    padding: 18,
-    gap: 16,
-  },
-  avatarRow: {
+  screen: { flex: 1, backgroundColor: Surface.default, paddingHorizontal: GUTTER },
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: Space.md,
+    paddingTop: Space.sm,
   },
-  avatarWrap: {
-    position: "relative",
+  title: { ...Type.screenTitle, fontSize: 28, lineHeight: 32, color: Violet[900], flex: 1 },
+
+  /** La barre d'onglets flotte : le contenu doit pouvoir défiler dessous. */
+  scroll: { paddingTop: Space.lg, paddingBottom: 110, gap: Space.xl },
+
+  identity: { flexDirection: "row", alignItems: "center", gap: Space.lg },
+  identityText: { flex: 1, gap: 3 },
+  name: { ...Type.amountCard, fontSize: 20, color: Violet[900] },
+  meta: { ...Type.label, color: Ink[500] },
+  phone: { fontVariant: ["tabular-nums"] },
+
+  stats: { flexDirection: "row", gap: Space.md },
+  stat: { flex: 1, gap: Space.xs },
+  statLabel: { ...Type.label, color: Ink[500] },
+  statValue: { ...Type.amountCard, color: Ink[900] },
+  statMontant: { color: montant },
+
+  section: { gap: Space.md },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
   },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  avatarImage: {
-    ...StyleSheet.absoluteFill,
-  },
-  avatarInitials: {
-    color: Colors.accent.DEFAULT,
-    fontSize: 22,
-    fontFamily: "Inter_700Bold",
-  },
-  avatarEditBadge: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: Colors.surface.DEFAULT,
-  },
-  titleChip: {
+  sectionTitle: { ...Type.cardTitle, color: Ink[900] },
+  sectionAction: { ...UIType.badgeLabel, fontSize: 12, color: Violet[700] },
+
+  tutelle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: Colors.accent.dim,
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  titleChipText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  name: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 20,
-    lineHeight: 26,
-    fontFamily: "Inter_700Bold",
-  },
-  role: {
-    marginTop: 4,
-    color: Colors.ink.muted,
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-  },
-  metaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  metaChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: Colors.surface.muted,
-  },
-  metaText: {
-    color: Colors.ink.muted,
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-  },
-  sectionLabel: {
-    marginTop: 6,
-    color: Colors.ink.faint,
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
-    fontFamily: "Inter_700Bold",
-  },
-  formCard: {
-    padding: 18,
-    gap: 2,
-  },
-  formActions: {
-    marginTop: 12,
-  },
-  alertCard: {
-    backgroundColor: "#FF9500", // Warm orange for attention
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: 0,
-  },
-  alertRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  alertIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  alertTitle: {
-    color: "#FFF",
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-  },
-  alertText: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
-    lineHeight: 18,
-  },
-  securityCard: {
-    padding: 16,
-    gap: 12,
-  },
-  securityRow: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-    paddingVertical: 6,
-  },
-  securityIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  securityTitle: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  securityText: {
-    marginTop: 3,
-    color: Colors.ink.muted,
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  list: {
-    gap: 10,
-  },
-  listItem: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-    backgroundColor: Colors.surface.DEFAULT,
-    borderRadius: 18,
+    gap: Space.md,
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.md,
+    borderRadius: Radius.card,
     borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    padding: 14,
+    borderColor: Border.hairline,
+    backgroundColor: Surface.default,
+    ...continuous,
   },
-  listIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  itemTitle: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-  },
-  itemDetail: {
-    marginTop: 3,
-    color: Colors.ink.muted,
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  titleRow: {
+  tutelleText: { flex: 1, gap: 2 },
+  tutelleName: { ...UIType.rowTitle, color: Ink[900] },
+  tutelleRelation: { ...Type.label, color: Ink[500], textTransform: "capitalize" },
+
+  links: {},
+  /** Un filet en haut de chaque ligne, et un de plus sous la dernière : la
+   *  pile est ainsi fermée des deux côtés sans doubler les traits entre elles. */
+  link: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 12,
-    marginBottom: 12,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Space.lg,
+    borderTopWidth: 1,
+    borderTopColor: Border.hairline,
   },
-  requestBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.accent.dim,
-    borderRadius: 12,
-    marginBottom: 6,
-  },
-  requestBtnText: {
-    color: Colors.accent.DEFAULT,
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-  },
+  linkLast: { borderBottomWidth: 1, borderBottomColor: Border.hairline },
+  linkLabel: { ...UIType.personName, color: Ink[900] },
 });

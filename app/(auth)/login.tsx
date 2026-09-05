@@ -10,21 +10,40 @@
  * validation. Le pavé est celui du contrat (`NumericKeypad`), posé dans une
  * feuille basse.
  *
- * ⚠ LIMITE CONNUE — le format du numéro stocké.
- * `accounts/serializers.py:445` cherche l'utilisateur par
- * `Q(email__iexact=identifier) | Q(phone=identifier)` : la correspondance sur
- * le téléphone est EXACTE, et `accounts/models.py` ne normalise rien — il ne
- * fait qu'un `.strip()`. Or le formulaire d'inscription propose
- * « +221 77 000 00 00 », espaces compris. Un compte enregistré avec des
- * espaces, ou sans indicatif, ne sera pas retrouvé par ce que cet écran émet
- * (`+221` suivi des neuf chiffres, sans séparateur).
+ * ── UN SEUL CHAMP TÉLÉPHONE, AVEC SÉLECTEUR D'INDICATIF ────────────────────
  *
- * D'où le lien « J'ai une adresse e-mail » : il bascule le champ en saisie
- * libre et envoie l'identifiant tel quel. Sans lui, un compte administrateur
- * créé par e-mail ne pourrait pas se connecter du tout.
+ * Le champ porte un sélecteur de pays — `+221` par défaut — exactement comme le
+ * formulaire web (`PhoneNumberValidation`, sur `react-phone-input-2`). Un
+ * membre de Dakar ne voit aucune différence ; un membre de Marseille ouvre la
+ * liste et choisit `+33`.
  *
- * La correction de fond est côté Django — normaliser `phone` à l'écriture et
- * migrer l'existant. Voir §7 du plan d'implémentation.
+ * ⚠ CE SÉLECTEUR FERME UNE IMPASSE, IL N'EST PAS UN CONFORT.
+ *
+ * L'écran figeait `+221`. Or l'inscription accepte un compte avec le SEUL
+ * numéro (`refine` sur `email || phone`) et **anticipe explicitement les
+ * numéros étrangers** : elle affiche un repère « Numéro international ». Un
+ * membre de la diaspora inscrit avec son numéro français et sans adresse se
+ * retrouvait donc avec un compte auquel il ne pouvait **ni se connecter** —
+ * l'écran forçait `+221` — **ni accéder par la récupération**, qui ne cherche
+ * que par e-mail (§7.9). Compte créé, accès perdu, définitivement.
+ *
+ * Rien à changer côté serveur : `LoginSerializer.validate`
+ * (`accounts/serializers.py:506`) passe déjà l'identifiant par
+ * `looks_like_phone` puis `normalize_phone_quietly`, et interroge la base sur
+ * la saisie ET sur sa forme E.164. Le verrou était entièrement ici.
+ *
+ * ── Le pavé maison survit au sélecteur ─────────────────────────────────────
+ *
+ * Il a d'abord semblé que l'indicatif variable le condamnerait : `PHONE_LENGTH`
+ * valait 9 et le groupement était 2-3-2-2, deux règles sénégalaises. Elles sont
+ * passées dans `lib/dial-codes.ts`, qui les rend fonction du pays — longueur
+ * exacte pour le Sénégal, plage E.164 (6 à 15 chiffres, indicatif compris)
+ * ailleurs. Le pavé reste donc en place, et avec lui la raison qui l'a fait
+ * naître : les claviers numériques Android varient d'un constructeur à l'autre
+ * et masquent le bouton de validation.
+ *
+ * Le lien « J'ai une adresse e-mail » redevient ce qu'il était : la porte de
+ * ceux qui n'ont pas de numéro, et non un rattrapage pour la diaspora.
  */
 import { useEffect, useState } from "react";
 import {
@@ -38,12 +57,19 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Animated, { SlideInDown } from "react-native-reanimated";
-import { AlertCircle, ChevronLeft } from "lucide-react-native";
+import { AlertCircle, ChevronDown, ChevronLeft } from "lucide-react-native";
 
 import { Button, IconButton } from "@/components/ui/Button";
+import { CountrySheet } from "@/components/auth/CountrySheet";
 import { Input } from "@/components/ui/Input";
 import { NumericKeypad } from "@/components/donation/NumericKeypad";
-import { NBSP } from "@/lib/format";
+import {
+  DEFAULT_COUNTRY,
+  groupDigits,
+  isComplete,
+  subscriberBounds,
+  type DialCountry,
+} from "@/lib/dial-codes";
 import { consumePendingRoute } from "@/lib/pending-route";
 import { useAuthStore } from "@/store/auth.store";
 import {
@@ -61,26 +87,14 @@ import {
   continuous,
 } from "@/theme";
 
-/** Un numéro sénégalais : neuf chiffres après l'indicatif. */
-const PHONE_LENGTH = 9;
-const DIAL_CODE = "+221";
-
-/** Groupement 2-3-2-2, à l'espace insécable — « 77 641 22 08 ». */
-function formatPhone(digits: string): string {
-  const groups = [
-    digits.slice(0, 2),
-    digits.slice(2, 5),
-    digits.slice(5, 7),
-    digits.slice(7, 9),
-  ].filter(Boolean);
-  return groups.join(NBSP);
-}
 
 export default function Login() {
   const router = useRouter();
   const { login, isLoading, error, clearError, isAuthenticated } = useAuthStore();
 
   const [digits, setDigits] = useState("");
+  const [country, setCountry] = useState<DialCountry>(DEFAULT_COUNTRY);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [byEmail, setByEmail] = useState(false);
@@ -113,12 +127,26 @@ export default function Login() {
 
   useEffect(() => clearError, [clearError]);
 
-  const identifier = byEmail ? email.trim() : `${DIAL_CODE}${digits}`;
+  /** E.164 composé : l'indicatif choisi, puis les chiffres d'abonné. */
+  const identifier = byEmail ? email.trim() : `${country.prefix}${digits}`;
   const banner = localError || error;
 
   function reset() {
     setLocalError("");
     clearError();
+  }
+
+  /**
+   * Changer de pays raccourcit parfois la plage : « +221 » laisse douze
+   * chiffres d'abonné, « +1 » en laisse quatorze, mais un indicatif à trois
+   * chiffres n'en laisse que douze. On tronque plutôt que de laisser un numéro
+   * hors plage partir au serveur — et on efface l'erreur, qui parlait de
+   * l'ancien pays.
+   */
+  function chooseCountry(next: DialCountry) {
+    setCountry(next);
+    setDigits((current) => current.slice(0, subscriberBounds(next).max));
+    reset();
   }
 
   function openPad() {
@@ -128,8 +156,18 @@ export default function Login() {
   }
 
   async function submit() {
-    if (!byEmail && digits.length < PHONE_LENGTH) {
-      setLocalError(`Numéro incomplet — ${PHONE_LENGTH} chiffres attendus.`);
+    /*
+      La longueur exacte n'est connue que pour le Sénégal ; ailleurs on s'en
+      tient à la plage E.164 et on laisse le serveur juger. Voir
+      `lib/dial-codes.ts` — prétendre connaître la longueur d'un numéro indien
+      serait inventer une règle.
+    */
+    if (!byEmail && !isComplete(country, digits)) {
+      setLocalError(
+        country.iso === "SN"
+          ? "Numéro incomplet — 9 chiffres attendus après l'indicatif."
+          : "Numéro trop court pour cet indicatif.",
+      );
       return;
     }
     if (byEmail && !email.trim()) {
@@ -150,7 +188,7 @@ export default function Login() {
   }
 
   const phoneFilled = digits.length > 0;
-  const phoneInvalid = Boolean(localError) && digits.length < PHONE_LENGTH;
+  const phoneInvalid = Boolean(localError) && !isComplete(country, digits);
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
@@ -205,29 +243,62 @@ export default function Login() {
               >
                 Téléphone
               </Text>
-              <Pressable
-                onPress={openPad}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  phoneFilled
-                    ? `Téléphone ${DIAL_CODE} ${formatPhone(digits)}`
-                    : "Saisir votre numéro de téléphone"
-                }
+              {/*
+                DEUX zones tactiles dans un seul champ : l'indicatif ouvre la
+                liste des pays, le reste ouvre le pavé. Elles sont des frères
+                et non imbriquées — un Pressable dans un Pressable rend la
+                cible intérieure inatteignable sur Android.
+              */}
+              <View
                 style={[
                   styles.phoneField,
                   padOpen && styles.phoneFieldFocus,
                   phoneInvalid && styles.phoneFieldError,
                 ]}
               >
-                <Text style={styles.dialCode}>{DIAL_CODE}</Text>
-                <View style={styles.divider} />
-                <Text
-                  style={[styles.phoneValue, !phoneFilled && styles.phonePlaceholder]}
+                <Pressable
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setPadOpen(false);
+                    reset();
+                    setSheetOpen(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Indicatif ${country.name}, ${country.prefix}. Changer de pays`}
+                  hitSlop={{ top: 8, bottom: 8, left: 8 }}
+                  style={({ pressed }) => [styles.dialZone, pressed && styles.dialZonePressed]}
                 >
-                  {phoneFilled ? formatPhone(digits) : "77 000 00 00"}
-                </Text>
-                {padOpen ? <View style={styles.caret} /> : null}
-              </Pressable>
+                  <Text style={styles.flag}>{country.flag}</Text>
+                  <Text style={styles.dialCode}>{country.prefix}</Text>
+                  <ChevronDown size={14} color={Ink[300]} strokeWidth={2} />
+                </Pressable>
+
+                <View style={styles.divider} />
+
+                <Pressable
+                  onPress={openPad}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    phoneFilled
+                      ? `Téléphone ${country.prefix} ${groupDigits(country, digits)}`
+                      : "Saisir votre numéro de téléphone"
+                  }
+                  hitSlop={{ top: 8, bottom: 8, right: 8 }}
+                  style={styles.digitsZone}
+                >
+                  <Text
+                    style={[styles.phoneValue, !phoneFilled && styles.phonePlaceholder]}
+                    numberOfLines={1}
+                  >
+                    {phoneFilled
+                      ? groupDigits(country, digits)
+                      : country.iso === "SN"
+                        ? "77 000 00 00"
+                        : "Votre numéro"}
+                  </Text>
+                  {padOpen ? <View style={styles.caret} /> : null}
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -292,7 +363,7 @@ export default function Login() {
               setDigits(next);
               reset();
             }}
-            maxLength={PHONE_LENGTH}
+            maxLength={subscriberBounds(country).max}
             thousandsKey={false}
             keyHeight={60}
           />
@@ -305,6 +376,13 @@ export default function Login() {
           />
         </Animated.View>
       ) : null}
+
+      <CountrySheet
+        visible={sheetOpen}
+        selected={country}
+        onSelect={chooseCountry}
+        onClose={() => setSheetOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -370,6 +448,29 @@ const styles = StyleSheet.create({
   },
   phoneFieldFocus: { borderColor: Violet[500] },
   phoneFieldError: { backgroundColor: Surface.default, borderColor: Status.error },
+  /*
+    L'indicatif et les chiffres sont deux cibles tactiles distinctes dans un
+    même champ. La zone d'indicatif prend toute la hauteur du champ pour offrir
+    ses 44 px de haut sans agrandir le champ lui-même.
+  */
+  dialZone: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    paddingRight: 2,
+  },
+  dialZonePressed: { opacity: 0.6 },
+  digitsZone: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "stretch",
+  },
+  /* Le drapeau emoji rendu à la taille du texte paraît rabougri. */
+  flag: { fontSize: 20, lineHeight: 24 },
   dialCode: { ...UIType.fieldPrefix, color: Violet[900] },
   divider: { width: 1, height: 20, backgroundColor: Border.strong },
   phoneValue: {

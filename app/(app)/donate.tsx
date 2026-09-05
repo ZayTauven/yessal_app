@@ -1,1397 +1,1078 @@
-import { useEffect, useMemo, useState } from "react";
+/**
+ * app/(app)/donate.tsx — la feuille du Jëf.
+ *
+ * Écrans 3, 4 et 5 de la planche « Faire un Jëf » : le montant au pavé, le
+ * moyen de paiement, la confirmation. Les écrans 1 et 2 sont des routes à part
+ * entière — la liste des Ndiguels et sa fiche.
+ *
+ * ── Pourquoi une route et non trois ─────────────────────────────────────────
+ *
+ * La phase C a fait de `donate` une feuille pleine hauteur
+ * (`sheetAllowedDetents: [1]`). Trois routes empilées DANS une feuille
+ * demanderaient un navigateur imbriqué, et chaque poussée ferait glisser une
+ * feuille par-dessus une feuille. Les trois écrans sont donc trois ÉTATS d'une
+ * même route. Conséquence voulue : le bouton système et le geste de fermeture
+ * referment tout le flux, ce qui est le bon geste — on n'abandonne pas un
+ * paiement à moitié.
+ *
+ * Le retour de la première étape ferme la feuille ; celui des suivantes revient
+ * d'un pas.
+ *
+ * ── Ce que la planche ne montre pas, et qui ne pouvait pas disparaître ──────
+ *
+ * **Le mode collecte.** Un collecteur, un chef de Daara ou un administrateur
+ * enregistre un Jëf en espèces AU NOM d'un membre, sur le terrain. La planche
+ * ne dessine que le parcours du talibé ; retirer la collecte aurait supprimé
+ * une fonction du produit sous couvert de refonte. Elle vit sur l'étape du
+ * moyen de paiement, là où elle a du sens : c'est un moyen de paiement.
+ *
+ * ── Une honnêteté que la planche ne pouvait pas connaître ───────────────────
+ *
+ * La planche titre l'écran 5 « Jëf confirmé ». Ce n'est vrai que pour un
+ * paiement abouti. Un virement est *déclaré*, une collecte est *enregistrée*,
+ * une demande Wave attend une validation sur le téléphone. Le titre suit donc
+ * ce qui s'est réellement passé. Le remerciement, lui, est vrai dans tous les
+ * cas — « Jërëjëf » reste.
+ *
+ * Même règle pour la RÉFÉRENCE : la planche affiche « YG-26-0K4M18 », un code
+ * inventé pour la démonstration. On montre ce que le serveur renvoie, et à
+ * défaut le numéro du don. Fabriquer une référence que le back ne connaît pas,
+ * c'est donner à l'utilisateur un numéro à citer que personne ne saura lire.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
+  type TextStyle,
 } from "react-native";
-import * as Clipboard from "expo-clipboard";
 import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import {
-  Bell,
-  Clipboard as ClipboardIcon,
-  HandCoins,
-  Heart,
-  PencilLine,
-  Settings2,
-  ShieldCheck,
-  UserCheck,
-  Users,
-  Wallet,
-  X,
-} from "lucide-react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Check, ChevronLeft, Search, UserCheck } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { SectionHeader } from "@/components/ui/SectionHeader";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { AmountSelector } from "@/components/donation/AmountSelector";
+import { NumericKeypad } from "@/components/donation/NumericKeypad";
+import {
+  PAYMENT_METHODS,
+  PaymentMethodRow,
+} from "@/components/donation/PaymentMethodRow";
 import { Avatar } from "@/components/ui/Avatar";
-import { SuccessCelebration } from "@/components/modals/SuccessCelebration";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
+import { formatFCFA, formatNumber } from "@/lib/format";
+import { canCollect } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
-import type { PaymentMethod } from "@/types/donation.types";
 import type { Tutelle } from "@/types/content.types";
+import type { Donation, PaymentMethod } from "@/types/donation.types";
+import {
+  Border,
+  Font,
+  GUTTER,
+  Ink,
+  Pastel,
+  Radius,
+  Space,
+  Status,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
 
-const PAYMENT_LOGOS: Record<string, any> = {
-  orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/wave.png"),
-  bictorys: require("@/assets/images/carte-paiement.png"),
-  manual: require("@/assets/images/collecteur.png"),
-};
+/** Le plancher du produit — la planche le dit, le bouton s'y tient. */
+const MIN_JEF = 500;
+/** Le plafond. Au-delà, la frappe est REFUSÉE, pas tronquée en silence. */
+const MAX_JEF = 2_000_000;
+/** 2 000 000 tient sur sept chiffres. */
+const MAX_DIGITS = String(MAX_JEF).length;
+/**
+ * Hauteur d'une touche du pavé. 64 dans une feuille plutôt que les 72 du
+ * contrat — et 56 sur un écran court.
+ *
+ * Le calcul qui l'impose : en-tête 44 + montant héros et montants rapides ~190
+ * + indication 18 + ligne de tutelle 72 + pavé (4 rangées) + bouton 52 +
+ * marges ~60. À 64, le pavé fait 4 × 64 + 3 × 8 = 280, et le total atteint
+ * ~716 — confortable sur 844, **au-delà des 667 d'un iPhone SE**. D'où les deux
+ * précautions : cette réduction, et le fait que tout ce qui précède le pavé
+ * vive dans une zone qui défile.
+ */
+const KEY_HEIGHT_SHORT = 56;
+const KEY_HEIGHT = 64;
+/** En dessous, l'écran est « court » au sens ci-dessus. */
+const SHORT_SCREEN = 720;
+/** Assez de membres pour choisir, pas assez pour faire défiler sans fin. */
+const MEMBER_LIMIT = 20;
+
+/** Même précaution que dans `theme/tokens.ts` : mutable, sinon l'inférence casse. */
+const TABULAR: TextStyle["fontVariant"] = ["tabular-nums"];
+
+type Step = "amount" | "method" | "wire" | "done";
 
 interface DirectoryUser {
   id: number;
   name?: string;
   first_name?: string;
   last_name?: string;
-  avatar?: string | null;
   avatar_url?: string | null;
-  daara_name?: string;
-  role?: string;
 }
 
-const QUICK_AMOUNTS = [5000, 10000, 25000, 50000];
+function memberName(m: DirectoryUser): string {
+  const full = `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim();
+  return m.name?.trim() || full || "Membre";
+}
 
-const COLLECTOR_ROLES = ["collector", "chef_daara", "admin"];
-
-const PAYMENT_METHODS: {
-  value: PaymentMethod;
-  label: string;
-  hint: string;
-  icon: typeof Wallet;
-}[] = [
-  {
-    value: "orange_money",
-    label: "Orange Money",
-    hint: "Sans frais",
-    icon: Wallet,
-  },
-  { value: "wave", label: "Wave", hint: "Sans frais", icon: Wallet },
-  {
-    value: "bictorys",
-    label: "Carte bancaire",
-    hint: "Visa, Mastercard",
-    icon: ShieldCheck,
-  },
-  {
-    value: "virement",
-    label: "Virement bancaire",
-    hint: "Référence à saisir",
-    icon: HandCoins,
-  },
-  {
-    value: "manual",
-    label: "Collecteur",
-    hint: "Espèces, en main propre",
-    icon: Wallet,
-  },
-];
-
-function parseCampaignId(value?: string | string[]) {
+function parseId(value?: string | string[]): number | null {
   const raw = Array.isArray(value) ? value[0] : value;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function formatAmount(value: number) {
-  return `${value.toLocaleString()} FCFA`;
+interface LoadState {
+  status: "loading" | "ready" | "failed";
+  campaigns: Campaign[];
+  tutelles: Tutelle[];
+}
+
+/** ⚠ Pas de `as const` : il figerait les tableaux en `readonly`. */
+const EMPTY: Omit<LoadState, "status"> = { campaigns: [], tutelles: [] };
+
+/**
+ * Les deux appels partent ensemble. L'échec des TUTELLES n'est pas fatal —
+ * on peut faire un Jëf pour soi-même ; celui des Ndiguels l'est, il n'y a plus
+ * rien à financer.
+ */
+async function fetchDonate(): Promise<LoadState> {
+  const [campaigns, tutelles] = await Promise.all([
+    ContentService.getCampaigns().catch(() => null),
+    ContentService.getTutelles().catch(() => [] as Tutelle[]),
+  ]);
+  if (!campaigns) return { status: "failed", ...EMPTY };
+  return { status: "ready", campaigns, tutelles };
+}
+
+/** Ce qui reste à faire après la création du don, par moyen de paiement. */
+interface Receipt {
+  donation: Donation;
+  title: string;
+  body: string;
 }
 
 export default function DonateScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     campaignId?: string | string[];
     beneficiary?: string | string[];
   }>();
+  const { height } = useWindowDimensions();
   const { user } = useAuthStore();
-  const isCollector = COLLECTOR_ROLES.includes(user?.role ?? "");
+  const collector = canCollect(user?.role);
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [tutelles, setTutelles] = useState<Tutelle[]>([]);
-  const [directoryUsers, setDirectoryUsers] = useState<DirectoryUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(
-    null,
+  const [data, setData] = useState<LoadState>({ status: "loading", ...EMPTY });
+  const [step, setStep] = useState<Step>("amount");
+
+  /**
+   * Le bénéficiaire a TROIS états, pas deux, et c'est ce qui évite un effet de
+   * présélection : `undefined` = l'utilisateur n'a rien dit, on suit le
+   * paramètre de route ; `null` = il a explicitement décoché ; un nombre = il a
+   * choisi. Un simple `number | null` aurait confondu « pas encore décidé » et
+   * « décoché », et il aurait fallu un effet pour les distinguer — exactement
+   * le `setState` synchrone que le React Compiler refuse.
+   *
+   * Le Ndiguel, lui, n'a pas d'état du tout : il vient de l'écran précédent et
+   * cette feuille ne permet pas d'en changer. Il se DÉDUIT.
+   */
+  const [beneficiaryChoice, setBeneficiaryChoice] = useState<number | null | undefined>(
+    undefined,
   );
-  const [selectedBeneficiaryId, setSelectedBeneficiaryId] = useState<
-    number | null
-  >(null);
-  const [amount, setAmount] = useState(10000);
-  const [customAmount, setCustomAmount] = useState("");
-  const [useCustomAmount, setUseCustomAmount] = useState(false);
-  const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("orange_money");
+
+  /**
+   * Le montant vit en CHAÎNE DE CHIFFRES, pas en nombre : c'est ce que le pavé
+   * manipule, et une conversion aller-retour perdrait un zéro de tête pendant
+   * la frappe. Le nombre s'en déduit.
+   */
+  const [digits, setDigits] = useState("");
+  /** Vrai le temps d'une frappe refusée — c'est ce qui allume l'avertissement. */
+  const [refused, setRefused] = useState(false);
+
+  const [method, setMethod] = useState<PaymentMethod>("orange_money");
   const [wireRef, setWireRef] = useState("");
-  const [successVisible, setSuccessVisible] = useState(false);
-  const [successTitle, setSuccessTitle] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-  // Collector mode
+
   const [collectMode, setCollectMode] = useState(false);
-  const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
-  const [memberSearch, setMemberSearch] = useState("");
-  const [loadingDirectory, setLoadingDirectory] = useState(false);
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [memberId, setMemberId] = useState<number | null>(null);
+  const [memberQuery, setMemberQuery] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+
+  const load = useCallback(() => {
+    setData((previous) => ({ ...previous, status: "loading" }));
+    fetchDonate().then(setData);
+  }, []);
 
   useEffect(() => {
     let active = true;
-
-    const load = async () => {
-      try {
-        const [campaignData, tutelleData] = await Promise.all([
-          ContentService.getCampaigns(),
-          ContentService.getTutelles(),
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        setCampaigns(campaignData);
-        setTutelles(tutelleData);
-
-        const preferredCampaignId = parseCampaignId(params.campaignId);
-        const fallbackCampaign =
-          campaignData.find((item) => item.status === "active") ??
-          campaignData[0];
-        const selected =
-          campaignData.find((item) => item.id === preferredCampaignId) ??
-          fallbackCampaign;
-
-        if (selected) {
-          setSelectedCampaignId(selected.id);
-        }
-
-        const preferredBeneficiaryId = parseCampaignId(
-          params.beneficiary as any,
-        );
-        const preselectedMember = tutelleData.find(
-          (t) => t.id === preferredBeneficiaryId,
-        );
-        if (preselectedMember) {
-          setSelectedBeneficiaryId(preselectedMember.id);
-        } else if (tutelleData.length > 0) {
-          setSelectedBeneficiaryId(tutelleData[0].id);
-        }
-      } catch {
-        if (active) {
-          setCampaigns([]);
-          setTutelles([]);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
+    fetchDonate().then((next) => {
+      if (active) setData(next);
+    });
     return () => {
       active = false;
     };
-  }, [params.campaignId, params.beneficiary]);
+  }, []);
 
+  /** L'annuaire n'est chargé que si un collecteur bascule en mode collecte. */
   useEffect(() => {
-    if (!collectMode || directoryUsers.length > 0) return;
-    setLoadingDirectory(true);
+    if (!collectMode || directory.length > 0) return;
+    let active = true;
     ContentService.getDirectory()
-      .then((data) => setDirectoryUsers(data))
-      .catch(() => setDirectoryUsers([]))
-      .finally(() => setLoadingDirectory(false));
-  }, [collectMode]);
+      .then((rows) => {
+        if (active) setDirectory(rows as DirectoryUser[]);
+      })
+      .catch(() => {
+        if (active) setDirectory([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [collectMode, directory.length]);
 
-  const getMemberName = (m: DirectoryUser) =>
-    m.name ?? (`${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() || "Membre");
+  /** Celui que la route désigne, à défaut le premier ouvert, à défaut le premier. */
+  const campaign = useMemo(() => {
+    const wanted = parseId(params.campaignId);
+    return (
+      data.campaigns.find((c) => c.id === wanted) ??
+      data.campaigns.find((c) => c.status === "active") ??
+      data.campaigns[0] ??
+      null
+    );
+  }, [data.campaigns, params.campaignId]);
 
-  const filteredMembers = useMemo(() => {
-    const q = memberSearch.trim().toLowerCase();
-    if (!q) return directoryUsers.slice(0, 20);
-    return directoryUsers
-      .filter((m) => getMemberName(m).toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [directoryUsers, memberSearch]);
+  const beneficiaryId =
+    beneficiaryChoice === undefined
+      ? (data.tutelles.find((t) => t.id === parseId(params.beneficiary))?.id ?? null)
+      : beneficiaryChoice;
+  const beneficiary = data.tutelles.find((t) => t.id === beneficiaryId) ?? null;
+  /** La tutelle proposée quand aucune n'est cochée : la première, s'il y en a une. */
+  const firstTutelle = data.tutelles[0] ?? null;
+  const member = directory.find((m) => m.id === memberId) ?? null;
 
-  const selectedMember =
-    directoryUsers.find((m) => m.id === selectedMemberId) ?? null;
+  const amount = Number(digits) || 0;
+  const valid = amount >= MIN_JEF && amount <= MAX_JEF;
 
-  const toggleCollectMode = () => {
-    const next = !collectMode;
-    setCollectMode(next);
-    if (next) {
-      setPaymentMethod("manual");
-      setSelectedMemberId(null);
-    } else {
-      setPaymentMethod("orange_money");
-      setSelectedMemberId(null);
+  const members = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    const rows = q
+      ? directory.filter((m) => memberName(m).toLowerCase().includes(q))
+      : directory;
+    return rows.slice(0, MEMBER_LIMIT);
+  }, [directory, memberQuery]);
+
+  /**
+   * Le pavé propose plus de chiffres que le plafond n'en autorise : c'est ici
+   * que la frappe est refusée. Rendre `maxLength` égal au nombre de chiffres
+   * du plafond ne suffirait pas — « 9 999 999 » y tient aussi.
+   */
+  const onDigits = useCallback((next: string) => {
+    if (Number(next) > MAX_JEF) {
+      setRefused(true);
+      return;
     }
-  };
+    setRefused(false);
+    setDigits(next);
+  }, []);
 
-  const selectedCampaign = useMemo(
-    () =>
-      campaigns.find((item) => item.id === selectedCampaignId) ??
-      campaigns[0] ??
-      null,
-    [campaigns, selectedCampaignId],
-  );
+  const chooseQuick = useCallback((value: number) => {
+    setRefused(false);
+    setDigits(String(value));
+  }, []);
 
-  useEffect(() => {
-    if (!selectedCampaign && campaigns.length > 0) {
-      setSelectedCampaignId(campaigns[0].id);
-    }
-  }, [campaigns, selectedCampaign]);
+  const goBack = useCallback(() => {
+    if (step === "wire") return setStep("method");
+    if (step === "method") return setStep("amount");
+    router.dismiss();
+  }, [router, step]);
 
-  const finalAmount = useMemo(() => {
-    if (!useCustomAmount) {
-      return amount;
-    }
+  const submit = useCallback(async () => {
+    if (!campaign || !valid || submitting) return;
 
-    const parsed = Number(customAmount.replace(/[^\d]/g, ""));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  }, [amount, customAmount, useCustomAmount]);
-
-  const selectedBeneficiary =
-    tutelles.find((item) => item.id === selectedBeneficiaryId) ?? null;
-
-  const handleSubmit = async () => {
-    if (!selectedCampaign) {
+    if (campaign.status !== "active") {
       Alert.alert(
-        "Campagne requise",
-        "Choisissez une campagne avant de continuer.",
+        "Ndiguel clôturé",
+        "Ce Ndiguel n'accepte plus de Jëf. Choisissez-en un autre.",
       );
       return;
     }
-
-    if (selectedCampaign.status !== "active") {
-      Alert.alert(
-        "Campagne indisponible",
-        "Choisissez une campagne active pour continuer la contribution.",
-      );
-      return;
-    }
-
-    if (!finalAmount) {
-      Alert.alert("Montant requis", "Ajoutez un montant valide.");
-      return;
-    }
-
-    if (collectMode && !selectedMemberId) {
+    if (collectMode && !memberId) {
       Alert.alert(
         "Membre requis",
-        "Sélectionnez le membre pour lequel vous saisissez la collecte.",
+        "Choisissez le membre pour lequel vous enregistrez cette collecte.",
+      );
+      return;
+    }
+    if (method === "virement" && !wireRef.trim()) {
+      Alert.alert(
+        "Référence requise",
+        "Saisissez la référence de votre virement pour qu'il soit rapproché.",
       );
       return;
     }
 
+    const effective: PaymentMethod = collectMode ? "manual" : method;
     setSubmitting(true);
     try {
-      // 1. Create the donation record
       const donation = await ContentService.createDonation({
-        campaign: selectedCampaign.id,
-        amount: finalAmount,
-        payment_method: collectMode ? "manual" : paymentMethod,
-        beneficiary: selectedBeneficiary?.id ?? null,
-        external_ref: paymentMethod === "virement" ? wireRef.trim() : null,
-        ...(collectMode && selectedMemberId
-          ? { member_id: selectedMemberId }
-          : {}),
-      } as any);
+        campaign: campaign.id,
+        amount,
+        payment_method: effective,
+        beneficiary: collectMode ? null : beneficiaryId,
+        external_ref: effective === "virement" ? wireRef.trim() : null,
+        ...(collectMode && memberId ? { member_id: memberId } : {}),
+      } as Parameters<typeof ContentService.createDonation>[0]);
 
-      // 2. Handle digital/physical payments
-      if (collectMode || paymentMethod === "manual") {
-        const memberName = selectedMember
-          ? getMemberName(selectedMember)
-          : null;
-        setSuccessTitle("Collecte enregistrée");
-        setSuccessMessage(
-          memberName
-            ? `La contribution de ${formatAmount(finalAmount)} au nom de ${memberName} a été enregistrée avec succès.`
-            : "Les collecteurs et le responsable de votre daara ont été notifiés pour venir récupérer votre contribution physique.",
-        );
-        setSuccessVisible(true);
+      /*
+        Les espèces ne passent pas par l'endpoint de paiement : il n'y a rien à
+        initier, le collecteur encaisse et un responsable valide ensuite.
+      */
+      if (effective === "manual") {
+        setReceipt({
+          donation,
+          title: collectMode ? "Collecte enregistrée" : "Jëf enregistré",
+          body: collectMode
+            ? `La contribution de ${formatFCFA(amount)}${member ? ` au nom de ${memberName(member)}` : ""} est enregistrée. Elle sera validée par un responsable.`
+            : "Un collecteur de votre Daara viendra récupérer votre contribution.",
+        });
+        setStep("done");
         return;
       }
 
-      // 2. Paiement numérique ou virement : on initie
-      {
-        const paymentResult = await ContentService.payDonation(
-          donation.id,
-          paymentMethod,
-          paymentMethod === "virement" ? wireRef.trim() : undefined,
-        );
+      const result = await ContentService.payDonation(
+        donation.id,
+        effective,
+        effective === "virement" ? wireRef.trim() : undefined,
+      );
 
-        if (paymentMethod === "virement") {
-          setSuccessTitle("Virement enregistré");
-          setSuccessMessage(
-            "Votre déclaration de virement a été reçue. Elle sera validée dès réception des fonds sur notre compte.",
-          );
-          setSuccessVisible(true);
-          return;
-        }
-
-        if (paymentMethod === "bictorys") {
-          if (paymentResult.checkout_url) {
-            const { Linking } = await import("react-native");
-            await Linking.openURL(paymentResult.checkout_url);
-
-            setSuccessTitle("Paiement initié");
-            setSuccessMessage(
-              "Vous allez être redirigé vers la page de paiement sécurisée de Bictorys.",
-            );
-            setSuccessVisible(true);
-            return;
-          }
-        } else {
-          // Mobile Money (Direct API)
-          setSuccessTitle("Jëf initié");
-          setSuccessMessage(
-            `Une demande de paiement ${paymentMethod === "wave" ? "Wave" : "Orange Money"} a été envoyée. Veuillez valider sur votre téléphone.`,
-          );
-          setSuccessVisible(true);
-          return;
-        }
+      if (effective === "virement") {
+        setReceipt({
+          donation,
+          title: "Virement déclaré",
+          body: "Votre déclaration est reçue. Le Jëf sera validé dès réception des fonds.",
+        });
+        setStep("done");
+        return;
       }
 
-      // 3. For manual or already handled payments
-      setSuccessTitle("Jëf enregistré");
-      setSuccessMessage(
-        `Votre contribution de ${formatAmount(finalAmount)} pour ${selectedCampaign.name} a été soumise avec succès.`,
-      );
-      setSuccessVisible(true);
+      if (effective === "bictorys") {
+        const checkout = (result as { checkout_url?: string })?.checkout_url;
+        if (checkout) {
+          const { Linking } = await import("react-native");
+          await Linking.openURL(checkout);
+        }
+        setReceipt({
+          donation,
+          title: "Paiement ouvert",
+          body: checkout
+            ? "Terminez le paiement sur la page sécurisée qui vient de s'ouvrir."
+            : "La page de paiement n'a pas pu s'ouvrir. Votre Jëf est enregistré et reste à régler.",
+        });
+        setStep("done");
+        return;
+      }
+
+      setReceipt({
+        donation,
+        title: "Jëf initié",
+        body: `Une demande ${effective === "wave" ? "Wave" : "Orange Money"} vient de partir. Validez-la sur votre téléphone.`,
+      });
+      setStep("done");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Impossible de créer le Jëf.";
-      Alert.alert("Erreur", message);
+      Alert.alert(
+        "Le Jëf n'a pas pu être envoyé",
+        error instanceof Error ? error.message : "Réessayez dans un instant.",
+      );
     } finally {
       setSubmitting(false);
     }
+  }, [
+    amount,
+    beneficiaryId,
+    campaign,
+    collectMode,
+    member,
+    memberId,
+    method,
+    submitting,
+    valid,
+    wireRef,
+  ]);
+
+  const padding = {
+    paddingTop: Space.sm,
+    paddingBottom: Math.max(insets.bottom, Space.xl),
   };
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      <SectionHeader
-        title="Jëf"
-        subtitle="Choisissez une campagne, un montant et votre mode de paiement"
-        icon={<Heart size={24} color="#FFF" />}
-        actions={[
-          {
-            label: "Notifications",
-            icon: <Bell size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/notifications" as any),
-          },
-          {
-            label: "Paramètres",
-            icon: <Settings2 size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/profile" as any),
-          },
-        ]}
-      />
-
-      <View style={styles.content}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          scrollIndicatorInsets={{ bottom: 180 }}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scroll}
-        >
-          <GlassCard style={styles.heroCard}>
-            <Text style={styles.heroTitle}>Contribuer en toute simplicité</Text>
-            <Text style={styles.heroText}>
-              Sélectionnez une campagne active, choisissez le montant adapté et
-              finalisez votre Jëf depuis le mobile.
-            </Text>
-          </GlassCard>
-
-          {/* ─── Mode collecteur (réservé aux collecteurs / chefs de daara / admins) ─── */}
-          {isCollector && (
-            <Pressable
-              onPress={toggleCollectMode}
-              style={[
-                styles.collectToggle,
-                collectMode && styles.collectToggleActive,
-              ]}
-            >
-              <View
-                style={[
-                  styles.collectToggleIcon,
-                  collectMode && styles.collectToggleIconActive,
-                ]}
-              >
-                <UserCheck
-                  size={18}
-                  color={collectMode ? "#FFF" : Colors.accent.DEFAULT}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.collectToggleTitle,
-                    collectMode && styles.collectToggleTitleActive,
-                  ]}
-                >
-                  {collectMode
-                    ? "Mode collecteur actif"
-                    : "Activer le mode collecteur"}
-                </Text>
-                <Text
-                  style={[
-                    styles.collectToggleSubtitle,
-                    collectMode && styles.collectToggleSubtitleActive,
-                  ]}
-                >
-                  {collectMode
-                    ? "Vous saisissez une contribution physique au nom d'un membre."
-                    : "Enregistrez une collecte physique pour un talibé de votre daara."}
-                </Text>
-              </View>
-              {collectMode && <X size={16} color={Colors.accent.DEFAULT} />}
-            </Pressable>
-          )}
-
-          {/* ─── Sélecteur de membre (mode collecteur) ─── */}
-          {collectMode && (
-            <View style={styles.memberSection}>
-              <Text style={styles.sectionTitle}>Membre concerné</Text>
-              <Input
-                placeholder="Rechercher un membre…"
-                value={memberSearch}
-                onChangeText={setMemberSearch}
-                icon={<Users size={16} color={Colors.ink.faint} />}
-              />
-              {loadingDirectory ? (
-                <View style={styles.memberLoading}>
-                  <ActivityIndicator
-                    color={Colors.accent.DEFAULT}
-                    size="small"
-                  />
-                </View>
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.memberRow}
-                >
-                  {filteredMembers.map((member) => {
-                    const active = selectedMemberId === member.id;
-                    const fullName = getMemberName(member);
-                    return (
-                      <Pressable
-                        key={member.id}
-                        onPress={() => setSelectedMemberId(member.id)}
-                        style={[
-                          styles.memberCard,
-                          active && styles.memberCardActive,
-                        ]}
-                      >
-                        <Avatar
-                          uri={member.avatar_url ?? member.avatar}
-                          name={fullName}
-                          size={40}
-                        />
-                        <Text
-                          style={[
-                            styles.memberName,
-                            active && styles.memberNameActive,
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {fullName}
-                        </Text>
-                        {member.daara_name ? (
-                          <Text style={styles.memberDaara} numberOfLines={1}>
-                            {member.daara_name}
-                          </Text>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                  {filteredMembers.length === 0 && !loadingDirectory && (
-                    <Text style={styles.memberEmpty}>Aucun membre trouvé.</Text>
-                  )}
-                </ScrollView>
-              )}
-            </View>
-          )}
-
-          <Text style={styles.sectionTitle}>Campagne</Text>
-          {loading ? (
-            <GlassCard style={styles.loadingCard}>
-              <ActivityIndicator color={Colors.accent.DEFAULT} />
-            </GlassCard>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.campaignRow}
-            >
-              {campaigns.length > 0 ? (
-                campaigns.map((campaign) => {
-                  const active = selectedCampaign?.id === campaign.id;
-                  const progress =
-                    campaign.goal_amount > 0
-                      ? campaign.collected_amount / campaign.goal_amount
-                      : 0;
-
-                  return (
-                    <Pressable
-                      key={campaign.id}
-                      onPress={() => setSelectedCampaignId(campaign.id)}
-                      style={({ pressed }) => [
-                        styles.campaignPressable,
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <GlassCard
-                        style={[
-                          styles.campaignCard,
-                          active && styles.campaignCardActive,
-                        ]}
-                      >
-                        <View style={styles.campaignTop}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.campaignName} numberOfLines={2}>
-                              {campaign.name}
-                            </Text>
-                            <Text style={styles.campaignMeta}>
-                              {campaign.collected_amount.toLocaleString()} /{" "}
-                              {campaign.goal_amount.toLocaleString()} FCFA
-                            </Text>
-                          </View>
-                          <View
-                            style={[styles.badge, active && styles.badgeActive]}
-                          >
-                            <Text
-                              style={[
-                                styles.badgeText,
-                                active && styles.badgeTextActive,
-                              ]}
-                            >
-                              {campaign.status === "active"
-                                ? "En cours"
-                                : campaign.status === "completed"
-                                  ? "Clôturée"
-                                  : "En attente"}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.progressTrack}>
-                          <View
-                            style={[
-                              styles.progressBar,
-                              { width: `${Math.max(progress * 100, 8)}%` },
-                            ]}
-                          />
-                        </View>
-                      </GlassCard>
-                    </Pressable>
-                  );
-                })
-              ) : (
-                <GlassCard style={styles.emptyCard}>
-                  <Text style={styles.emptyText}>
-                    Aucune campagne disponible pour le moment.
-                  </Text>
-                </GlassCard>
-              )}
-            </ScrollView>
-          )}
-
-          <Text style={styles.sectionTitle}>Montant</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.amountRow}
-          >
-            {QUICK_AMOUNTS.map((value) => {
-              const active = !useCustomAmount && amount === value;
-              return (
-                <Pressable
-                  key={value}
-                  onPress={() => {
-                    setUseCustomAmount(false);
-                    setAmount(value);
-                  }}
-                  style={[styles.amountChip, active && styles.amountChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.amountText,
-                      active && styles.amountTextActive,
-                    ]}
-                  >
-                    {formatAmount(value)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <Pressable
-            onPress={() => setUseCustomAmount(true)}
-            style={[
-              styles.customAmountButton,
-              useCustomAmount && styles.customAmountButtonActive,
-            ]}
-          >
-            <View
-              style={[
-                styles.customAmountIcon,
-                useCustomAmount && styles.customAmountIconActive,
-              ]}
-            >
-              <PencilLine
-                size={14}
-                color={useCustomAmount ? "#FFF" : Colors.accent.DEFAULT}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  styles.customAmountTitle,
-                  useCustomAmount && styles.customAmountTitleActive,
-                ]}
-              >
-                Montant personnalisé
-              </Text>
-              <Text
-                style={[
-                  styles.customAmountSubtitle,
-                  useCustomAmount && styles.customAmountSubtitleActive,
-                ]}
-              >
-                Saisissez un montant libre sans parcourir les options.
-              </Text>
-            </View>
-          </Pressable>
-
-          {useCustomAmount && (
-            <Input
-              label="Montant personnalisé"
-              placeholder="Ex: 15000"
-              keyboardType="numeric"
-              value={customAmount}
-              onChangeText={(value) =>
-                setCustomAmount(value.replace(/[^\d]/g, ""))
-              }
-            />
-          )}
-
-          <Text style={styles.sectionTitle}>Bénéficiaire</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.beneficiaryRow}
-          >
-            <Pressable
-              onPress={() => setSelectedBeneficiaryId(null)}
-              style={[
-                styles.beneficiaryCard,
-                selectedBeneficiaryId === null && styles.beneficiaryCardActive,
-              ]}
-            >
-              <Text style={styles.beneficiaryName}>Moi-même</Text>
-              <Text style={styles.beneficiaryMeta}>
-                Aucun bénéficiaire ajouté
-              </Text>
-            </Pressable>
-
-            {tutelles.map((member) => {
-              const active = selectedBeneficiaryId === member.id;
-              return (
-                <Pressable
-                  key={member.id}
-                  onPress={() => setSelectedBeneficiaryId(member.id)}
-                  style={[
-                    styles.beneficiaryCard,
-                    active && styles.beneficiaryCardActive,
-                  ]}
-                >
-                  <Text style={styles.beneficiaryName}>
-                    {member.first_name} {member.last_name}
-                  </Text>
-                  <Text style={styles.beneficiaryMeta}>{member.relation}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <Text style={styles.sectionTitle}>Paiement</Text>
-          {collectMode ? (
-            <GlassCard style={styles.collectPaymentInfo}>
-              <UserCheck size={16} color={Colors.accent.DEFAULT} />
-              <Text style={styles.collectPaymentInfoText}>
-                En mode collecteur, le paiement est enregistré comme collecte
-                physique.
-              </Text>
-            </GlassCard>
-          ) : (
-            <View style={styles.paymentGrid}>
-              {PAYMENT_METHODS.map((method) => {
-                const active = paymentMethod === method.value;
-                const Icon = method.icon;
-                const logo = PAYMENT_LOGOS[method.value];
-                return (
-                  <Pressable
-                    key={method.value}
-                    onPress={() => setPaymentMethod(method.value)}
-                    style={[
-                      styles.paymentCard,
-                      active && styles.paymentCardActive,
-                    ]}
-                  >
-                    {logo ? (
-                      <ExpoImage
-                        source={logo}
-                        style={styles.paymentLogoImg}
-                        contentFit="contain"
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.paymentIcon,
-                          active && styles.paymentIconActive,
-                        ]}
-                      >
-                        <Icon
-                          size={16}
-                          color={active ? "#FFF" : Colors.accent.DEFAULT}
-                        />
-                      </View>
-                    )}
-                    <Text style={styles.paymentLabel}>{method.label}</Text>
-                    <Text style={styles.paymentHint}>{method.hint}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-
-          {paymentMethod === "virement" && (
-            <GlassCard style={styles.wireCard}>
-              <Text style={styles.wireTitle}>Informations de virement</Text>
-              <Text style={styles.wireText}>
-                Veuillez effectuer le virement sur le compte suivant :{"\n"}•
-                BANQUE : CBAO
-                {"\n"}• RIB : SN012 01234 123456789012 34
-                {"\n"}• TITULAIRE : YESSAL GUI
-              </Text>
-              <View style={styles.virementRefContainer}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.virementRefLabel}>
-                    Référence suggérée :
-                  </Text>
-                  <Text style={styles.virementRefValue}>
-                    {selectedCampaign?.id
-                      ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}`
-                      : "YSL-D-001"}
-                  </Text>
-                </View>
-                <Pressable
-                  style={styles.copyBtn}
-                  onPress={async () => {
-                    const ref = selectedCampaign?.id
-                      ? `YSL-${selectedCampaign.id}-${Date.now().toString().slice(-4)}`
-                      : "YSL-D-001";
-                    await Clipboard.setStringAsync(ref);
-                    Alert.alert("Copié", "La référence a été copiée.");
-                    setWireRef(ref);
-                  }}
-                >
-                  <ClipboardIcon size={18} color={Colors.accent.DEFAULT} />
-                </Pressable>
-              </View>
-              <Input
-                label="Référence du virement (à confirmer)"
-                placeholder="Ex: VIR-2024-001"
-                value={wireRef}
-                onChangeText={setWireRef}
-              />
-            </GlassCard>
-          )}
-
-          <GlassCard style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Récapitulatif</Text>
-            {collectMode && selectedMember && (
-              <View style={[styles.summaryRow, styles.summaryMemberRow]}>
-                <Avatar
-                  uri={selectedMember.avatar_url ?? selectedMember.avatar}
-                  name={getMemberName(selectedMember)}
-                  size={32}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.summaryMemberLabel}>Au nom de</Text>
-                  <Text style={styles.summaryMemberName}>
-                    {getMemberName(selectedMember)}
-                  </Text>
-                </View>
-              </View>
-            )}
-            {collectMode && !selectedMember && (
-              <View style={styles.summaryWarning}>
-                <Text style={styles.summaryWarningText}>
-                  ⚠ Sélectionnez un membre ci-dessus
-                </Text>
-              </View>
-            )}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Campagne</Text>
-              <Text style={styles.summaryValue} numberOfLines={1}>
-                {selectedCampaign?.name ?? "Aucune sélection"}
-              </Text>
-            </View>
-            {!collectMode && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Bénéficiaire</Text>
-                <Text style={styles.summaryValue} numberOfLines={1}>
-                  {selectedBeneficiary
-                    ? `${selectedBeneficiary.first_name} ${selectedBeneficiary.last_name}`
-                    : "Moi-même"}
-                </Text>
-              </View>
-            )}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Montant</Text>
-              <Text style={styles.summaryAmount}>
-                {finalAmount ? formatAmount(finalAmount) : "0 FCFA"}
-              </Text>
-            </View>
-            {collectMode && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Mode</Text>
-                <View style={styles.collectBadge}>
-                  <UserCheck size={11} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.collectBadgeText}>Collecte physique</Text>
-                </View>
-              </View>
-            )}
-          </GlassCard>
-
-          <Button
-            label="Continuer"
-            onPress={handleSubmit}
-            loading={submitting}
-            icon={<Heart size={16} color="#fff" />}
-          />
-        </ScrollView>
+  if (data.status === "failed") {
+    return (
+      <View style={[styles.sheet, styles.centered, padding]}>
+        <ErrorState
+          body="Les Ndiguels n'ont pas pu être chargés."
+          onRetry={load}
+        />
       </View>
+    );
+  }
 
-      <SuccessCelebration
-        visible={successVisible}
-        title={successTitle}
-        message={successMessage}
-        onClose={() => {
-          setSuccessVisible(false);
-          /*
-           * Phase C : `donate` n'est plus un onglet, c'est une feuille par-dessus
-           * l'onglet courant. Un `replace` vers l'accueil remplacerait la route
-           * DE LA FEUILLE — l'accueil se serait affiché à l'intérieur. On referme,
-           * et l'utilisateur retrouve l'écran d'où il est parti.
-           */
-          router.dismissTo("/home");
-        }}
-      />
-    </SafeAreaView>
+  if (data.status === "loading") {
+    return (
+      <View style={[styles.sheet, padding]}>
+        <Header title="Montant" onBack={goBack} />
+        <View style={styles.loading}>
+          <Skeleton width="70%" height={16} />
+          <Skeleton width="50%" height={44} />
+          <Skeleton width="100%" height={96} radius={Radius.card} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!campaign) {
+    return (
+      <View style={[styles.sheet, styles.centered, padding]}>
+        <EmptyState
+          title="Aucun Ndiguel ouvert"
+          body="Il n'y a pas d'appel en cours pour l'instant. Revenez bientôt."
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.sheet, padding]}>
+      {step === "amount" ? (
+        <AmountStep
+          keyHeight={height < SHORT_SCREEN ? KEY_HEIGHT_SHORT : KEY_HEIGHT}
+          campaign={campaign}
+          digits={digits}
+          amount={amount}
+          refused={refused}
+          valid={valid}
+          beneficiary={beneficiary ?? firstTutelle}
+          beneficiaryOn={beneficiaryId !== null}
+          onToggleBeneficiary={() =>
+            setBeneficiaryChoice(beneficiaryId === null ? (firstTutelle?.id ?? null) : null)
+          }
+          onDigits={onDigits}
+          onQuick={chooseQuick}
+          onBack={goBack}
+          onNext={() => setStep("method")}
+        />
+      ) : null}
+
+      {step === "method" ? (
+        <MethodStep
+          amount={amount}
+          method={method}
+          collector={collector}
+          collectMode={collectMode}
+          members={members}
+          memberId={memberId}
+          memberQuery={memberQuery}
+          phone={user?.phone ?? null}
+          submitting={submitting}
+          onBack={goBack}
+          onEditAmount={() => setStep("amount")}
+          onMethod={(next) =>
+            next === "virement" ? (setMethod(next), setStep("wire")) : setMethod(next)
+          }
+          onToggleCollect={() => {
+            setCollectMode((on) => !on);
+            setMemberId(null);
+          }}
+          onMemberQuery={setMemberQuery}
+          onMember={setMemberId}
+          onSubmit={submit}
+        />
+      ) : null}
+
+      {step === "wire" ? (
+        <WireStep
+          amount={amount}
+          value={wireRef}
+          onChange={setWireRef}
+          onBack={goBack}
+          onDone={() => setStep("method")}
+        />
+      ) : null}
+
+      {step === "done" && receipt ? (
+        <DoneStep
+          receipt={receipt}
+          amount={amount}
+          campaign={campaign}
+          beneficiaryLabel={
+            collectMode && member
+              ? memberName(member)
+              : beneficiary
+                ? `${beneficiary.first_name} ${beneficiary.last_name}`.trim()
+                : "Vous-même"
+          }
+          methodLabel={
+            PAYMENT_METHODS.find((m) => m.value === (collectMode ? "manual" : method))
+              ?.label ?? "—"
+          }
+          onCampaigns={() => router.dismissTo("/campaigns")}
+          onDonations={() => router.dismissTo("/donations")}
+        />
+      ) : null}
+    </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Header({ title, onBack }: { title: string; onBack?: () => void }) {
+  return (
+    <View style={styles.header}>
+      {onBack ? (
+        <IconButton
+          icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
+          accessibilityLabel="Revenir"
+          onPress={onBack}
+        />
+      ) : (
+        <View style={styles.headerSlot} />
+      )}
+      <Text style={styles.headerTitle}>{title}</Text>
+      <View style={styles.headerSlot} />
+    </View>
+  );
+}
+
+interface AmountStepProps {
+  keyHeight: number;
+  campaign: Campaign;
+  digits: string;
+  amount: number;
+  refused: boolean;
+  valid: boolean;
+  beneficiary: Tutelle | null;
+  beneficiaryOn: boolean;
+  onToggleBeneficiary: () => void;
+  onDigits: (next: string) => void;
+  onQuick: (value: number) => void;
+  onBack: () => void;
+  onNext: () => void;
+}
+
+function AmountStep({
+  keyHeight,
+  campaign,
+  digits,
+  amount,
+  refused,
+  valid,
+  beneficiary,
+  beneficiaryOn,
+  onToggleBeneficiary,
+  onDigits,
+  onQuick,
+  onBack,
+  onNext,
+}: AmountStepProps) {
+  /**
+   * Trois indications, une seule à la fois. Le refus l'emporte : c'est le seul
+   * cas où l'utilisateur a agi et où rien ne s'est passé — il faut lui dire
+   * pourquoi.
+   */
+  const hint = refused
+    ? `Maximum ${formatFCFA(MAX_JEF)}`
+    : amount > 0 && amount < MIN_JEF
+      ? `Minimum ${formatFCFA(MIN_JEF)}`
+      : `Entre ${formatNumber(MIN_JEF)} et ${formatNumber(MAX_JEF)} FCFA`;
+
+  return (
+    <>
+      <Header title="Montant" onBack={onBack} />
+
+      {/*
+        Tout ce qui précède le pavé DÉFILE. Sur un écran court, le montant, les
+        montants rapides et la ligne de tutelle ne tiennent pas au-dessus d'un
+        pavé de quatre rangées ; sans cette zone, le bas serait rogné en silence
+        — le pavé et le bouton Continuer, c'est-à-dire tout ce qui permet
+        d'avancer. Quand la place ne manque pas, le contenu reste en haut et
+        `flexGrow` ouvre le vide sous lui, exactement comme le ferait une marge
+        automatique.
+      */}
+      <ScrollView
+        style={styles.amountScroll}
+        contentContainerStyle={styles.amountScrollInner}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <AmountSelector
+          value={amount}
+          onChange={onQuick}
+          label={`Votre Jëf pour ${campaign.name}`}
+          style={styles.amount}
+        />
+
+        <Text style={[styles.hint, refused && styles.hintWarning]}>{hint}</Text>
+
+        {beneficiary ? (
+          <Pressable
+            onPress={onToggleBeneficiary}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: beneficiaryOn }}
+            style={[styles.tutelle, beneficiaryOn && styles.tutelleOn]}
+          >
+            <Avatar uri={beneficiary.avatar_url} name={beneficiary.first_name} size={32} />
+            <Text style={styles.tutelleLabel} numberOfLines={1}>
+              Au nom de {beneficiary.first_name} {beneficiary.last_name}
+            </Text>
+            <View style={[styles.mark, beneficiaryOn && styles.markOn]}>
+              {beneficiaryOn ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
+            </View>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+
+      <View style={styles.keypadSlot}>
+        <NumericKeypad
+          value={digits}
+          onChange={onDigits}
+          maxLength={MAX_DIGITS}
+          keyHeight={keyHeight}
+        />
+      </View>
+
+      <Button label="Continuer" onPress={onNext} disabled={!valid} />
+    </>
+  );
+}
+
+interface MethodStepProps {
+  amount: number;
+  method: PaymentMethod;
+  collector: boolean;
+  collectMode: boolean;
+  members: DirectoryUser[];
+  memberId: number | null;
+  memberQuery: string;
+  phone: string | null;
+  submitting: boolean;
+  onBack: () => void;
+  onEditAmount: () => void;
+  onMethod: (next: PaymentMethod) => void;
+  onToggleCollect: () => void;
+  onMemberQuery: (next: string) => void;
+  onMember: (id: number) => void;
+  onSubmit: () => void;
+}
+
+function MethodStep({
+  amount,
+  method,
+  collector,
+  collectMode,
+  members,
+  memberId,
+  memberQuery,
+  phone,
+  submitting,
+  onBack,
+  onEditAmount,
+  onMethod,
+  onToggleCollect,
+  onMemberQuery,
+  onMember,
+  onSubmit,
+}: MethodStepProps) {
+  return (
+    <>
+      <Header title="Moyen de paiement" onBack={onBack} />
+
+      <Card style={styles.recap}>
+        <View style={styles.recapText}>
+          <Text style={styles.recapLabel}>Votre Jëf</Text>
+          <Text style={styles.recapAmount}>{formatFCFA(amount)}</Text>
+        </View>
+        <Pressable onPress={onEditAmount} accessibilityRole="button" style={styles.edit}>
+          <Text style={styles.editLabel}>Modifier</Text>
+        </Pressable>
+      </Card>
+
+      {collector ? (
+        <Pressable
+          onPress={onToggleCollect}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: collectMode }}
+          style={[styles.collect, collectMode && styles.collectOn]}
+        >
+          <UserCheck size={18} color={Violet[900]} strokeWidth={1.5} />
+          <Text style={styles.collectLabel}>Enregistrer une collecte en espèces</Text>
+          <View style={[styles.mark, collectMode && styles.markOn]}>
+            {collectMode ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
+          </View>
+        </Pressable>
+      ) : null}
+
+      <ScrollView
+        style={styles.methods}
+        contentContainerStyle={styles.methodsInner}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {collectMode ? (
+          <>
+            <Input
+              placeholder="Chercher un membre"
+              value={memberQuery}
+              onChangeText={onMemberQuery}
+              icon={<Search size={18} color={Ink[300]} strokeWidth={1.5} />}
+              autoCorrect={false}
+            />
+            {members.length === 0 ? (
+              <Text style={styles.hint}>Aucun membre ne correspond.</Text>
+            ) : (
+              members.map((m) => {
+                const selected = m.id === memberId;
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => onMember(m.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    style={[styles.member, selected && styles.memberOn]}
+                  >
+                    <Avatar uri={m.avatar_url} name={memberName(m)} size={36} />
+                    <Text style={styles.memberName} numberOfLines={1}>
+                      {memberName(m)}
+                    </Text>
+                    {selected ? (
+                      <Check size={18} color={Violet[700]} strokeWidth={2} />
+                    ) : null}
+                  </Pressable>
+                );
+              })
+            )}
+          </>
+        ) : (
+          PAYMENT_METHODS.map((option) => (
+            <PaymentMethodRow
+              key={option.value}
+              method={option}
+              selected={option.value === method}
+              onPress={() => onMethod(option.value)}
+            />
+          ))
+        )}
+      </ScrollView>
+
+      <View style={styles.footer}>
+        {!collectMode && phone ? (
+          <Text style={styles.hint}>
+            Vous recevrez une confirmation par SMS au {phone}.
+          </Text>
+        ) : null}
+        <Button
+          label={collectMode ? "Enregistrer la collecte" : `Payer ${formatFCFA(amount)}`}
+          onPress={onSubmit}
+          loading={submitting}
+          disabled={submitting}
+        />
+      </View>
+    </>
+  );
+}
+
+/**
+ * Le virement est le seul moyen qui ouvre un écran plutôt que de se
+ * sélectionner — c'est pour cela que `PaymentMethodRow` lui dessine un chevron
+ * et non une case. Sans référence, un virement reçu ne peut être rapproché
+ * d'aucun Jëf : le champ n'est pas décoratif.
+ */
+function WireStep({
+  amount,
+  value,
+  onChange,
+  onBack,
+  onDone,
+}: {
+  amount: number;
+  value: string;
+  onChange: (next: string) => void;
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  return (
+    <>
+      <Header title="Référence du virement" onBack={onBack} />
+      <View style={styles.wire}>
+        <Text style={styles.wireIntro}>
+          Effectuez le virement de {formatFCFA(amount)}, puis saisissez la référence
+          que votre banque vous a donnée. Elle permet de rapprocher les fonds de
+          votre Jëf.
+        </Text>
+        <Input
+          label="Référence"
+          placeholder="Ex. VIR-2026-00184"
+          value={value}
+          onChangeText={onChange}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+      </View>
+      <Button label="Valider" onPress={onDone} disabled={!value.trim()} />
+    </>
+  );
+}
+
+function DoneStep({
+  receipt,
+  amount,
+  campaign,
+  beneficiaryLabel,
+  methodLabel,
+  onCampaigns,
+  onDonations,
+}: {
+  receipt: Receipt;
+  amount: number;
+  campaign: Campaign;
+  beneficiaryLabel: string;
+  methodLabel: string;
+  onCampaigns: () => void;
+  onDonations: () => void;
+}) {
+  /** Ce que le serveur sait. Rien d'inventé — voir l'en-tête du fichier. */
+  const reference = receipt.donation.external_ref?.trim() || `N° ${receipt.donation.id}`;
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.done}
+      showsVerticalScrollIndicator={false}
+    >
+      {/*
+        La tuile pastel et le tracé violet sont ceux de l'onboarding : c'est le
+        même vocabulaire, à l'autre bout du parcours.
+      */}
+      <View style={styles.celebration}>
+        <ExpoImage
+          source={require("@/assets/pictos/generosite.png")}
+          style={styles.celebrationPicto}
+          contentFit="contain"
+        />
+      </View>
+
+      <Text style={styles.doneTitle}>{receipt.title}</Text>
+      <Text style={styles.doneBody}>Jërëjëf. {receipt.body}</Text>
+      <Text style={styles.doneAmount}>{formatFCFA(amount)}</Text>
+
+      <Card padded={false} style={styles.receipt}>
+        <Row label="Destination" value={campaign.name} />
+        <Row label="Au nom de" value={beneficiaryLabel} />
+        <Row label="Moyen" value={methodLabel} />
+        <Row label="Référence" value={reference} mono last />
+      </Card>
+
+      <View style={styles.doneActions}>
+        <Button label="Retour aux Ndiguels" onPress={onCampaigns} />
+        <Button label="Voir mes Jëfs" variant="outline" onPress={onDonations} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function Row({
+  label,
+  value,
+  mono = false,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.row, !last && styles.rowDivided]}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text
+        style={[styles.rowValue, mono && styles.rowValueMono]}
+        numberOfLines={1}
+        selectable={mono}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe: {
+  sheet: {
     flex: 1,
-    backgroundColor: Colors.surface.subtle,
+    backgroundColor: Surface.default,
+    paddingHorizontal: GUTTER,
   },
-  content: {
-    flex: 1,
-    marginTop: 0,
-  },
-  scroll: {
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 220,
-    gap: 14,
-  },
-  heroCard: {
-    padding: 18,
-  },
-  heroTitle: {
-    fontSize: 22,
-    lineHeight: 30,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 8,
-  },
-  heroText: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginLeft: 4,
-    marginTop: 4,
-  },
-  loadingCard: {
-    minHeight: 126,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  campaignRow: {
-    gap: 12,
-    paddingRight: 8,
-    paddingBottom: 6,
-  },
-  campaignPressable: {
-    width: 258,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  campaignCard: {
-    padding: 16,
-    gap: 12,
-  },
-  campaignCardActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  campaignTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  campaignName: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 4,
-  },
-  campaignMeta: {
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: Colors.surface.subtle,
-  },
-  badgeActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  badgeText: {
-    fontSize: 11,
-    color: Colors.accent.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  badgeTextActive: {
-    color: "#FFF",
-  },
-  progressTrack: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: Colors.surface.muted,
-    overflow: "hidden",
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  emptyCard: {
-    minHeight: 126,
-    alignItems: "center",
-    justifyContent: "center",
-    width: 260,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-  },
-  amountRow: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  amountChip: {
-    minHeight: 46,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  amountChipActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  amountText: {
-    fontSize: 13,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_600SemiBold",
-  },
-  amountTextActive: {
-    color: "#FFF",
-  },
-  customAmountButton: {
+  centered: { justifyContent: "center" },
+  loading: { gap: Space.lg, marginTop: Space.xxl },
+
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  customAmountButtonActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  customAmountIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  customAmountIconActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  customAmountTitle: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  customAmountTitleActive: {
-    color: Colors.ink.DEFAULT,
-  },
-  customAmountSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  customAmountSubtitleActive: {
-    color: Colors.ink.muted,
-  },
-  beneficiaryRow: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  beneficiaryCard: {
-    minWidth: 160,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    gap: 4,
-  },
-  beneficiaryCardActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  beneficiaryName: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  beneficiaryMeta: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  paymentGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  paymentCard: {
-    width: "48%",
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    gap: 6,
-  },
-  paymentCardActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  paymentIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  paymentIconActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  paymentLabel: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  paymentHint: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  summaryCard: {
-    padding: 16,
-    gap: 10,
-  },
-  summaryTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 4,
-  },
-  summaryRow: {
-    flexDirection: "row",
     justifyContent: "space-between",
-    gap: 16,
+    gap: Space.md,
   },
-  summaryLabel: {
-    flex: 1,
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  summaryValue: {
-    flex: 1.2,
-    fontSize: 13,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_600SemiBold",
-    textAlign: "right",
-  },
-  summaryAmount: {
-    flex: 1.2,
-    fontSize: 16,
-    color: Colors.accent.DEFAULT,
-    fontFamily: "Inter_700Bold",
-    textAlign: "right",
-  },
-  wireCard: {
-    padding: 16,
-    backgroundColor: Colors.surface.muted,
-  },
-  wireTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    marginBottom: 8,
-  },
-  wireText: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    marginBottom: 16,
-  },
-  virementRefContainer: {
+  headerSlot: { width: 44 },
+  headerTitle: { ...Type.cardTitle, color: Ink[900] },
+
+  amountScroll: { flex: 1 },
+  /** `flexGrow` ouvre le vide sous le contenu quand la place ne manque pas. */
+  amountScrollInner: { flexGrow: 1 },
+  amount: { marginTop: Space.xxl },
+  hint: { ...Type.label, color: Ink[500], textAlign: "center", lineHeight: 18 },
+  hintWarning: { color: Status.warning, fontFamily: Font.bold },
+
+  tutelle: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.surface.DEFAULT,
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
+    gap: Space.md,
+    marginTop: Space.lg,
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.md,
+    borderRadius: Radius.card,
     borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    gap: 12,
+    borderColor: Border.hairline,
+    backgroundColor: Surface.default,
+    ...continuous,
   },
-  virementRefLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-  },
-  virementRefValue: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  copyBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: Colors.accent.dim,
+  tutelleOn: { borderColor: Violet[500], backgroundColor: Violet[100] },
+  tutelleLabel: { ...UIType.personName, color: Ink[900], flex: 1 },
+
+  mark: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.chip,
+    borderWidth: 1.5,
+    borderColor: Border.strong,
     alignItems: "center",
     justifyContent: "center",
   },
-  // ─── Collector mode styles ───
-  collectToggle: {
+  markOn: { backgroundColor: Violet[700], borderColor: Violet[700] },
+
+  keypadSlot: { paddingBottom: Space.md },
+
+  recap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
+    justifyContent: "space-between",
+    marginTop: Space.xl,
   },
-  collectToggleActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  collectToggleIcon: {
-    width: 40,
+  recapText: { gap: 2 },
+  recapLabel: { ...Type.label, color: Ink[500] },
+  recapAmount: { ...Type.greeting, color: montant },
+  edit: {
     height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.DEFAULT,
+    paddingHorizontal: Space.lg,
+    borderRadius: Radius.button,
+    backgroundColor: Surface.btn,
     alignItems: "center",
     justifyContent: "center",
   },
-  collectToggleIconActive: {
-    backgroundColor: Colors.accent.DEFAULT,
-  },
-  collectToggleTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  collectToggleTitleActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  collectToggleSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.faint,
-    lineHeight: 16,
-  },
-  collectToggleSubtitleActive: {
-    color: Colors.ink.muted,
-  },
-  memberSection: {
-    gap: 10,
-  },
-  memberLoading: {
-    height: 80,
+  editLabel: { ...UIType.chipLabel, color: Ink[900] },
+
+  collect: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-  },
-  memberRow: {
-    gap: 10,
-    paddingRight: 8,
-    paddingBottom: 4,
-  },
-  memberCard: {
-    width: 110,
-    padding: 12,
-    borderRadius: 18,
-    backgroundColor: Colors.surface.subtle,
+    gap: Space.md,
+    marginTop: Space.lg,
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.md,
+    borderRadius: Radius.card,
     borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    alignItems: "center",
-    gap: 6,
+    borderColor: Border.hairline,
+    backgroundColor: Pastel.lilac,
+    ...continuous,
   },
-  memberCardActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  memberName: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-    textAlign: "center",
-    lineHeight: 16,
-  },
-  memberNameActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  memberDaara: {
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.faint,
-    textAlign: "center",
-  },
-  memberEmpty: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.faint,
-    padding: 16,
-  },
-  collectPaymentInfo: {
+  collectOn: { borderColor: Violet[500] },
+  collectLabel: { ...UIType.chipLabel, color: Violet[900], flex: 1 },
+
+  methods: { flex: 1, marginTop: Space.lg },
+  methodsInner: { gap: Space.sm, paddingBottom: Space.lg },
+
+  member: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    padding: 14,
-    backgroundColor: Colors.accent.dim,
+    gap: Space.md,
+    paddingHorizontal: Space.lg,
+    paddingVertical: Space.md,
+    borderRadius: Radius.card,
+    borderWidth: 1,
+    borderColor: Border.hairline,
+    ...continuous,
   },
-  collectPaymentInfoText: {
-    flex: 1,
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    lineHeight: 18,
-  },
-  summaryMemberRow: {
+  memberOn: { borderColor: Violet[500], backgroundColor: Violet[100] },
+  memberName: { ...UIType.personName, color: Ink[900], flex: 1 },
+
+  footer: { gap: Space.md, paddingTop: Space.sm },
+
+  wire: { flex: 1, gap: Space.lg, marginTop: Space.xl },
+  wireIntro: { ...Type.body, color: Ink[500] },
+
+  done: { alignItems: "center", paddingTop: Space.xxl, paddingBottom: Space.xl },
+  celebration: {
+    width: 132,
+    height: 132,
+    borderRadius: Radius.card,
+    backgroundColor: Pastel.peach,
     alignItems: "center",
-    gap: 10,
-    paddingBottom: 10,
-    marginBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.DEFAULT,
+    justifyContent: "center",
+    ...continuous,
   },
-  summaryMemberLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  summaryMemberName: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  summaryWarning: {
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(184,134,11,0.1)",
-    marginBottom: 6,
-  },
-  summaryWarningText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.gold?.DEFAULT ?? "#B8860B",
+  celebrationPicto: { width: 84, height: 84 },
+  doneTitle: { ...Type.screenTitle, color: Violet[900], marginTop: Space.xxl, textAlign: "center" },
+  doneBody: {
+    ...Type.body,
+    color: Ink[500],
     textAlign: "center",
+    marginTop: Space.sm,
+    maxWidth: 300,
   },
-  collectBadge: {
+  doneAmount: { ...Type.amountHero, color: montant, marginTop: Space.xl },
+
+  receipt: { width: "100%", marginTop: Space.xxl, paddingHorizontal: Space.lg },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: Colors.accent.dim,
+    justifyContent: "space-between",
+    gap: Space.lg,
+    paddingVertical: Space.md,
   },
-  collectBadgeText: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.accent.DEFAULT,
-  },
-  paymentLogoImg: {
-    width: 44,
-    height: 28,
-    marginBottom: 2,
-  },
+  rowDivided: { borderBottomWidth: 1, borderBottomColor: Border.hairline },
+  rowLabel: { ...Type.label, color: Ink[500] },
+  rowValue: { ...UIType.chipLabel, color: Ink[900], flexShrink: 1, textAlign: "right" },
+  /**
+   * La planche met la référence en chasse fixe. Aucune fonte monospace n'est
+   * embarquée, et en réclamer une renverrait à la fonte système du téléphone —
+   * une seconde fonte pour une seule ligne. Ce qui compte réellement dans une
+   * référence, c'est que les chiffres aient tous la même largeur : c'est ce que
+   * font les chiffres tabulaires de Plus Jakarta Sans.
+   */
+  rowValueMono: { fontVariant: TABULAR, letterSpacing: 0.3 },
+
+  doneActions: { width: "100%", gap: Space.md, marginTop: Space.xxl },
 });

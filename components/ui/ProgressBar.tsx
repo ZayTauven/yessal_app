@@ -25,15 +25,6 @@ interface ProgressBarProps {
   leftLabel?: string;
   rightLabel?: string;
   style?: StyleProp<ViewStyle>;
-
-  /**
-   * @deprecated Legs de l'ancien composant, encore lu par `campaign/[id]`,
-   * `campaign/etat-[id]` et `event/[id]`. Alias de `leftLabel`.
-   * À retirer en phase F.
-   */
-  label?: string;
-  /** @deprecated Idem — affiche le pourcentage à droite. */
-  showPercent?: boolean;
 }
 
 export function ProgressBar({
@@ -43,15 +34,15 @@ export function ProgressBar({
   leftLabel,
   rightLabel,
   style,
-  label,
-  showPercent = false,
 }: ProgressBarProps) {
   const ratio = Math.min(Math.max(progress, 0), 1);
   const reached = !hidden && ratio >= 1;
   const onPhoto = variant === "onPhoto";
 
-  const left = leftLabel ?? label;
-  const right = rightLabel ?? (showPercent ? `${Math.round(ratio * 100)} %` : undefined);
+  /* `label` et `showPercent`, legs de l'ancien composant, sont partis en
+     phase F avec leurs trois derniers appelants. */
+  const left = leftLabel;
+  const right = rightLabel;
 
   return (
     <View style={[styles.container, style]}>

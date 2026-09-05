@@ -1,353 +1,322 @@
-import { useEffect, useState } from "react";
+/**
+ * app/(app)/news/[slug].tsx — l'article, passé au système (phase F).
+ *
+ * Écran hérité (§5.2). Trois corrections en chemin.
+ *
+ * ── Le bouton de partage ne partageait rien ─────────────────────────────────
+ *
+ * `<Pressable style={styles.iconBtn}><Share2 /></Pressable>` — **sans
+ * `onPress`**. Il occupait 44 px en tête d'écran et ne faisait rien depuis
+ * l'origine.
+ *
+ * Il partage maintenant le **titre et le chapô en texte**, pas un lien : il
+ * n'existe aucune adresse web publique pour un article — `Config` ne connaît
+ * que l'API — et fabriquer une URL qui n'ouvre rien serait remplacer un bouton
+ * muet par un bouton menteur.
+ *
+ * ── La mauvaise date ────────────────────────────────────────────────────────
+ *
+ * `created_at` au lieu de `published_at` : voir `explore.tsx` et le
+ * commentaire de `NewsPost`.
+ *
+ * ── L'auteur inventé ────────────────────────────────────────────────────────
+ *
+ * `post.created_by_name || "Confrérie Yessal"` attribuait à la confrérie tout
+ * article dont l'auteur est inconnu — et `created_by` est `SET_NULL`, donc le
+ * cas arrive dès qu'un compte de rédaction est supprimé. La ligne disparaît
+ * plutôt que de signer à la place de quelqu'un.
+ */
+import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Linking,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
-  Pressable,
-  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
-import {
-  ArrowLeft,
-  Calendar,
-  User,
-  PlayCircle, FileImage, Share2,
-} from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  Calendar,
+  FileImage,
+  Newspaper,
+  PlayCircle,
+  Share2,
+  User,
+} from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
+import { Card } from "@/components/ui/Card";
+import { RemotePhoto } from "@/components/ui/RemotePhoto";
+import { ApiError } from "@/lib/api";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
-import { GlassCard } from "@/components/ui/GlassCard";
 import type { NewsPost } from "@/types/content.types";
+import {
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
+
+function formatDate(raw?: string | null) {
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+type State =
+  | { status: "loading" }
+  | { status: "ready"; post: NewsPost }
+  /** `missing` : le serveur a répondu, l'article n'existe pas. */
+  | { status: "missing" }
+  /** `failed` : on n'a pas pu joindre le serveur. Les deux ne se disent pas pareil. */
+  | { status: "failed" };
 
 export default function NewsDetailScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const router = useRouter();
-  const [post, setPost] = useState<NewsPost | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<State>({ status: "loading" });
 
-  useEffect(() => {
-    if (!slug) return;
-    
-    const load = async () => {
-      try {
-        const data = await ContentService.getNewsPost(slug);
-        setPost(data);
-      } catch (err) {
-        console.error("Error loading post:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
+  const load = useCallback(async (): Promise<State> => {
+    if (!slug) return { status: "missing" };
+    try {
+      return { status: "ready", post: await ContentService.getNewsPost(slug) };
+    } catch (error) {
+      /** Un 404 n'est pas une panne : l'article a été retiré, on le dit. */
+      const notFound = error instanceof ApiError && error.status === 404;
+      return notFound ? { status: "missing" } : { status: "failed" };
+    }
   }, [slug]);
 
-  const formatDate = (date?: string | null) => {
-    if (!date) return "";
-    const parsed = new Date(date);
-    return parsed.toLocaleDateString("fr-FR", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
+  useEffect(() => {
+    let active = true;
+    load().then((next) => {
+      if (active) setState(next);
     });
-  };
+    return () => {
+      active = false;
+    };
+  }, [load]);
 
-  const handleYoutube = () => {
-    if (post?.youtube_url) {
-      Linking.openURL(post.youtube_url);
-    }
-  };
+  const retry = useCallback(() => {
+    setState({ status: "loading" });
+    load().then(setState);
+  }, [load]);
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={Colors.accent.DEFAULT} />
-        <Text style={styles.loadingText}>{"Chargement de l'article..."}</Text>
-      </View>
-    );
-  }
+  const post = state.status === "ready" ? state.post : null;
 
-  if (!post) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Article introuvable.</Text>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>Retour</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const share = useCallback(() => {
+    if (!post) return;
+    const body = post.excerpt ?? post.content?.slice(0, 200) ?? "";
+    Share.share({ message: body ? `${post.title}\n\n${body}` : post.title });
+  }, [post]);
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn}>
-          <ArrowLeft size={24} color={Colors.ink.DEFAULT} />
-        </Pressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>{post.title}</Text>
-        <Pressable style={styles.iconBtn}>
-          <Share2 size={22} color={Colors.ink.DEFAULT} />
-        </Pressable>
-      </View>
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <ScreenHeader
+        title={post?.title ?? "Actualité"}
+        onBack={() => router.back()}
+        right={
+          post
+            ? {
+                icon: <Share2 size={20} color={Ink[900]} strokeWidth={1.5} />,
+                accessibilityLabel: "Partager cet article",
+                onPress: share,
+              }
+            : undefined
+        }
+      />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {post.cover_image && (
-          <View style={styles.coverContainer}>
-            <ExpoImage
-              source={{ uri: post.cover_image }}
-              style={styles.coverImage}
-              contentFit="cover"
-            />
-          </View>
-        )}
-
-        <View style={styles.metaRow}>
-          <View style={styles.metaItem}>
-            <Calendar size={14} color={Colors.accent.DEFAULT} />
-            <Text style={styles.metaText}>{formatDate(post.created_at)}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <User size={14} color={Colors.accent.DEFAULT} />
-            <Text style={styles.metaText}>{post.created_by_name || "Confrérie Yessal"}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.title}>{post.title}</Text>
-
-        {post.excerpt ? (
-          <View style={styles.excerptBox}>
-            <Text style={styles.excerptText}>{post.excerpt}</Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {state.status === "loading" ? (
+          <View style={styles.loading}>
+            <Skeleton height={200} radius={Radius.card} />
+            <Skeleton height={28} width="80%" />
+            <Skeleton height={16} />
+            <Skeleton height={16} />
+            <Skeleton height={16} width="60%" />
           </View>
         ) : null}
 
-        <View style={styles.contentBox}>
-          <Text style={styles.contentText}>{post.content}</Text>
-        </View>
+        {state.status === "failed" ? (
+          <ErrorState body="Cet article n'a pas pu être chargé." onRetry={retry} />
+        ) : null}
 
-        {post.youtube_url && (
-          <Pressable style={styles.youtubeCard} onPress={handleYoutube}>
-            <View style={styles.youtubeIcon}>
-              <PlayCircle size={24} color="#FFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.youtubeTitle}>{"Vidéo de l'événement"}</Text>
-              <Text style={styles.youtubeSubtitle}>Regarder sur YouTube</Text>
-            </View>
-          </Pressable>
-        )}
+        {state.status === "missing" ? (
+          <EmptyState
+            picto={<Newspaper size={56} color={Violet[900]} strokeWidth={1.25} />}
+            title="Article introuvable"
+            body="Il a peut-être été retiré depuis que le lien a été partagé."
+            actionLabel="Voir les actualités"
+            onAction={() => router.replace("/explore")}
+          />
+        ) : null}
 
-        {post.gallery && post.gallery.length > 0 && (
-          <View style={styles.gallerySection}>
-            <View style={styles.gallerySectionHeader}><FileImage size={16} color={Colors.ink.faint} /><Text style={styles.sectionTitle}>Galerie Photos</Text></View>
-            <View style={styles.galleryGrid}>
-              {post.gallery.map((img) => (
-                <View key={img.id} style={styles.galleryItem}>
-                  <ExpoImage
-                    source={{ uri: img.image }}
-                    style={styles.galleryImage}
-                    contentFit="cover"
-                  />
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
+        {post ? <Article post={post} /> : null}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function Article({ post }: { post: NewsPost }) {
+  const gallery = post.gallery ?? [];
+  const date = formatDate(post.published_at ?? post.created_at);
+
+  return (
+    <>
+      {post.cover_image ? (
+        <ExpoImage
+          source={{ uri: post.cover_image }}
+          style={styles.cover}
+          contentFit="cover"
+          transition={200}
+        />
+      ) : null}
+
+      <View style={styles.metaRow}>
+        {date ? (
+          <View style={styles.meta}>
+            <Calendar size={13} color={Ink[300]} strokeWidth={1.5} />
+            <Text style={styles.metaText}>{date}</Text>
+          </View>
+        ) : null}
+        {/* Pas de signature de repli : voir l'en-tête du fichier. */}
+        {post.created_by_name ? (
+          <View style={styles.meta}>
+            <User size={13} color={Ink[300]} strokeWidth={1.5} />
+            <Text style={styles.metaText}>{post.created_by_name}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <Text style={styles.title}>{post.title}</Text>
+
+      {post.excerpt ? (
+        <View style={styles.excerpt}>
+          <Text style={styles.excerptText}>{post.excerpt}</Text>
+        </View>
+      ) : null}
+
+      <Text style={styles.body}>{post.content}</Text>
+
+      {post.youtube_url ? (
+        <Card
+          onPress={() => Linking.openURL(post.youtube_url as string)}
+          accessibilityLabel="Regarder la vidéo sur YouTube"
+          style={styles.video}
+        >
+          <View style={styles.videoIcon}>
+            <PlayCircle size={22} color={Violet[900]} strokeWidth={1.5} />
+          </View>
+          <View style={styles.videoText}>
+            <Text style={styles.videoTitle}>Vidéo de l&apos;événement</Text>
+            <Text style={styles.videoSubtitle}>Ouvrir sur YouTube</Text>
+          </View>
+        </Card>
+      ) : null}
+
+      {gallery.length > 0 ? (
+        <View style={styles.gallery}>
+          <View style={styles.galleryHeader}>
+            <FileImage size={16} color={Ink[300]} strokeWidth={1.5} />
+            <Text style={styles.galleryTitle}>Galerie</Text>
+          </View>
+          <View style={styles.galleryGrid}>
+            {/* Pas de `Pressable` : aucune visionneuse plein écran n'existe,
+                et une vignette qui s'enfonce sous le doigt sans rien ouvrir
+                promet un agrandissement qui ne viendra pas.
+
+                `RemotePhoto` et non `ExpoImage` : trois des lignes de galerie
+                en base pointent vers des fichiers absents du disque, et une
+                image morte se rendait ici en carré gris muet. Voir l'en-tête du
+                composant. */}
+            {gallery.map((image, index) => (
+              <RemotePhoto
+                key={image.id ?? index}
+                uri={image.image}
+                accessibilityLabel={image.caption ?? `Photographie ${index + 1}`}
+                fallbackIconSize={26}
+                style={styles.galleryItem}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 16,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  errorText: {
-    fontSize: 16,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_600SemiBold",
-  },
-  backBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: Colors.accent.DEFAULT,
-    borderRadius: 12,
-  },
-  backBtnText: {
-    color: "#FFF",
-    fontFamily: "Inter_700Bold",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: Colors.surface.subtle,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.DEFAULT,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    textAlign: "center",
-    marginHorizontal: 10,
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  safe: { flex: 1, backgroundColor: Surface.default },
   scroll: {
-    paddingBottom: 40,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.sm,
+    paddingBottom: Space.huge,
+    gap: Space.lg,
   },
-  coverContainer: {
+  loading: { gap: Space.md },
+
+  cover: {
     width: "100%",
-    height: 240,
-    backgroundColor: Colors.surface.muted,
+    height: 220,
+    borderRadius: Radius.card,
+    ...continuous,
+    backgroundColor: Surface.alt,
   },
-  coverImage: {
-    width: "100%",
-    height: "100%",
+  metaRow: { flexDirection: "row", alignItems: "center", gap: Space.lg },
+  meta: { flexDirection: "row", alignItems: "center", gap: 5 },
+  metaText: { ...Type.micro, color: Ink[300] },
+
+  title: { ...Type.screenTitle, fontSize: 26, lineHeight: 32, color: Ink[900] },
+  excerpt: {
+    backgroundColor: Surface.alt,
+    borderLeftWidth: 3,
+    borderLeftColor: Violet[300],
+    borderRadius: Radius.input,
+    ...continuous,
+    padding: Space.lg,
   },
-  metaRow: {
-    flexDirection: "row",
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-  },
-  metaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  metaText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.faint,
-  },
-  title: {
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    lineHeight: 34,
-  },
-  excerptBox: {
-    marginHorizontal: 24,
-    marginTop: 16,
-    padding: 16,
-    backgroundColor: Colors.accent.dim,
-    borderRadius: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.accent.DEFAULT,
-  },
-  excerptText: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-    lineHeight: 22,
-  },
-  contentBox: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-  },
-  contentText: {
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    lineHeight: 26,
-  },
-  youtubeCard: {
-    marginHorizontal: 24,
-    marginTop: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    backgroundColor: "#FF0000",
-    borderRadius: 20,
-    gap: 16,
-    shadowColor: "#FF0000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  youtubeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  excerptText: { ...Type.body, color: Violet[900] },
+  body: { ...Type.body, fontSize: 15, lineHeight: 24, color: Ink[900] },
+
+  video: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  videoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.input,
+    ...continuous,
+    backgroundColor: Violet[100],
     alignItems: "center",
     justifyContent: "center",
   },
-  youtubeTitle: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: "#FFF",
-  },
-  youtubeSubtitle: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.8)",
-  },
-  gallerySection: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 16,
-  },
-  gallerySectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
-  },
-  galleryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
+  videoText: { flex: 1, gap: 2 },
+  videoTitle: { ...UIType.rowTitle, color: Ink[900] },
+  videoSubtitle: { ...Type.label, color: Ink[500] },
+
+  gallery: { gap: Space.md },
+  galleryHeader: { flexDirection: "row", alignItems: "center", gap: Space.sm },
+  galleryTitle: { ...UIType.chipLabel, color: Ink[500] },
+  galleryGrid: { flexDirection: "row", flexWrap: "wrap", gap: Space.sm },
   galleryItem: {
     width: "48%",
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: Radius.input,
+    ...continuous,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    backgroundColor: Colors.surface.muted,
-  },
-  galleryImage: {
-    width: "100%",
-    height: "100%",
+    backgroundColor: Surface.alt,
   },
 });
-
-
-

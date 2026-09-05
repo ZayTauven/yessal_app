@@ -1,521 +1,579 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+/**
+ * app/(app)/chat/[id].tsx — une conversation. DEUX VARIANTES, UNE SEULE ROUTE.
+ *
+ * Planche « Accueil et Onglets », vues `isChat` et `isGroupe`. Ce qui les
+ * sépare tient en quatre points, et `chat_type` suffit à les trancher :
+ *
+ *   tête-à-tête   avatar + nom + rôle de l'autre · bulles nues · « Écrire un message… »
+ *   groupe        pile de visages + effectif · annonce épinglée · bulles signées
+ *                 et portant le visage de leur auteur · « Message au Daara… »
+ *
+ * Deux fichiers auraient dupliqué l'en-tête, le fil, le composeur et le
+ * chargement pour quatre différences d'affichage.
+ *
+ * ── Ce que la planche promet et que le backend ne sait pas dire ─────────────
+ *
+ * — **« en ligne »** (tête-à-tête) et **« 3 en train d'écrire »** (groupe).
+ *   `comms/` n'expose ni présence ni indicateur de frappe : `UserBriefSerializer`
+ *   ne porte aucun de ces champs, et le canal Pusher ne diffuse que les
+ *   messages, les réactions et les invitations (`comms/signals.py`). Inventer
+ *   « en ligne » ferait attendre une réponse immédiate d'un chef de Daara qui
+ *   n'a pas ouvert l'application depuis trois jours. Le sous-titre dit donc ce
+ *   qui est VRAI : le rôle de l'interlocuteur, l'effectif du salon ;
+ * — **le bouton « + » du composeur** — voir `components/chat/Composer.tsx` ;
+ * — **les deux boutons de droite de l'en-tête** : le pictogramme « maison » du
+ *   tête-à-tête et le « ⋮ » du groupe. Le premier mène au Daara, que rien ne
+ *   rattache à une conversation directe côté serveur. Le second ouvre un menu
+ *   dont la seule action réelle serait la sourdine — or `is_muted` vit sur
+ *   `ChatMembership` et n'est PAS dans `ChatSerializer.Meta.fields` : la bascule
+ *   ne pourrait pas afficher son propre état. Un interrupteur dont on ne sait
+ *   pas s'il est allumé n'est pas un interrupteur.
+ *
+ * ── Le reçu de Jëf ─────────────────────────────────────────────────────────
+ *
+ * Il n'est pas un message : voir `components/chat/JefReceipt.tsx` pour d'où il
+ * vient. Rappel de la règle des rôles : `canSeeAmounts` masque à un talibé les
+ * sommes COLLECTÉES, jamais son propre Jëf. Les reçus affichés ici sont les
+ * siens et rien que les siens — le filtre est sur `donor`.
+ *
+ * ── Le clavier ─────────────────────────────────────────────────────────────
+ *
+ * `KeyboardAvoidingView` en `behavior="padding"` sur les DEUX plateformes.
+ * D'ordinaire Android se contente d'`adjustResize`, mais `edgeToEdgeEnabled`
+ * est actif (`app.json`) : la fenêtre ne se redimensionne plus, et sans la
+ * marge le composeur passerait sous le clavier. NON VÉRIFIÉ SUR APPAREIL.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
-  Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Image as ImageIcon, Send, ShieldCheck, Trash2 } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
+import { Composer } from "@/components/chat/Composer";
+import { JefReceipt } from "@/components/chat/JefReceipt";
+import { DayDivider, MessageBubble, SystemNote } from "@/components/chat/MessageBubble";
+import { PinnedAnnouncement, pickPinned } from "@/components/chat/PinnedAnnouncement";
+import { daysBetween } from "@/components/chat/ChatRow";
+import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
+import { ErrorState } from "@/components/ui/EmptyState";
+import { IconButton } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
+import { formatNumber } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
-import type { Chat, Message } from "@/types/content.types";
+import type { Announcement, Chat, ChatMember, Message } from "@/types/content.types";
+import type { Donation } from "@/types/donation.types";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+} from "@/theme";
 
-const ADMIN_ROLES = ["admin", "chef_daara"];
+/** Visages montrés dans l'en-tête d'un salon avant que la pile ne se ferme. */
+const HEADER_FACES = 2;
+/** Diamètre des visages de l'en-tête, mesuré sur la planche. */
+const HEADER_FACE = 34;
 
-function parseId(value?: string | string[]) {
+/**
+ * Le rôle, en clair. `UserBriefSerializer` renvoie la valeur brute de
+ * `User.Role` ; « member » n'est pas un mot que l'on montre à un talibé.
+ */
+const ROLE_LABEL: Record<string, string> = {
+  admin: "Administrateur",
+  chef_daara: "Chef du Daara",
+  collector: "Collecteur",
+  member: "Talibé",
+  tutelle: "Sous tutelle",
+};
+
+function parseId(value?: string | string[]): number | null {
   const raw = Array.isArray(value) ? value[0] : value;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function formatTime(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  if (isToday) return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+interface ConversationState {
+  status: "loading" | "ready" | "failed";
+  chat: Chat | null;
+  messages: Message[];
+  members: ChatMember[];
+  /** L'annonce du Daara à épingler, en salon seulement. */
+  pinned: Announcement | null;
+  /** Les Jëfs de l'utilisateur sur le Ndiguel de cette conversation. */
+  receipts: Donation[];
 }
 
-export default function ChatDetailScreen() {
+const EMPTY: ConversationState = {
+  status: "failed",
+  chat: null,
+  messages: [],
+  members: [],
+  pinned: null,
+  receipts: [],
+};
+
+/**
+ * Un seul chargement, qui rend un état COMPLET — le `setState` vit après
+ * l'`await`, comme l'exige `react-hooks/set-state-in-effect`.
+ *
+ * Deux vagues, et c'est délibéré. La première porte ce SANS QUOI L'ÉCRAN
+ * N'EXISTE PAS : la conversation et ses messages. La seconde porte ce qui
+ * l'enrichit — les membres, l'annonce, les reçus — et dont l'échec ne doit
+ * jamais faire basculer l'écran en erreur : un fil se lit très bien sans la
+ * pile de visages de son en-tête. Elle dépend de la première, qui seule dit si
+ * la conversation est un salon (annonce) et si elle porte un Ndiguel (reçus).
+ */
+async function fetchConversation(
+  chatId: number,
+  userId: number | undefined,
+): Promise<ConversationState> {
+  const [chat, messages] = await Promise.all([
+    ContentService.getChatById(chatId).catch(() => null),
+    ContentService.getChatMessages(chatId).catch(() => null),
+  ]);
+  if (!chat || !messages) return EMPTY;
+
+  const [members, announcements, donations] = await Promise.all([
+    ContentService.getChatMembers(chatId).catch(() => []),
+    chat.chat_type === "group" && chat.daara
+      ? ContentService.getAnnouncements().catch(() => [])
+      : Promise.resolve([]),
+    chat.campaign ? ContentService.getDonations().catch(() => []) : Promise.resolve([]),
+  ]);
+
+  /*
+    L'horodatage de lecture, posé sans attendre : c'est lui qui vide la
+    pastille de non-lus au retour sur la liste. Son échec ne concerne pas
+    l'affichage — au pire la pastille reste, elle ne ment pas pour autant.
+  */
+  ContentService.markChatRead(chatId).catch(() => undefined);
+
+  return {
+    status: "ready",
+    chat,
+    messages,
+    members,
+    pinned: pickPinned(announcements, chat.daara),
+    /*
+      Ses Jëfs, à lui, sur ce Ndiguel, et payés. `getDonations()` rend ce que le
+      rôle autorise — un chef de Daara y voit ceux de tout son Daara : le filtre
+      sur `donor` est donc ce qui garantit qu'un reçu affiché ici est bien celui
+      de la personne qui regarde.
+    */
+    receipts: donations.filter(
+      (donation) =>
+        donation.campaign === chat.campaign &&
+        donation.donor === userId &&
+        donation.payment_status === "confirmed",
+    ),
+  };
+}
+
+export default function ConversationScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const chatId = parseId(params.id);
   const user = useAuthStore((state) => state.user);
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? "");
+  const userId = user?.id;
+
   const scrollRef = useRef<ScrollView>(null);
 
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [content, setContent] = useState("");
+  const [state, setState] = useState<ConversationState>(
+    chatId ? { ...EMPTY, status: "loading" } : EMPTY,
+  );
+  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = async () => {
-    if (!chatId) { setLoading(false); return; }
-    try {
-      const [chatData, messageData] = await Promise.all([
-        ContentService.getChats(),
-        ContentService.getMessages(),
-      ]);
-      setChats(chatData);
-      setMessages(messageData.filter((m) => m.chat === chatId));
-    } catch {
-      setChats([]);
-      setMessages([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => { load(); }, [chatId]);
-
-  // Scroll to bottom when messages load or new message arrives
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 100);
-    }
-  }, [messages.length]);
+    if (!chatId) return;
+    let active = true;
+    fetchConversation(chatId, userId).then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [chatId, userId]);
 
-  const chat = useMemo(() => chats.find((c) => c.id === chatId) ?? null, [chatId, chats]);
+  const reload = useCallback(async () => {
+    if (!chatId) return;
+    setState(await fetchConversation(chatId, userId));
+  }, [chatId, userId]);
 
-  const orderedMessages = useMemo(
-    () => [...messages].sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()),
-    [messages],
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await reload();
+    setRefreshing(false);
+  }, [reload]);
+
+  const { status, chat, messages, members, pinned, receipts } = state;
+  const isGroup = chat?.chat_type === "group";
+
+  const timeline = useMemo(
+    () => buildTimeline(messages, receipts, userId),
+    [messages, receipts, userId],
   );
 
-  const handleSend = async () => {
-    if (!chatId || !content.trim()) return;
+  async function handleSend() {
+    const body = draft.trim();
+    if (!chatId || !body || sending) return;
+
     setSending(true);
     try {
-      const created = await ContentService.createMessage({ chat: chatId, content: content.trim() });
-      setMessages((curr) => [...curr, created]);
-      setContent("");
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+      const created = await ContentService.createMessage({ chat: chatId, content: body });
+      setState((previous) => ({ ...previous, messages: [...previous.messages, created] }));
+      setDraft("");
     } catch {
-      Alert.alert("Erreur", "Impossible d'envoyer le message pour le moment.");
+      Alert.alert(
+        "Message non envoyé",
+        "Il n'est pas parti. Vérifiez votre connexion, puis réessayez — votre texte est conservé.",
+      );
     } finally {
       setSending(false);
     }
-  };
-
-  const handleDeleteMessage = (messageId: number) => {
-    Alert.alert(
-      "Supprimer ce message",
-      "Cette action est irréversible.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer",
-          style: "destructive",
-          onPress: () => {
-            setMessages((curr) => curr.filter((m) => m.id !== messageId));
-          },
-        },
-      ]
-    );
-  };
-
-  const chatLabel = chat?.name ?? chat?.daara_name ?? (chat?.daara ? "Chat du Daara" : "Discussion");
+  }
 
   if (!chatId) {
     return (
-      <View style={styles.screen}>
-        <GlassCard style={styles.errorCard}>
-          <Text style={styles.errorTitle}>Conversation introuvable</Text>
-          <Text style={styles.errorText}>L'identifiant est invalide.</Text>
-          <Button label="Retour" onPress={() => router.back()} fullWidth={false} />
-        </GlassCard>
+      <View style={[styles.screen, styles.centered, { paddingTop: insets.top + Space.huge }]}>
+        <ErrorState
+          title="Conversation introuvable"
+          body="Ce lien ne désigne aucune conversation."
+          retryLabel="Revenir aux messages"
+          onRetry={() => router.replace("/chat")}
+        />
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-    >
-      {/* ─── Header ─── */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={18} color={Colors.ink.DEFAULT} />
-        </Pressable>
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
+      <ConversationHeader
+        chat={chat}
+        members={members}
+        currentUserId={userId}
+        loading={status === "loading"}
+        topInset={insets.top}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace("/chat"))}
+      />
 
-        {chat?.daara ? (
-          <View style={styles.groupAvatarHeader}>
-            <ShieldCheck size={20} color={Colors.accent.DEFAULT} />
-          </View>
-        ) : (
-          <Avatar name={chatLabel} size={42} />
-        )}
+      {isGroup && pinned ? (
+        <PinnedAnnouncement
+          announcement={pinned}
+          onPress={() => router.push("/announcements")}
+        />
+      ) : null}
 
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{chatLabel}</Text>
-          <Text style={styles.headerSubtitle}>
-            {chat?.daara
-              ? (chat.daara_name ? `Daara · ${chat.daara_name}` : "Chat de Daara")
-              : "Discussion communautaire"}
-          </Text>
-        </View>
-
-        {isAdmin && (
-          <View style={styles.adminChip}>
-            <ShieldCheck size={12} color={Colors.accent.DEFAULT} />
-            <Text style={styles.adminChipText}>Admin</Text>
-          </View>
-        )}
-      </View>
-
-      {/* ─── Messages ─── */}
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <Text style={styles.loadingText}>Chargement…</Text>
+      {status === "failed" ? (
+        <View style={[styles.centered, styles.failed]}>
+          <ErrorState body="Cette conversation n'a pas pu être chargée." onRetry={reload} />
         </View>
       ) : (
         <ScrollView
           ref={scrollRef}
-          style={styles.messagesWrap}
-          contentContainerStyle={styles.messagesContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); }} />}
+          style={styles.thread}
+          contentContainerStyle={styles.threadContent}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          /*
+            Le fil se cale en bas à chaque changement de hauteur : chargement,
+            envoi, ouverture du clavier. C'est le point d'arrivée d'une
+            conversation — on la reprend là où elle s'est arrêtée.
+          */
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Violet[500]} />
+          }
         >
-          {orderedMessages.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyTitle}>Aucun message</Text>
-              <Text style={styles.emptyText}>Cette conversation est prête à recevoir le premier message.</Text>
-            </View>
-          ) : null}
-
-          {orderedMessages.map((msg, index) => {
-            const senderId = typeof msg.sender === "object" ? (msg.sender as any)?.id : msg.sender;
-            const senderDisplay = typeof msg.sender === "object"
-              ? ((msg.sender as any)?.name ?? (msg.sender as any)?.first_name ?? `Membre #${senderId}`)
-              : `Membre #${msg.sender}`;
-            const isMine = senderId === user?.id;
-            const prevMsg = index > 0 ? orderedMessages[index - 1] : null;
-            const prevSenderId = prevMsg ? (typeof prevMsg.sender === "object" ? (prevMsg.sender as any)?.id : prevMsg.sender) : null;
-            const sameAuthor = prevSenderId === senderId;
-            const showSenderName = !isMine && !sameAuthor;
-
-            return (
-              <View
-                key={msg.id}
-                style={[
-                  styles.messageRow,
-                  isMine ? styles.messageRowMine : styles.messageRowOther,
-                  sameAuthor && styles.messageRowCompact,
-                ]}
-              >
-                {/* Other's avatar (only on first message of a run) */}
-                {!isMine && !sameAuthor ? (
-                  <Avatar name={senderDisplay} size={30} style={styles.messageAvatar} />
-                ) : !isMine ? (
-                  <View style={styles.messageAvatarPlaceholder} />
-                ) : null}
-
-                <View style={[styles.messageGroup, isMine && styles.messageGroupMine]}>
-                  {showSenderName && (
-                    <Text style={styles.senderName}>{senderDisplay}</Text>
-                  )}
-                  <Pressable
-                    onLongPress={isAdmin ? () => handleDeleteMessage(msg.id) : undefined}
-                    style={({ pressed }) => [pressed && { opacity: 0.85 }]}
-                  >
-                    <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleOther]}>
-                      <Text style={[styles.messageText, isMine && styles.messageTextMine]}>
-                        {msg.content}
-                      </Text>
-                      <View style={styles.messageMeta}>
-                        <Text style={[styles.messageTime, isMine && styles.messageTimeMine]}>
-                          {formatTime(msg.sent_at)}
-                        </Text>
-                        {isAdmin && !isMine && (
-                          <Pressable
-                            onPress={() => handleDeleteMessage(msg.id)}
-                            style={styles.deleteBtn}
-                          >
-                            <Trash2 size={11} color={Colors.status?.error ?? "#8B2E2E"} />
-                          </Pressable>
-                        )}
-                      </View>
-                    </View>
-                  </Pressable>
-                </View>
-              </View>
-            );
-          })}
+          {status === "loading" ? (
+            <ThreadSkeleton />
+          ) : timeline.length === 0 ? (
+            <Text style={styles.silent}>
+              {isGroup
+                ? "Personne n'a encore écrit dans ce salon."
+                : "Aucun message pour l'instant. Écrivez le premier."}
+            </Text>
+          ) : (
+            timeline.map((entry) => {
+              switch (entry.kind) {
+                case "day":
+                  return <DayDivider key={entry.key} label={entry.label} />;
+                case "system":
+                  return <SystemNote key={entry.key} content={entry.content} />;
+                case "receipt":
+                  return (
+                    <JefReceipt
+                      key={entry.key}
+                      donation={entry.donation}
+                      campaignName={entry.donation.campaign_name}
+                    />
+                  );
+                case "message":
+                  return (
+                    <MessageBubble
+                      key={entry.key}
+                      message={entry.message}
+                      mine={entry.mine}
+                      leading={entry.leading}
+                      group={isGroup}
+                    />
+                  );
+              }
+            })
+          )}
         </ScrollView>
       )}
 
-      {/* ─── Composer ─── */}
-      <View style={styles.composerWrap}>
-        <GlassCard style={styles.composer}>
-          <Pressable style={styles.attachBtn}>
-            <ImageIcon size={18} color={Colors.ink.faint} />
-          </Pressable>
-          <TextInput
-            value={content}
-            onChangeText={setContent}
-            placeholder="Écrire un message…"
-            placeholderTextColor={Colors.ink.faint}
-            multiline
-            style={styles.composerInput}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-          />
-          <Pressable
-            onPress={handleSend}
-            disabled={sending || !content.trim()}
-            style={[styles.sendBtn, (!content.trim() || sending) && styles.sendBtnDisabled]}
-          >
-            <Send size={17} color="#FFF" />
-          </Pressable>
-        </GlassCard>
-      </View>
+      <Composer
+        value={draft}
+        onChangeText={setDraft}
+        onSend={handleSend}
+        placeholder={isGroup ? "Message au Daara…" : "Écrire un message…"}
+        sending={sending}
+        bottomInset={insets.bottom}
+      />
     </KeyboardAvoidingView>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ConversationHeader({
+  chat,
+  members,
+  currentUserId,
+  loading,
+  topInset,
+  onBack,
+}: {
+  chat: Chat | null;
+  members: ChatMember[];
+  currentUserId: number | undefined;
+  loading: boolean;
+  topInset: number;
+  onBack: () => void;
+}) {
+  const isGroup = chat?.chat_type === "group";
+
+  /*
+    En tête-à-tête, l'interlocuteur est le membre qui n'est pas soi. C'est le
+    seul endroit d'où l'on tire son RÔLE : `ChatSerializer` rend son nom et sa
+    photo (`display_name`, `avatar`) mais pas son rôle, que seul
+    `comms/{id}/members/` porte.
+  */
+  const other = members.find((member) => member.id !== currentUserId) ?? null;
+
+  /* Son propre visage n'apprend rien : la pile montre les AUTRES membres. */
+  const faces: StackedPerson[] = members
+    .filter((member) => member.id !== currentUserId)
+    .slice(0, HEADER_FACES)
+    .map((member) => ({ uri: member.avatar, name: member.name }));
+
+  const subtitle = isGroup
+    ? memberCountLabel(chat?.members_count ?? members.length)
+    : [other?.role ? ROLE_LABEL[other.role] : null, other?.daara_name]
+        .filter(Boolean)
+        .join(" · ");
+
+  return (
+    <View style={[styles.header, { paddingTop: topInset + Space.xs }]}>
+      <IconButton
+        icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
+        accessibilityLabel="Revenir aux messages"
+        onPress={onBack}
+      />
+
+      {loading || !chat ? (
+        <>
+          <Skeleton width={40} height={40} radius={Radius.avatar} />
+          <View style={styles.headerText}>
+            <Skeleton width={140} height={15} delay={150} />
+            <Skeleton width={90} height={11} delay={300} />
+          </View>
+        </>
+      ) : (
+        <>
+          {isGroup && faces.length > 0 ? (
+            <AvatarStack people={faces} size={HEADER_FACE} max={HEADER_FACES} />
+          ) : (
+            <Avatar uri={chat.avatar} name={chat.display_name} size={40} />
+          )}
+
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {chat.display_name}
+            </Text>
+            {subtitle ? (
+              <Text
+                style={[styles.headerSubtitle, !isGroup && styles.headerSubtitleDirect]}
+                numberOfLines={1}
+              >
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+        </>
+      )}
+    </View>
+  );
+}
+
+function ThreadSkeleton() {
+  return (
+    <View style={styles.skeleton}>
+      <Skeleton width="62%" height={54} radius={Radius.card} />
+      <Skeleton width="48%" height={40} radius={Radius.card} delay={150} style={styles.skeletonMine} />
+      <Skeleton width="70%" height={62} radius={Radius.card} delay={300} />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Entry =
+  | { kind: "day"; key: string; label: string }
+  | { kind: "system"; key: string; content: string }
+  | { kind: "receipt"; key: string; donation: Donation }
+  | { kind: "message"; key: string; message: Message; mine: boolean; leading: boolean };
+
+/**
+ * Le fil, dans l'ordre : messages et reçus de Jëf entremêlés par date, coupés
+ * par un séparateur à chaque changement de jour.
+ *
+ * `leading` marque la PREMIÈRE bulle d'une suite du même auteur — c'est elle
+ * qui porte le visage et le nom en conversation de groupe. Un reçu ou un
+ * changement de jour rompt la suite : la bulle qui vient après est de nouveau
+ * signée, sans quoi on ne saurait plus qui parle.
+ */
+function buildTimeline(
+  messages: Message[],
+  receipts: Donation[],
+  currentUserId: number | undefined,
+): Entry[] {
+  const items = [
+    ...messages.map((message) => ({ at: message.sent_at, message, donation: null })),
+    ...receipts.map((donation) => ({ at: donation.created_at, message: null, donation })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
+  const entries: Entry[] = [];
+  let lastDay: string | null = null;
+  let lastAuthor: number | null = null;
+
+  for (const item of items) {
+    const date = new Date(item.at);
+    const day = Number.isNaN(date.getTime()) ? "" : date.toDateString();
+
+    if (day && day !== lastDay) {
+      entries.push({ kind: "day", key: `day-${day}`, label: dayLabel(date) });
+      lastDay = day;
+      lastAuthor = null;
+    }
+
+    if (item.donation) {
+      entries.push({
+        kind: "receipt",
+        key: `receipt-${item.donation.id}`,
+        donation: item.donation,
+      });
+      lastAuthor = null;
+      continue;
+    }
+
+    const message = item.message!;
+    if (message.message_type === "system") {
+      entries.push({ kind: "system", key: `sys-${message.id}`, content: message.content });
+      lastAuthor = null;
+      continue;
+    }
+
+    const authorId = message.sender?.id ?? null;
+    entries.push({
+      kind: "message",
+      key: `msg-${message.id}`,
+      message,
+      mine: authorId !== null && authorId === currentUserId,
+      leading: authorId !== lastAuthor,
+    });
+    lastAuthor = authorId;
+  }
+
+  return entries;
+}
+
+/** « Aujourd'hui », « Hier », puis la date — « 13 septembre », l'année au-delà. */
+function dayLabel(date: Date): string {
+  const days = daysBetween(date, new Date());
+  if (days === 0) return "Aujourd'hui";
+  if (days === 1) return "Hier";
+
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+/** « 412 talibés ». Le singulier compte : un salon peut n'avoir que son chef. */
+function memberCountLabel(count: number): string {
+  if (count <= 0) return "";
+  return count === 1 ? "1 talibé" : `${formatNumber(count)} talibés`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
+  screen: { flex: 1, backgroundColor: Surface.alt },
+  centered: { flex: 1, paddingHorizontal: GUTTER, justifyContent: "center" },
+  failed: { paddingVertical: Space.huge },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 58 : 16,
+    gap: Space.md,
+    paddingHorizontal: GUTTER,
     paddingBottom: 14,
-    backgroundColor: Colors.surface.DEFAULT,
+    backgroundColor: Surface.default,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border.DEFAULT,
+    borderBottomColor: Border.hairline,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.surface.subtle,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  groupAvatarHeader: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: `${Colors.accent.DEFAULT}30`,
-  },
-  headerTitle: {
-    fontSize: 16,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  headerSubtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  adminChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: Colors.accent.dim,
-  },
-  adminChipText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  loadingWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  messagesWrap: {
-    flex: 1,
-  },
-  messagesContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 4,
-  },
-  emptyWrap: {
-    paddingTop: 60,
-    alignItems: "center",
-    gap: 8,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 20,
-    maxWidth: 260,
-  },
-  messageRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    marginBottom: 2,
-  },
-  messageRowMine: {
-    justifyContent: "flex-end",
-  },
-  messageRowOther: {
-    justifyContent: "flex-start",
-  },
-  messageRowCompact: {
-    marginBottom: 1,
-  },
-  messageAvatar: {
-    marginBottom: 2,
-    flexShrink: 0,
-  },
-  messageAvatarPlaceholder: {
-    width: 30,
-    flexShrink: 0,
-  },
-  messageGroup: {
-    maxWidth: "76%",
-    gap: 2,
-  },
-  messageGroupMine: {
-    alignItems: "flex-end",
-  },
-  senderName: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.faint,
-    marginLeft: 4,
-    marginBottom: 2,
-  },
-  bubble: {
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  bubbleMine: {
-    backgroundColor: Colors.accent.DEFAULT,
-    borderBottomRightRadius: 5,
-  },
-  bubbleOther: {
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    borderBottomLeftRadius: 5,
-  },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_400Regular",
-  },
-  messageTextMine: {
-    color: "#FFF",
-  },
-  messageMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 6,
-    marginTop: 4,
-  },
-  messageTime: {
-    fontSize: 10,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  messageTimeMine: {
-    color: "rgba(255,255,255,0.7)",
-  },
-  deleteBtn: {
-    padding: 2,
-  },
-  composerWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === "ios" ? 32 : 14,
-    paddingTop: 8,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border.DEFAULT,
-  },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-    padding: 8,
-    paddingLeft: 12,
-  },
-  attachBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: Colors.surface.subtle,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
-  },
-  composerInput: {
-    flex: 1,
-    minHeight: 36,
-    maxHeight: 110,
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_400Regular",
-    paddingVertical: 6,
-  },
-  sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.DEFAULT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendBtnDisabled: {
-    backgroundColor: Colors.ink.ghost,
-  },
-  errorCard: {
-    padding: 18,
+  headerText: { flex: 1, minWidth: 0, gap: 1 },
+  headerTitle: { ...UIType.rowTitle, color: Ink[900] },
+  headerSubtitle: { ...Type.micro, color: Ink[500] },
+  /** En tête-à-tête, le sous-titre porte le rôle : il passe en violet. */
+  headerSubtitleDirect: { color: Violet[700] },
+
+  thread: { flex: 1 },
+  threadContent: {
+    paddingHorizontal: GUTTER,
+    paddingVertical: Space.lg,
     gap: 10,
-    margin: 20,
+    flexGrow: 1,
   },
-  errorTitle: {
-    fontSize: 16,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
+  silent: {
+    ...UIType.stateBody,
+    color: Ink[300],
+    textAlign: "center",
+    marginTop: Space.huge,
   },
-  errorText: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
+
+  skeleton: { gap: Space.md },
+  skeletonMine: { alignSelf: "flex-end" },
 });

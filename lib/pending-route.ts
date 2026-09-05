@@ -65,6 +65,7 @@ const EXACT_ROUTES: ReadonlySet<string> = new Set([
   "/announcements",
   // les deux écrans de profil
   "/profile/documents",
+  "/profile/settings",
   "/profile/tutelle",
 ]);
 

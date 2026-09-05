@@ -1,34 +1,74 @@
-import React, { useState } from "react";
+/**
+ * SearchablePicker — le choix dans une liste longue, passé au système (phase F).
+ *
+ * Employé par l'inscription pour la localité (LDD) et le Daara : deux listes
+ * qui peuvent compter des centaines d'entrées, d'où la recherche.
+ *
+ * ── 🔴 Le seul écran sombre du produit ──────────────────────────────────────
+ *
+ * Le composant lisait `useColorScheme()` et basculait sur `#121212`, texte
+ * blanc, bordures à 10 % de blanc. **Rien d'autre dans l'application ne fait
+ * cela** : `app/_layout.tsx` fixe `<StatusBar style="dark" />`, les tokens ne
+ * définissent aucune palette sombre, et tous les écrans sont clairs. Sur un
+ * téléphone réglé en sombre — le réglage par défaut d'une bonne partie du parc
+ * Android — le formulaire d'inscription ouvrait donc une feuille noire au
+ * milieu d'un parcours blanc.
+ *
+ * Le mode sombre est retiré. Il reviendra le jour où les tokens en portent un,
+ * et il reviendra alors partout à la fois.
+ *
+ * ── « Touba () » ────────────────────────────────────────────────────────────
+ *
+ * `${name} (${code || ""})` affichait une parenthèse vide pour toute entrée
+ * sans code. La parenthèse ne s'écrit plus que s'il y a quelque chose dedans.
+ */
+import { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  Modal,
   FlatList,
-  useColorScheme,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import { Search, X, CheckCircle2, ChevronDown } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Check, ChevronDown, Search, X } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Status,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
-interface Option {
+export interface PickerOption {
   id: number;
   name: string;
   code?: string;
-  [key: string]: any;
 }
 
 interface SearchablePickerProps {
   label: string;
   placeholder: string;
-  options: Option[];
+  options: PickerOption[];
   value?: number;
   onChange: (id: number) => void;
   loading?: boolean;
   error?: string;
+}
+
+function describe(option: PickerOption) {
+  return option.code ? `${option.name} (${option.code})` : option.name;
 }
 
 export function SearchablePicker({
@@ -37,117 +77,122 @@ export function SearchablePicker({
   options,
   value,
   onChange,
-  loading,
+  loading = false,
   error,
 }: SearchablePickerProps) {
-  const [modalVisible, setModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const isDark = useColorScheme() === "dark";
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const selectedOption = options.find((o) => o.id === value);
+  const selected = options.find((option) => option.id === value);
 
-  const filteredOptions = options.filter((o) => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      o.name?.toLowerCase().includes(q) ||
-      o.code?.toLowerCase().includes(q)
+  const results = useMemo(() => {
+    const needle = query.toLowerCase().trim();
+    if (!needle) return options;
+    return options.filter(
+      (option) =>
+        option.name?.toLowerCase().includes(needle) ||
+        option.code?.toLowerCase().includes(needle),
     );
-  });
+  }, [options, query]);
 
-  const handleSelect = (id: number) => {
-    onChange(id);
-    setModalVisible(false);
-    setSearchQuery("");
+  const close = () => {
+    setOpen(false);
+    setQuery("");
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
-      
+
       <Pressable
-        onPress={() => setModalVisible(true)}
-        style={[
-          styles.selector,
-          isDark && styles.selectorDark,
-          !!error && styles.selectorError,
+        onPress={() => !loading && setOpen(true)}
+        disabled={loading}
+        accessibilityRole="button"
+        accessibilityLabel={`${label} — ${selected ? describe(selected) : placeholder}`}
+        accessibilityState={{ disabled: loading, expanded: open }}
+        style={({ pressed }) => [
+          styles.field,
+          !!error && styles.fieldError,
+          pressed && styles.pressed,
+          loading && styles.fieldDisabled,
         ]}
       >
-        <Text style={[
-          styles.selectorText,
-          !selectedOption && styles.placeholderText,
-          isDark && styles.textDark
-        ]}>
-          {selectedOption ? `${selectedOption.name} (${selectedOption.code || ""})` : placeholder}
+        <Text style={[styles.fieldText, !selected && styles.placeholder]} numberOfLines={1}>
+          {loading ? "Chargement…" : selected ? describe(selected) : placeholder}
         </Text>
-        <ChevronDown size={18} color={Colors.ink.faint} />
+        <ChevronDown size={18} color={Ink[300]} strokeWidth={1.5} />
       </Pressable>
 
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Modal
-        visible={modalVisible}
+        visible={open}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={close}
       >
-        <SafeAreaView style={[styles.modalContainer, isDark && styles.modalContainerDark]}>
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, isDark && styles.textDark]}>{label}</Text>
-            <Pressable onPress={() => setModalVisible(false)} hitSlop={12}>
-              <X size={24} color={isDark ? "#FFF" : Colors.ink.DEFAULT} />
-            </Pressable>
-          </View>
+        <SafeAreaView style={styles.sheet} edges={["top", "bottom"]}>
+          <ScreenHeader
+            title={label}
+            right={{
+              icon: <X size={20} color={Ink[900]} strokeWidth={1.5} />,
+              accessibilityLabel: "Fermer",
+              onPress: close,
+            }}
+          />
 
-          <View style={styles.searchContainer}>
+          <View style={styles.search}>
             <Input
-              placeholder="Rechercher..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
+              placeholder="Rechercher…"
+              value={query}
+              onChangeText={setQuery}
               autoFocus
-              icon={<Search size={18} color={Colors.ink.faint} />}
+              autoCorrect={false}
+              icon={<Search size={18} color={Ink[300]} strokeWidth={1.5} />}
             />
           </View>
 
           <FlatList
-            data={filteredOptions}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => {
+            data={results}
+            keyExtractor={(item) => String(item.id)}
+            contentContainerStyle={styles.list}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item, index }) => {
               const active = item.id === value;
               return (
                 <Pressable
-                  onPress={() => handleSelect(item.id)}
-                  style={[
+                  onPress={() => {
+                    onChange(item.id);
+                    close();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={({ pressed }) => [
                     styles.item,
-                    isDark && styles.itemDark,
+                    index > 0 && styles.itemDivided,
                     active && styles.itemActive,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  <View style={styles.itemRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[
-                        styles.itemName,
-                        isDark && styles.textDark,
-                        active && styles.textActive
-                      ]}>
-                        {item.name}
-                      </Text>
-                      {item.code && (
-                        <Text style={styles.itemCode}>{item.code}</Text>
-                      )}
-                    </View>
-                    {active && (
-                      <CheckCircle2 size={20} color={Colors.accent.DEFAULT} />
-                    )}
+                  <View style={styles.itemText}>
+                    <Text style={[styles.itemName, active && styles.itemNameActive]}>
+                      {item.name}
+                    </Text>
+                    {item.code ? <Text style={styles.itemCode}>{item.code}</Text> : null}
                   </View>
+                  {active ? <Check size={20} color={Violet[700]} strokeWidth={2} /> : null}
                 </Pressable>
               );
             }}
             ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>Aucun résultat trouvé.</Text>
-              </View>
+              <EmptyState
+                title="Aucun résultat"
+                body={
+                  query
+                    ? `Rien ne correspond à « ${query} ».`
+                    : "La liste est vide pour le moment."
+                }
+              />
             }
           />
         </SafeAreaView>
@@ -157,121 +202,49 @@ export function SearchablePicker({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    color: Colors.ink.muted,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  selector: {
+  container: { gap: Space.sm },
+  label: { ...Type.label, color: Ink[500] },
+  /* Même repos que `Input` et `Select` — voir le commentaire de `Select`. */
+  field: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.surface.subtle,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    gap: Space.sm,
+    height: 56,
+    paddingHorizontal: Space.lg,
+    borderRadius: Radius.input,
+    ...continuous,
+    backgroundColor: Violet[100],
+    borderWidth: 1.5,
+    borderColor: "transparent",
   },
-  selectorDark: {
-    backgroundColor: Colors.surface.card,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-  selectorError: {
-    borderColor: Colors.status.error,
-  },
-  selectorText: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_500Medium",
-    flex: 1,
-  },
-  placeholderText: {
-    color: Colors.ink.faint,
-  },
-  textDark: {
-    color: "#FFFFFF",
-  },
-  textActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  errorText: {
-    fontSize: 12,
-    color: Colors.status.error,
-    marginTop: 6,
-    marginLeft: 4,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
-  modalContainerDark: {
-    backgroundColor: "#121212",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border.DEFAULT,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  searchContainer: {
-    padding: 20,
-    paddingBottom: 10,
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
+  fieldError: { borderColor: Status.error },
+  fieldDisabled: { backgroundColor: Surface.alt },
+  pressed: { opacity: 0.72 },
+  fieldText: { ...UIType.fieldText, color: Ink[900], flex: 1 },
+  placeholder: { color: Ink[300] },
+  error: { ...Type.micro, color: Status.error },
+
+  sheet: { flex: 1, backgroundColor: Surface.default },
+  search: { paddingHorizontal: GUTTER, paddingBottom: Space.md },
+  list: { paddingHorizontal: GUTTER, paddingBottom: Space.huge },
   item: {
-    paddingVertical: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.border.DEFAULT,
-  },
-  itemDark: {
-    borderBottomColor: "rgba(255,255,255,0.05)",
-  },
-  itemActive: {
-    backgroundColor: Colors.accent.dim,
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
-    borderBottomWidth: 0,
-  },
-  itemRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: Space.md,
+    paddingVertical: Space.lg,
   },
-  itemName: {
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
+  itemDivided: { borderTopWidth: 1, borderTopColor: Border.hairline },
+  itemActive: {
+    backgroundColor: Violet[100],
+    borderTopColor: "transparent",
+    marginHorizontal: -Space.md,
+    paddingHorizontal: Space.md,
+    borderRadius: Radius.input,
+    ...continuous,
   },
-  itemCode: {
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    marginTop: 2,
-  },
-  emptyContainer: {
-    paddingTop: 40,
-    alignItems: "center",
-  },
-  emptyText: {
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
+  itemText: { flex: 1, gap: 2 },
+  itemName: { ...UIType.fieldText, color: Ink[900] },
+  itemNameActive: { color: Violet[900] },
+  itemCode: { ...Type.micro, color: Ink[300] },
 });

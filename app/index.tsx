@@ -1,7 +1,15 @@
+/**
+ * app/index.tsx — l'aiguillage de démarrage.
+ *
+ * Il ne rend rien de durable : il redirige. Le seul pixel qui lui appartient
+ * est l'indicateur d'attente pendant l'hydratation du jeton, passé aux tokens
+ * en phase F.
+ */
 import { Redirect } from "expo-router";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+
 import { useAuthStore } from "@/store/auth.store";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { Colors } from "@/constants/colors";
+import { Surface, Violet } from "@/theme";
 
 export default function Index() {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -9,13 +17,13 @@ export default function Index() {
   if (isLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={Colors.accent.DEFAULT} size="large" />
+        <ActivityIndicator color={Violet[700]} size="large" />
       </View>
     );
   }
 
-  if (isAuthenticated) return <Redirect href={"/home" as any} />;
-  return <Redirect href={"/onboarding" as any} />;
+  if (isAuthenticated) return <Redirect href="/home" />;
+  return <Redirect href="/onboarding" />;
 }
 
 const styles = StyleSheet.create({
@@ -23,6 +31,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.surface.subtle,
+    backgroundColor: Surface.default,
   },
 });

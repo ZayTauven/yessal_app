@@ -2,15 +2,7 @@
 import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import {
-  useFonts,
-  Inter_300Light,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_900Black,
-} from "@expo-google-fonts/inter";
+import { useFonts } from "expo-font";
 import {
   PlusJakartaSans_400Regular,
   PlusJakartaSans_500Medium,
@@ -27,21 +19,19 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const { hydrate } = useAuthStore();
 
+  /**
+   * Plus Jakarta Sans, et elle seule. Les noms sont ceux de `theme/tokens.ts`.
+   *
+   * Les six graisses d'Inter ont été retirées en phase F, avec le dernier
+   * `Inter_` de `app/` : elles pesaient six fichiers de fonte embarqués et
+   * quelques centaines de kilo-octets pour un jeu que plus personne ne lisait.
+   */
   const [fontsLoaded] = useFonts({
-    // Plus Jakarta Sans — la police du kit. Les noms sont ceux de `theme/tokens.ts`.
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
     PlusJakartaSans_800ExtraBold,
-    // Inter — l'ancien jeu. Les écrans non encore migrés (phases D à F) le lisent
-    // encore. À retirer quand plus aucun `Inter_` ne subsiste dans `app/`.
-    Inter_300Light,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_900Black,
   });
 
   useEffect(() => {

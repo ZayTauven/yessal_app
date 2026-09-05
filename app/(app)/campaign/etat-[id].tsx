@@ -1,20 +1,60 @@
-import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Users, Trophy, Target, TrendingUp } from "lucide-react-native";
+/**
+ * app/(app)/campaign/etat-[id].tsx — l'état d'un Ndiguel, passé au système
+ * (phase F).
+ *
+ * Écran hérité (§5.2). Trois corrections en chemin.
+ *
+ * ── 🔴 Il n'y avait aucun retour à l'écran ──────────────────────────────────
+ *
+ * L'écran posait un `<Stack.Screen options={{ title, headerLeft }} />` — sur un
+ * en-tête que `app/(app)/_layout.tsx` masque pour toutes ses routes
+ * (`screenOptions={{ headerShown: false }}`). Le chevron était donc rendu dans
+ * une barre invisible : **aucun bouton de retour n'a jamais été affiché**. Il ne
+ * restait que le bouton matériel Android et le geste iOS.
+ *
+ * Le même défaut touchait `event/[id].tsx`, corrigé dans le même lot.
+ *
+ * ── « Donateurs » comptait des dons ─────────────────────────────────────────
+ *
+ * `donation_count` est le **nombre de contributions** (`events/views.py:225`),
+ * pas le nombre de personnes : un membre qui donne trois fois y compte pour
+ * trois. La tuile s'appelle désormais « Contributions », ce qu'elle est.
+ *
+ * ── Les montants ────────────────────────────────────────────────────────────
+ *
+ * `toLocaleString()` rendait un séparateur différent selon l'ICU embarquée, et
+ * la vue sérialise ses montants **en chaînes** — voir `normalizeCampaignEtat`,
+ * posé en phase F. `formatFCFA` et la frontière règlent les deux.
+ */
+import { useCallback, useEffect, useState } from "react";
+import { FlatList, StyleSheet, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Target, TrendingUp, Trophy, Users } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Avatar, getInitials } from "@/components/ui/Avatar";
+import { Card } from "@/components/ui/Card";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { SkeletonListRow } from "@/components/ui/Skeleton";
+import { formatFCFA, formatNumber } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
 import type { CampaignEtat, Contributor } from "@/types/campaign.types";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Pastel,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
 
 function parseId(value?: string | string[]) {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -22,421 +62,300 @@ function parseId(value?: string | string[]) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((n) => n[0] ?? "")
-    .join("")
-    .toUpperCase();
-}
-
 const METHOD_LABELS: Record<string, string> = {
   orange_money: "Orange Money",
   wave: "Wave",
-  bictorys: "Bictorys",
+  bictorys: "Carte bancaire",
   virement: "Virement",
-  manual: "Manuel",
-  paypal: "PayPal",
+  manual: "Collecteur",
   collector: "Collecteur",
-  visa: "Visa",
-  mastercard: "Mastercard",
+  visa: "Carte bancaire",
+  mastercard: "Carte bancaire",
+  paypal: "PayPal",
 };
 
-const METHOD_COLORS: Record<string, { bg: string; text: string }> = {
-  orange_money: { bg: "#FFF3E0", text: "#E65100" },
-  wave: { bg: "#E3F2FD", text: "#1565C0" },
-  bictorys: { bg: "#F3E5F5", text: "#6A1B9A" },
-  virement: { bg: "#F5F5F5", text: "#424242" },
-  manual: { bg: "#FFFDE7", text: "#F57F17" },
-};
-
-function PaymentBadge({ method }: { method: string }) {
-  const color = METHOD_COLORS[method] ?? { bg: "#F5F5F5", text: "#424242" };
-  return (
-    <View style={[styles.badge, { backgroundColor: color.bg }]}>
-      <Text style={[styles.badgeText, { color: color.text }]}>
-        {METHOD_LABELS[method] ?? method}
-      </Text>
-    </View>
-  );
+/**
+ * ⚠ La réponse `/etat/` ne porte **aucun identifiant de don** — la vue compose
+ * ses lignes à la main (`events/views.py:229`). La clé est donc composite. Deux
+ * dons du même membre, du même montant, le même jour et par le même moyen se
+ * confondraient : c'est accepté, ils sont alors interchangeables à l'écran.
+ */
+function contributorKey(item: Contributor, index: number) {
+  return `${item.member_id}-${item.date}-${item.amount}-${index}`;
 }
+
+type State =
+  | { status: "loading" }
+  | { status: "ready"; etat: CampaignEtat }
+  | { status: "failed" };
 
 export default function CampaignEtatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const campaignId = parseId(params.id);
+  const [state, setState] = useState<State>({ status: "loading" });
 
-  const [etat, setEtat] = useState<CampaignEtat | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!campaignId) return;
-    const load = async () => {
-      try {
-        const data = await ContentService.getCampaignEtat(campaignId);
-        setEtat(data);
-      } catch (e) {
-        console.warn("Failed to load campaign etat", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const fetchEtat = useCallback(async (): Promise<State> => {
+    if (!campaignId) return { status: "failed" };
+    try {
+      return { status: "ready", etat: await ContentService.getCampaignEtat(campaignId) };
+    } catch {
+      return { status: "failed" };
+    }
   }, [campaignId]);
 
-  const progress = etat ? Math.min(etat.collected_amount / (etat.goal_amount || 1), 1) : 0;
-  const topDonors = etat
-    ? [...etat.contributions]
-        .filter((c) => !c.is_anonymous)
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 3)
-    : [];
+  useEffect(() => {
+    let active = true;
+    fetchEtat().then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchEtat]);
 
-  const renderContributor = ({ item, index }: { item: Contributor; index: number }) => (
-    <View style={[styles.contributorRow, index > 0 && styles.contributorBorder]}>
-      <View style={styles.contributorAvatar}>
-        <Text style={styles.contributorAvatarText}>
-          {item.is_anonymous ? "?" : getInitials(item.member_name || "?")}
-        </Text>
-      </View>
-      <View style={styles.contributorInfo}>
-        <Text style={styles.contributorName} numberOfLines={1}>
-          {item.is_anonymous ? "Donateur Anonyme" : item.member_name}
-        </Text>
-        <View style={styles.contributorMeta}>
-          {item.daara_name && (
-            <Text style={styles.contributorDaara} numberOfLines={1}>
-              {item.daara_name}
-            </Text>
-          )}
-          <Text style={styles.contributorDate}>
-            {new Date(item.date).toLocaleDateString("fr-FR")}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.contributorRight}>
-        <Text style={styles.amountText}>
-          {item.amount.toLocaleString()} F
-        </Text>
-        <PaymentBadge method={item.payment_method} />
-      </View>
-    </View>
-  );
+  const retry = useCallback(() => {
+    setState({ status: "loading" });
+    fetchEtat().then(setState);
+  }, [fetchEtat]);
+
+  const etat = state.status === "ready" ? state.etat : null;
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: "État du Ndiguel",
-          headerLeft: () => (
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <ArrowLeft size={22} color={Colors.ink.DEFAULT} />
-            </Pressable>
-          ),
-        }}
-      />
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <ScreenHeader title="État du Ndiguel" onBack={() => router.back()} />
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={Colors.accent.DEFAULT} size="large" />
+      {state.status === "loading" ? (
+        <View style={styles.padded}>
+          <SkeletonListRow />
+          <SkeletonListRow />
+          <SkeletonListRow />
         </View>
-      ) : etat ? (
+      ) : null}
+
+      {state.status === "failed" ? (
+        <View style={styles.padded}>
+          <ErrorState
+            body="L'état de ce Ndiguel n'a pas pu être chargé."
+            onRetry={campaignId ? retry : undefined}
+          />
+        </View>
+      ) : null}
+
+      {etat ? (
         <FlatList
           data={etat.contributions}
-          keyExtractor={(_, index) => String(index)}
-          renderItem={renderContributor}
+          keyExtractor={contributorKey}
+          renderItem={({ item, index }) => (
+            <ContributorRow item={item} divided={index > 0} />
+          )}
           contentContainerStyle={styles.scroll}
-          ListHeaderComponent={
-            <>
-              {/* Campaign name + progress */}
-              <GlassCard style={styles.summaryCard}>
-                <Text style={styles.campaignName}>{etat.ndiguel_name}</Text>
-                <ProgressBar
-                  progress={progress}
-                  label={`${etat.collected_amount.toLocaleString()} / ${etat.goal_amount.toLocaleString()} FCFA`}
-                />
-              </GlassCard>
-
-              {/* 4 KPI cards */}
-              <View style={styles.kpiGrid}>
-                <View style={[styles.kpiCard, styles.kpiCardAccent]}>
-                  <TrendingUp size={16} color={Colors.accent.DEFAULT} />
-                  <Text style={styles.kpiValue}>
-                    {etat.collected_amount.toLocaleString()}
-                  </Text>
-                  <Text style={styles.kpiUnit}>FCFA</Text>
-                  <Text style={styles.kpiLabel}>Collecté</Text>
-                </View>
-                <View style={styles.kpiCard}>
-                  <Target size={16} color={Colors.ink.muted} />
-                  <Text style={styles.kpiValue}>
-                    {etat.goal_amount.toLocaleString()}
-                  </Text>
-                  <Text style={styles.kpiUnit}>FCFA</Text>
-                  <Text style={styles.kpiLabel}>Objectif</Text>
-                </View>
-                <View style={styles.kpiCard}>
-                  <Users size={16} color={Colors.ink.muted} />
-                  <Text style={styles.kpiValue}>{etat.donation_count}</Text>
-                  <Text style={styles.kpiLabel}>Donateurs</Text>
-                </View>
-                <View style={styles.kpiCard}>
-                  <Trophy size={16} color={Colors.gold.DEFAULT} />
-                  <Text style={[styles.kpiValue, { color: Colors.gold.DEFAULT }]}>
-                    {etat.progress_pct}%
-                  </Text>
-                  <Text style={styles.kpiLabel}>Progression</Text>
-                </View>
-              </View>
-
-              {/* Top 3 donors */}
-              {topDonors.length > 0 && (
-                <View style={styles.topSection}>
-                  <Text style={styles.sectionTitle}>Top contributeurs</Text>
-                  <View style={styles.topDonorsList}>
-                    {topDonors.map((d, i) => (
-                      <View key={i} style={styles.topDonorChip}>
-                        <View style={[styles.topDonorAvatar, i === 0 && styles.topDonorAvatarGold]}>
-                          <Text style={styles.topDonorAvatarText}>
-                            {getInitials(d.member_name || "?")}
-                          </Text>
-                        </View>
-                        <View>
-                          <Text style={styles.topDonorName} numberOfLines={1}>
-                            {d.member_name}
-                          </Text>
-                          <Text style={styles.topDonorAmount}>
-                            {d.amount.toLocaleString()} FCFA
-                          </Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              <Text style={styles.sectionTitle}>
-                Liste des contributions ({etat.contributions.length})
-              </Text>
-            </>
-          }
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={<Header etat={etat} />}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Aucune contribution pour le moment.</Text>
-            </View>
+            <EmptyState
+              picto={<Users size={56} color={Violet[900]} strokeWidth={1.25} />}
+              title="Aucune contribution"
+              body="Ce Ndiguel n'a pas encore reçu de Jëf."
+            />
           }
         />
-      ) : (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>Impossible de charger les données.</Text>
+      ) : null}
+    </SafeAreaView>
+  );
+}
+
+function Header({ etat }: { etat: CampaignEtat }) {
+  const progress = etat.goal_amount > 0 ? etat.collected_amount / etat.goal_amount : 0;
+
+  /** Un donateur anonyme n'entre pas au tableau d'honneur : c'est le sens du mot. */
+  const topDonors = [...etat.contributions]
+    .filter((item) => !item.is_anonymous)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 3);
+
+  return (
+    <View style={styles.header}>
+      <Card style={styles.summary}>
+        <Text style={styles.campaignName}>{etat.ndiguel_name}</Text>
+        <ProgressBar
+          progress={progress}
+          leftLabel={formatFCFA(etat.collected_amount)}
+          rightLabel={etat.goal_amount > 0 ? `sur ${formatFCFA(etat.goal_amount)}` : undefined}
+        />
+      </Card>
+
+      <View style={styles.kpiGrid}>
+        <Kpi
+          icon={<TrendingUp size={16} color={Violet[700]} strokeWidth={1.5} />}
+          value={formatNumber(etat.collected_amount)}
+          unit="FCFA"
+          label="Collecté"
+          accent
+        />
+        <Kpi
+          icon={<Target size={16} color={Ink[500]} strokeWidth={1.5} />}
+          value={etat.goal_amount > 0 ? formatNumber(etat.goal_amount) : "—"}
+          unit={etat.goal_amount > 0 ? "FCFA" : undefined}
+          label="Objectif"
+        />
+        <Kpi
+          icon={<Users size={16} color={Ink[500]} strokeWidth={1.5} />}
+          value={String(etat.donation_count)}
+          /* « Donateurs » était faux : c'est un compte de dons, pas de personnes. */
+          label="Contributions"
+        />
+        <Kpi
+          icon={<Trophy size={16} color={Ink[500]} strokeWidth={1.5} />}
+          value={`${etat.progress_pct} %`}
+          label="Progression"
+        />
+      </View>
+
+      {topDonors.length > 0 ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Principaux contributeurs</Text>
+          <View style={styles.podium}>
+            {topDonors.map((donor, index) => (
+              <View key={contributorKey(donor, index)} style={styles.podiumItem}>
+                <Avatar name={donor.member_name} size={36} />
+                <View style={styles.podiumText}>
+                  <Text style={styles.podiumName} numberOfLines={1}>
+                    {donor.member_name}
+                  </Text>
+                  <Text style={styles.podiumAmount}>{formatFCFA(donor.amount)}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
+      ) : null}
+
+      {etat.contributions.length > 0 ? (
+        <Text style={styles.sectionTitle}>
+          Toutes les contributions ({etat.contributions.length})
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function Kpi({
+  icon,
+  value,
+  unit,
+  label,
+  accent = false,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  unit?: string;
+  label: string;
+  accent?: boolean;
+}) {
+  return (
+    <View style={[styles.kpi, accent && styles.kpiAccent]}>
+      {icon}
+      <View style={styles.kpiValueRow}>
+        <Text style={[styles.kpiValue, accent && styles.kpiValueAccent]} numberOfLines={1}>
+          {value}
+        </Text>
+        {unit ? <Text style={styles.kpiUnit}>{unit}</Text> : null}
+      </View>
+      <Text style={styles.kpiLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function ContributorRow({ item, divided }: { item: Contributor; divided: boolean }) {
+  return (
+    <View style={[styles.row, divided && styles.rowDivided]}>
+      {item.is_anonymous ? (
+        <View style={styles.anonymous}>
+          <Text style={styles.anonymousMark}>?</Text>
+        </View>
+      ) : (
+        <Avatar name={item.member_name} size={40} />
       )}
+
+      <View style={styles.rowText}>
+        <Text style={styles.rowName} numberOfLines={1}>
+          {item.is_anonymous ? "Contributeur anonyme" : item.member_name || getInitials(null)}
+        </Text>
+        <Text style={styles.rowMeta} numberOfLines={1}>
+          {[item.daara_name, new Date(item.date).toLocaleDateString("fr-FR")]
+            .filter(Boolean)
+            .join(" · ")}
+        </Text>
+      </View>
+
+      <View style={styles.rowRight}>
+        <Text style={styles.rowAmount}>{formatFCFA(item.amount)}</Text>
+        <Text style={styles.rowMethod} numberOfLines={1}>
+          {METHOD_LABELS[item.payment_method] ?? item.payment_method}
+        </Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
+  safe: { flex: 1, backgroundColor: Surface.default },
+  padded: { paddingHorizontal: GUTTER, paddingTop: Space.sm, gap: Space.md },
+  scroll: { paddingHorizontal: GUTTER, paddingBottom: Space.huge },
+
+  header: { gap: Space.lg, paddingBottom: Space.md },
+  summary: { gap: Space.md },
+  campaignName: { ...Type.cardTitle, color: Ink[900] },
+
+  kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: Space.sm },
+  kpi: {
+    flexGrow: 1,
+    flexBasis: "47%",
+    gap: Space.xs,
+    padding: Space.lg,
+    borderRadius: Radius.card,
+    ...continuous,
+    backgroundColor: Surface.alt,
   },
-  center: {
-    flex: 1,
+  kpiAccent: { backgroundColor: Violet[100] },
+  kpiValueRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  kpiValue: { ...Type.amountCard, color: Ink[900], flexShrink: 1 },
+  kpiValueAccent: { color: montant },
+  kpiUnit: { ...Type.micro, color: Ink[300] },
+  kpiLabel: { ...Type.label, color: Ink[500] },
+
+  section: { gap: Space.md },
+  sectionTitle: { ...UIType.chipLabel, color: Ink[500] },
+  podium: { gap: Space.sm },
+  podiumItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.md,
+    padding: Space.md,
+    borderRadius: Radius.card,
+    ...continuous,
+    backgroundColor: Pastel.yellow,
+  },
+  podiumText: { flex: 1, gap: 2 },
+  podiumName: { ...UIType.personName, color: Violet[900] },
+  podiumAmount: { ...Type.label, color: Violet[900] },
+
+  row: { flexDirection: "row", alignItems: "center", gap: Space.md, paddingVertical: Space.md },
+  rowDivided: { borderTopWidth: 1, borderTopColor: Border.hairline },
+  anonymous: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.avatar,
+    backgroundColor: Surface.alt,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
   },
-  scroll: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  backBtn: {
-    padding: 8,
-    marginLeft: -8,
-  },
-  summaryCard: {
-    padding: 20,
-    marginBottom: 12,
-    gap: 16,
-  },
-  campaignName: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  kpiGrid: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 20,
-  },
-  kpiCard: {
-    flex: 1,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  kpiCardAccent: {
-    borderColor: Colors.accent.dim,
-    backgroundColor: "rgba(26,92,58,0.04)",
-  },
-  kpiValue: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    marginTop: 4,
-  },
-  kpiUnit: {
-    fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    marginTop: -4,
-  },
-  kpiLabel: {
-    fontSize: 9,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    textAlign: "center",
-  },
-  topSection: {
-    marginBottom: 20,
-  },
-  topDonorsList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 10,
-  },
-  topDonorChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  topDonorAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: Colors.accent.dim,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  topDonorAvatarGold: {
-    backgroundColor: "rgba(184,134,11,0.15)",
-  },
-  topDonorAvatarText: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  topDonorName: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-    maxWidth: 100,
-  },
-  topDonorAmount: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    marginBottom: 12,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  contributorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-  },
-  contributorBorder: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.border.DEFAULT,
-  },
-  contributorAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.accent.dim,
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
-  },
-  contributorAvatarText: {
-    fontSize: 12,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  contributorInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  contributorName: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-  },
-  contributorMeta: {
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 2,
-    flexWrap: "wrap",
-  },
-  contributorDaara: {
-    fontSize: 11,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  contributorDate: {
-    fontSize: 11,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  contributorRight: {
-    alignItems: "flex-end",
-    gap: 4,
-    flexShrink: 0,
-  },
-  amountText: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  badge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
-  },
-  empty: {
-    padding: 40,
-    alignItems: "center",
-  },
-  emptyText: {
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
-  errorText: {
-    color: Colors.status.error,
-    fontFamily: "Inter_500Medium",
-  },
+  anonymousMark: { ...UIType.avatarInitials, color: Ink[300] },
+  rowText: { flex: 1, gap: 2 },
+  rowName: { ...UIType.personName, color: Ink[900] },
+  rowMeta: { ...Type.micro, color: Ink[300] },
+  rowRight: { alignItems: "flex-end", gap: 2 },
+  rowAmount: { ...Type.label, fontFamily: Type.amountCard.fontFamily, color: montant },
+  rowMethod: { ...Type.micro, color: Ink[300] },
 });

@@ -1,57 +1,122 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+/**
+ * app/(app)/donations.tsx — « Mes Jëfs », passé au système (phase F).
+ *
+ * Écran hérité (§5.2). Une correction de fond, sur le chiffre qui compte.
+ *
+ * ── 🔴 « Total contribué » comptait les paiements ÉCHOUÉS ───────────────────
+ *
+ *     const total = donations.reduce((sum, d) => sum + d.amount, 0);
+ *
+ * Toutes lignes confondues : `pending`, `pending_wire`, et **`failed`**. Un
+ * membre dont trois paiements Orange Money avaient échoué voyait donc son
+ * « Total contribué » gonflé du montant qu'il n'avait jamais versé — et il
+ * n'existe aucun endroit dans l'application où ce chiffre soit corrigé.
+ *
+ * Sur un écran d'argent, c'est la pire erreur possible : elle ne se remarque
+ * qu'au moment où quelqu'un demande des comptes. **Seuls les dons `confirmed`
+ * sont sommés**, et la carte porte désormais « Total confirmé » — le mot dit
+ * la règle.
+ *
+ * Le montant en attente est affiché à part : il existe, il n'est simplement
+ * pas encore versé.
+ *
+ * ── Le reste ────────────────────────────────────────────────────────────────
+ *
+ * — L'icône `Filter` en bout de rangée de filtres n'était pas pressable :
+ *   décor en forme de commande. Retirée.
+ * — « Les contributions apparaîtront ici après synchronisation avec le
+ *   backend » : le mot « backend » n'a rien à faire devant un talibé.
+ * — L'engrenage de l'en-tête menait à `/profile`. Depuis la phase E, les
+ *   réglages ont leur route : `/profile/settings`.
+ * — Le chiffre FCFA passe au vert `montant` — la seule exception verte du
+ *   contrat de tokens — et à `formatFCFA`, qui pose l'espace insécable que
+ *   `toLocaleString` rendait différemment d'un appareil à l'autre.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Image as ExpoImage } from "expo-image";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import {
-  Bell,
-  CalendarDays,
-  Coins,
-  Filter,
-  Settings2,
-  ShieldCheck,
-  Wallet,
-} from "lucide-react-native";
+import { Bell, Settings2, Wallet } from "lucide-react-native";
 
-// L'historique affiche aussi des dons anciens : les valeurs héritées restent ici.
-const PAYMENT_LOGOS: Record<string, any> = {
+import { Card } from "@/components/ui/Card";
+import { Chip, ChipRow } from "@/components/ui/Chip";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { SkeletonListRow } from "@/components/ui/Skeleton";
+import { formatFCFA } from "@/lib/format";
+import { ContentService } from "@/lib/content.service";
+import type { AnyPaymentMethod, Donation, PaymentStatus } from "@/types/donation.types";
+import {
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Status,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
+
+/**
+ * L'historique remonte aussi des dons anciens : les valeurs héritées
+ * (`LegacyPaymentMethod`) restent ici, elles ne sont plus émises mais elles
+ * sont en base.
+ */
+const PAYMENT_LOGOS: Partial<Record<AnyPaymentMethod, number>> = {
   orange_money: require("@/assets/images/orange money.png"),
   wave: require("@/assets/images/wave.png"),
   bictorys: require("@/assets/images/carte-paiement.png"),
   virement: require("@/assets/images/banque.png"),
   manual: require("@/assets/images/collecteur.png"),
-  // héritées — plus jamais émises, encore présentes en base
   collector: require("@/assets/images/collecteur.png"),
   visa: require("@/assets/images/carte-paiement.png"),
   mastercard: require("@/assets/images/mastercard.png"),
   paypal: require("@/assets/images/pay-pal.png"),
 };
 
-import { Colors } from "@/constants/colors";
-import { SectionHeader } from "@/components/ui/SectionHeader";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { ContentService } from "@/lib/content.service";
-import type { Donation, PaymentStatus } from "@/types/donation.types";
+const METHOD_LABELS: Record<AnyPaymentMethod, string> = {
+  orange_money: "Orange Money",
+  wave: "Wave",
+  bictorys: "Carte bancaire",
+  virement: "Virement",
+  manual: "Collecteur",
+  collector: "Collecteur",
+  visa: "Carte bancaire",
+  mastercard: "Carte bancaire",
+  paypal: "PayPal",
+};
 
-type DonationFilter = "all" | PaymentStatus;
+const STATUS_LABELS: Record<PaymentStatus, string> = {
+  pending: "En attente",
+  confirmed: "Confirmé",
+  failed: "Échoué",
+  pending_wire: "Virement en attente",
+};
+
+const STATUS_COLORS: Record<PaymentStatus, string> = {
+  pending: Status.warning,
+  confirmed: Status.success,
+  failed: Status.error,
+  pending_wire: Status.info,
+};
+
+type Filter = "all" | PaymentStatus;
+
+const FILTERS: { label: string; value: Filter }[] = [
+  { label: "Tous", value: "all" },
+  { label: "Confirmés", value: "confirmed" },
+  { label: "En attente", value: "pending" },
+  { label: "Échoués", value: "failed" },
+];
 
 function formatDate(value?: string) {
-  if (!value) {
-    return "";
-  }
-
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
+  if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "short",
@@ -59,410 +124,320 @@ function formatDate(value?: string) {
   });
 }
 
-function paymentLabel(status: PaymentStatus) {
-  switch (status) {
-    case "confirmed":
-      return "Confirmé";
-    case "failed":
-      return "Échoué";
-    case "pending_wire":
-      return "Virement en attente";
-    default:
-      return "En attente";
-  }
+interface State {
+  status: "loading" | "ready" | "failed";
+  donations: Donation[];
 }
 
-function paymentColor(status: PaymentStatus) {
-  switch (status) {
-    case "confirmed":
-      return Colors.status.success;
-    case "failed":
-      return Colors.status.error;
-    case "pending_wire":
-      return Colors.accent.DEFAULT;
-    default:
-      return Colors.accent.DEFAULT;
+async function fetchDonations(): Promise<State> {
+  try {
+    return { status: "ready", donations: await ContentService.getDonations() };
+  } catch {
+    return { status: "failed", donations: [] };
   }
-}
-
-function methodLabel(method: Donation["payment_method"]) {
-  const labels: Record<string, string> = {
-    orange_money: "Orange Money",
-    wave: "Wave",
-    bictorys: "Carte bancaire",
-    virement: "Virement",
-    manual: "Collecteur",
-    // héritées, pour les dons déjà en base
-    collector: "Collecteur",
-    visa: "Carte bancaire",
-    mastercard: "Carte bancaire",
-    paypal: "PayPal",
-  };
-  return labels[method] ?? method;
 }
 
 export default function DonationsScreen() {
   const router = useRouter();
-  const [donations, setDonations] = useState<Donation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<State>({ status: "loading", donations: [] });
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<DonationFilter>("all");
-
-  const load = async () => {
-    try {
-      const data = await ContentService.getDonations();
-      setDonations(data);
-    } catch {
-      setDonations([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
-    load();
+    let active = true;
+    fetchDonations().then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const filteredDonations = useMemo(() => {
-    if (filter === "all") {
-      return donations;
-    }
-    return donations.filter((donation) => donation.payment_status === filter);
-  }, [donations, filter]);
+  const reload = useCallback(() => {
+    setState((previous) => ({ ...previous, status: "loading" }));
+    fetchDonations().then(setState);
+  }, []);
 
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    fetchDonations()
+      .then(setState)
+      .finally(() => setRefreshing(false));
+  }, []);
+
+  const visible = useMemo(
+    () =>
+      filter === "all"
+        ? state.donations
+        : state.donations.filter((donation) => donation.payment_status === filter),
+    [filter, state.donations],
+  );
+
+  /**
+   * ⚠ `confirmed` SEULEMENT pour le total. Un `failed` n'est pas une
+   * contribution, un `pending` n'en est pas encore une.
+   */
   const totals = useMemo(() => {
-    const total = donations.reduce((sum, donation) => sum + donation.amount, 0);
-    const confirmed = donations.filter(
-      (donation) => donation.payment_status === "confirmed",
-    ).length;
-    const pending = donations.filter(
-      (donation) => donation.payment_status === "pending",
-    ).length;
-    return { total, confirmed, pending };
-  }, [donations]);
+    let confirmedAmount = 0;
+    let pendingAmount = 0;
+    let confirmedCount = 0;
+    let pendingCount = 0;
+
+    for (const donation of state.donations) {
+      if (donation.payment_status === "confirmed") {
+        confirmedAmount += donation.amount;
+        confirmedCount += 1;
+      } else if (
+        donation.payment_status === "pending" ||
+        donation.payment_status === "pending_wire"
+      ) {
+        pendingAmount += donation.amount;
+        pendingCount += 1;
+      }
+    }
+
+    return { confirmedAmount, pendingAmount, confirmedCount, pendingCount };
+  }, [state.donations]);
+
+  const counts = useMemo(() => {
+    const map: Record<Filter, number> = {
+      all: state.donations.length,
+      pending: 0,
+      confirmed: 0,
+      failed: 0,
+      pending_wire: 0,
+    };
+    for (const donation of state.donations) map[donation.payment_status] += 1;
+    return map;
+  }, [state.donations]);
 
   return (
-    <View style={styles.container}>
-      <SectionHeader
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <ScreenHeader
         title="Mes Jëfs"
-        subtitle="Suivez vos contributions et leur statut"
-        icon={<Wallet size={24} color="#FFF" />}
-        actions={[
-          {
-            label: "Notifications",
-            icon: <Bell size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/notifications" as any),
-          },
-          {
-            label: "Paramètres",
-            icon: <Settings2 size={18} color={Colors.ink.DEFAULT} />,
-            onPress: () => router.push("/profile" as any),
-          },
-        ]}
+        onBack={() => router.back()}
+        right={{
+          icon: <Settings2 size={20} color={Ink[900]} strokeWidth={1.5} />,
+          accessibilityLabel: "Paramètres",
+          onPress: () => router.push("/profile/settings"),
+        }}
+        left={{
+          icon: <Bell size={20} color={Ink[900]} strokeWidth={1.5} />,
+          accessibilityLabel: "Notifications",
+          onPress: () => router.push("/notifications"),
+        }}
       />
 
-      <View style={styles.content}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          scrollIndicatorInsets={{ bottom: 180 }}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={async () => {
-                setRefreshing(true);
-                await load();
-              }}
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={Violet[500]}
+          />
+        }
+      >
+        <View style={styles.gutter}>
+          <Card style={styles.totalCard}>
+            <Text style={styles.totalLabel}>Total confirmé</Text>
+            <Text style={styles.totalValue}>{formatFCFA(totals.confirmedAmount)}</Text>
+            <Text style={styles.totalMeta}>
+              {totals.confirmedCount === 1
+                ? "1 Jëf confirmé"
+                : `${totals.confirmedCount} Jëfs confirmés`}
+            </Text>
+
+            {/* Le montant engagé mais pas encore versé, dit séparément. */}
+            {totals.pendingCount > 0 ? (
+              <View style={styles.pending}>
+                <Text style={styles.pendingText}>
+                  {formatFCFA(totals.pendingAmount)} en attente de confirmation
+                  {totals.pendingCount > 1 ? ` · ${totals.pendingCount} Jëfs` : ""}
+                </Text>
+              </View>
+            ) : null}
+          </Card>
+        </View>
+
+        <ChipRow style={styles.filters}>
+          {FILTERS.map((item) => (
+            <Chip
+              key={item.value}
+              label={item.label}
+              active={filter === item.value}
+              count={counts[item.value]}
+              onPress={() => setFilter(item.value)}
             />
-          }
-          contentContainerStyle={styles.scroll}
-        >
-          <View style={styles.statsRow}>
-            <GlassCard style={styles.statCard}>
-              <Coins size={18} color={Colors.accent.DEFAULT} />
-              <Text style={styles.statValue}>
-                {totals.total.toLocaleString()} FCFA
-              </Text>
-              <Text style={styles.statLabel}>Total contribué</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <ShieldCheck size={18} color={Colors.accent.DEFAULT} />
-              <Text style={styles.statValue}>{totals.confirmed}</Text>
-              <Text style={styles.statLabel}>Confirmés</Text>
-            </GlassCard>
-            <GlassCard style={styles.statCard}>
-              <CalendarDays size={18} color={Colors.accent.DEFAULT} />
-              <Text style={styles.statValue}>{totals.pending}</Text>
-              <Text style={styles.statLabel}>En attente</Text>
-            </GlassCard>
-          </View>
+          ))}
+        </ChipRow>
 
-          <View style={styles.filterRow}>
-            <Pressable
-              onPress={() => setFilter("all")}
-              style={[
-                styles.filterChip,
-                filter === "all" && styles.filterChipActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  filter === "all" && styles.filterTextActive,
-                ]}
-              >
-                Tous
-              </Text>
-            </Pressable>
-            {(["pending", "confirmed", "failed"] as DonationFilter[]).map(
-              (value) => (
-                <Pressable
-                  key={value}
-                  onPress={() => setFilter(value)}
-                  style={[
-                    styles.filterChip,
-                    filter === value && styles.filterChipActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      filter === value && styles.filterTextActive,
-                    ]}
-                  >
-                    {paymentLabel(value as PaymentStatus)}
-                  </Text>
-                </Pressable>
-              ),
-            )}
-            <Filter size={18} color={Colors.ink.faint} />
-          </View>
-
-          {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={Colors.accent.DEFAULT} />
-            </View>
-          ) : null}
-
-          {!loading && filteredDonations.length === 0 ? (
-            <GlassCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Aucun Jëf trouvé</Text>
-              <Text style={styles.emptyText}>
-                Les contributions apparaîtront ici après synchronisation avec le
-                backend.
-              </Text>
-            </GlassCard>
-          ) : null}
-
+        {state.status === "loading" ? (
           <View style={styles.list}>
-            {filteredDonations.map((donation) => (
-              <Pressable
-                key={donation.id}
-                onPress={() => {
-                  if (donation.campaign) {
-                    router.push(`/campaign/${donation.campaign}` as any);
-                  }
-                }}
-              >
-                <GlassCard style={styles.card}>
-                  <View style={styles.cardTop}>
-                    <View style={styles.iconWrap}>
-                      {PAYMENT_LOGOS[donation.payment_method] ? (
-                        <ExpoImage
-                          source={PAYMENT_LOGOS[donation.payment_method]}
-                          style={styles.paymentLogo}
-                          contentFit="contain"
-                        />
-                      ) : (
-                        <Wallet size={18} color={Colors.accent.DEFAULT} />
-                      )}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle} numberOfLines={2}>
-                        {donation.campaign_name ??
-                          `Campagne #${donation.campaign}`}
-                      </Text>
-                      <Text style={styles.cardSub}>
-                        {methodLabel(donation.payment_method)} ·{" "}
-                        {formatDate(donation.created_at)}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusChip,
-                        {
-                          backgroundColor: `${paymentColor(donation.payment_status)}15`,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusText,
-                          { color: paymentColor(donation.payment_status) },
-                        ]}
-                      >
-                        {paymentLabel(donation.payment_status)}
-                      </Text>
-                    </View>
-                  </View>
+            <SkeletonListRow />
+            <SkeletonListRow />
+            <SkeletonListRow />
+          </View>
+        ) : null}
 
-                  <View style={styles.cardBottom}>
-                    <Text style={styles.amount}>
-                      {donation.amount.toLocaleString()} FCFA
-                    </Text>
-                    <Text style={styles.beneficiary}>
-                      {donation.beneficiary_name
-                        ? `Bénéficiaire: ${donation.beneficiary_name}`
-                        : "Bénéficiaire: Moi-même"}
-                    </Text>
-                  </View>
-                </GlassCard>
-              </Pressable>
+        {state.status === "failed" ? (
+          <View style={styles.gutter}>
+            <ErrorState body="Votre historique n'a pas pu être chargé." onRetry={reload} />
+          </View>
+        ) : null}
+
+        {state.status === "ready" && visible.length === 0 ? (
+          <View style={styles.gutter}>
+            <EmptyState
+              picto={<Wallet size={56} color={Violet[900]} strokeWidth={1.25} />}
+              title={filter === "all" ? "Aucun Jëf pour l'instant" : "Aucun Jëf dans ce filtre"}
+              body={
+                filter === "all"
+                  ? "Vos contributions apparaîtront ici dès votre premier Jëf."
+                  : "Essayez « Tous » pour voir l'ensemble de vos Jëfs."
+              }
+              actionLabel={filter === "all" ? "Voir les Ndiguels" : "Tout afficher"}
+              onAction={
+                filter === "all" ? () => router.push("/campaigns") : () => setFilter("all")
+              }
+            />
+          </View>
+        ) : null}
+
+        {visible.length > 0 ? (
+          <View style={styles.list}>
+            {visible.map((donation) => (
+              <DonationCard
+                key={donation.id}
+                donation={donation}
+                onPress={
+                  donation.campaign
+                    ? () => router.push(`/campaign/${donation.campaign}`)
+                    : undefined
+                }
+              />
             ))}
           </View>
-        </ScrollView>
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function DonationCard({
+  donation,
+  onPress,
+}: {
+  donation: Donation;
+  onPress?: () => void;
+}) {
+  const logo = PAYMENT_LOGOS[donation.payment_method];
+  const statusColor = STATUS_COLORS[donation.payment_status];
+
+  return (
+    <Card
+      onPress={onPress}
+      accessibilityLabel={`${donation.campaign_name ?? "Ndiguel"} — ${formatFCFA(donation.amount)}`}
+      style={styles.card}
+    >
+      <View style={styles.cardTop}>
+        <View style={styles.logoWrap}>
+          {logo ? (
+            <ExpoImage source={logo} style={styles.logo} contentFit="contain" />
+          ) : (
+            <Wallet size={18} color={Violet[900]} strokeWidth={1.5} />
+          )}
+        </View>
+        <View style={styles.cardHeading}>
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {/* `campaign_name` est servi par `DonationSerializer` ; le repli sur
+                l'identifiant reste utile pour un Ndiguel supprimé. */}
+            {donation.campaign_name ?? `Ndiguel n° ${donation.campaign}`}
+          </Text>
+          <Text style={styles.cardSub}>
+            {METHOD_LABELS[donation.payment_method] ?? donation.payment_method} ·{" "}
+            {formatDate(donation.created_at)}
+          </Text>
+        </View>
+        <View style={[styles.statusChip, { backgroundColor: `${statusColor}14` }]}>
+          <Text style={[styles.statusText, { color: statusColor }]} numberOfLines={1}>
+            {STATUS_LABELS[donation.payment_status]}
+          </Text>
+        </View>
       </View>
-    </View>
+
+      <View style={styles.cardBottom}>
+        <Text
+          style={[
+            styles.amount,
+            /* Un montant échoué n'est pas un montant versé : il perd le vert. */
+            donation.payment_status !== "confirmed" && styles.amountUnconfirmed,
+          ]}
+        >
+          {formatFCFA(donation.amount)}
+        </Text>
+        <Text style={styles.beneficiary}>
+          {donation.beneficiary_name
+            ? `Pour ${donation.beneficiary_name}`
+            : "En mon nom"}
+        </Text>
+      </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
+  safe: { flex: 1, backgroundColor: Surface.default },
+  scroll: { paddingTop: Space.sm, paddingBottom: 120, gap: Space.lg },
+  gutter: { paddingHorizontal: GUTTER },
+  filters: { paddingHorizontal: GUTTER },
+  list: { paddingHorizontal: GUTTER, gap: Space.md },
+
+  totalCard: { gap: Space.xs, alignItems: "flex-start" },
+  totalLabel: { ...Type.label, color: Ink[500] },
+  totalValue: { ...Type.amountHero, fontSize: 34, lineHeight: 40, color: montant },
+  totalMeta: { ...Type.label, color: Ink[300] },
+  pending: {
+    marginTop: Space.md,
+    alignSelf: "stretch",
+    backgroundColor: Surface.alt,
+    borderRadius: Radius.input,
+    ...continuous,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
   },
-  content: {
-    flex: 1,
-    marginTop: 0,
-    paddingHorizontal: 20,
-  },
-  scroll: {
-    paddingTop: 16,
-    paddingBottom: 200,
-    gap: 14,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statCard: {
-    flex: 1,
-    padding: 14,
-    gap: 4,
-  },
-  statValue: {
-    fontSize: 18,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  statLabel: {
-    fontSize: 11,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  filterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  filterChipActive: {
-    backgroundColor: Colors.accent.dim,
-    borderColor: Colors.accent.DEFAULT,
-  },
-  filterText: {
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_600SemiBold",
-  },
-  filterTextActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  loadingWrap: {
-    minHeight: 88,
+  pendingText: { ...Type.label, color: Status.warning },
+
+  card: { gap: Space.md },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  logoWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.input,
+    ...continuous,
+    backgroundColor: Surface.alt,
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyCard: {
-    padding: 16,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 4,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 20,
-  },
-  list: {
-    gap: 12,
-  },
-  card: {
-    padding: 16,
-    gap: 12,
-  },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  paymentLogo: {
-    width: 32,
-    height: 22,
-  },
-  cardTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  cardSub: {
-    marginTop: 3,
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
+  logo: { width: 24, height: 24 },
+  cardHeading: { flex: 1, gap: 2 },
+  cardTitle: { ...UIType.rowTitle, color: Ink[900] },
+  cardSub: { ...Type.micro, color: Ink[300] },
   statusChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    paddingHorizontal: Space.sm,
+    paddingVertical: Space.xs,
+    borderRadius: Radius.chip,
+    maxWidth: 108,
   },
-  statusText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-  },
+  statusText: { ...UIType.badgeLabel },
   cardBottom: {
-    gap: 4,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: Space.sm,
   },
-  amount: {
-    fontSize: 18,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  beneficiary: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-  },
+  amount: { ...Type.amountCard, color: montant },
+  amountUnconfirmed: { color: Ink[500] },
+  beneficiary: { ...Type.micro, color: Ink[300] },
 });

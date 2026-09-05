@@ -4,8 +4,6 @@ import {
   StyleSheet,
   Text,
   View,
-  Pressable,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -16,22 +14,40 @@ import {
   Mail,
   Lock,
   User,
-  Phone,
-  ArrowLeft,
   Globe,
+  Check,
 } from "lucide-react-native";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Image as ExpoImage } from "expo-image";
 
-import { Colors } from "@/constants/colors";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SearchablePicker } from "@/components/auth/SearchablePicker";
+import { CountrySheet } from "@/components/auth/CountrySheet";
+import { DialPrefix } from "@/components/auth/DialPrefix";
+import {
+  DEFAULT_COUNTRY,
+  subscriberBounds,
+  type DialCountry,
+} from "@/lib/dial-codes";
 import { AuthService } from "@/lib/auth.service";
 import { useAuthStore } from "@/store/auth.store";
 import type { DaaraOption, LDDOption } from "@/types";
+import {
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Status,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
 const schema = z
   .object({
@@ -65,6 +81,8 @@ export default function RegisterScreen() {
   const [ldds, setLdds] = useState<LDDOption[]>([]);
   const [selectedLdd, setSelectedLdd] = useState<number | null>(null);
   const [lddLoading, setLddLoading] = useState(true);
+  /** Un échec de chargement se DIT : un sélecteur vide et muet ne s'explique pas. */
+  const [lddError, setLddError] = useState("");
 
   const [daaras, setDaaras] = useState<DaaraOption[]>([]);
   const [daaraLoading, setDaaraLoading] = useState(false);
@@ -90,18 +108,90 @@ export default function RegisterScreen() {
   });
 
   const selectedDaaraId = watch("daara_id");
-  const phoneValue = watch("phone");
 
-  const isInternational =
-    phoneValue && !phoneValue.startsWith("+221") && phoneValue.startsWith("+");
+  /*
+    ── LE NUMÉRO SE COMPOSE, IL NE SE DEVINE PLUS ──────────────────────────
+    Le champ était en saisie libre et le serveur prêtait `DEFAULT_PHONE_REGION`
+    à tout numéro sans indicatif. Un membre de Marseille qui tapait
+    « 06 12 34 56 78 » créait donc un compte sous `+221612345678` — un numéro
+    sénégalais qui n'était pas le sien, et avec lequel il ne se serait jamais
+    connecté. La porte d'entrée fabriquait des comptes inaccessibles.
+
+    Le pays est désormais explicite : l'écran compose lui-même l'E.164 et il
+    n'y a plus de région à deviner. Même sélecteur qu'à la connexion.
+  */
+  const [country, setCountry] = useState<DialCountry>(DEFAULT_COUNTRY);
+  const [phoneDigits, setPhoneDigits] = useState("");
+  const [countrySheetOpen, setCountrySheetOpen] = useState(false);
+
+  /**
+   * ── LA CONFIRMATION D'INSCRIPTION ─────────────────────────────────────────
+   *
+   * Elle tenait dans une `Alert.alert` intitulée « Compte créé ». Fonctionnel,
+   * mais c'est une boîte du système : le membre venait de rejoindre son Daara,
+   * et l'application lui répondait comme à une erreur de saisie. Rien ne disait
+   * non plus **ce qui allait se passer ensuite** — or le compte est créé en
+   * `pending` (`accounts/views.py`) et n'ouvre rien tant qu'un responsable ne
+   * l'a pas validé. Un membre qui l'ignore essaie de se connecter, échoue, et
+   * conclut que l'inscription n'a pas marché.
+   *
+   * L'écran de succès remplace le formulaire — c'est un état terminal, pas une
+   * couche par-dessus. Il retient ce qu'il faut du formulaire AVANT que celui-ci
+   * ne disparaisse : le prénom, le Daara choisi, l'identifiant de connexion.
+   */
+  const [success, setSuccess] = useState<{
+    firstName: string;
+    daaraName: string | null;
+    identifier: string;
+    /** Le courriel de bienvenue ne part QUE si une adresse a été donnée. */
+    emailSent: boolean;
+  } | null>(null);
+
+  /** `phone` reste la source de vérité du formulaire : on y écrit l'E.164. */
+  const writePhone = useCallback(
+    (next: DialCountry, digits: string) => {
+      setValue("phone", digits ? `${next.prefix}${digits}` : "", {
+        shouldValidate: false,
+      });
+    },
+    [setValue],
+  );
+
+  const onPhoneDigits = (raw: string) => {
+    const digits = raw.replace(/[^0-9]/g, "").slice(0, subscriberBounds(country).max);
+    setPhoneDigits(digits);
+    writePhone(country, digits);
+    clearError();
+  };
+
+  const onPhoneCountry = (next: DialCountry) => {
+    /* Un indicatif plus long raccourcit la plage : on tronque plutôt que
+       d'émettre un numéro hors E.164. */
+    const digits = phoneDigits.slice(0, subscriberBounds(next).max);
+    setCountry(next);
+    setPhoneDigits(digits);
+    writePhone(next, digits);
+    clearError();
+  };
+
+  const isInternational = country.iso !== "SN";
 
   const loadInitialData = useCallback(async () => {
     setLddLoading(true);
+    setLddError("");
     try {
-      const items = await AuthService.getLDDs();
-      setLdds(items.filter(i => i.is_active));
-    } catch (e) {
-      console.warn("Failed to load LDDs", e);
+      /*
+        PAS de `filter(i => i.is_active)` ici. `LDDViewSet.queryset` ne sert
+        déjà que les localités actives (`accounts/views.py:207`), et refiltrer
+        côté client est précisément le geste qui a rendu l'inscription
+        impossible pendant des semaines : `PublicDaaraSerializer` n'envoyait
+        pas `is_active`, `undefined` étant faux, la liste se vidait à tous les
+        coups. Le tri appartient au serveur — c'est la seule place où la règle
+        ne peut pas être contournée.
+      */
+      setLdds(await AuthService.getLDDs());
+    } catch {
+      setLddError("Impossible de charger les localités.");
     } finally {
       setLddLoading(false);
     }
@@ -117,13 +207,21 @@ export default function RegisterScreen() {
     setDaaraError(null);
 
     try {
+      /*
+        ⚠ NE PAS REMETTRE DE FILTRE `is_active` ICI.
+        `PublicDaaraSerializer` — celui que reçoit un visiteur sans jeton — ne
+        sert que `id`, `name` et `ldd`. Le filtre qui vivait à cette ligne lisait
+        donc `undefined`, vidait la liste, et affichait « Aucun Daara actif
+        trouvé » quel que soit le contenu de la base : **l'inscription mobile
+        était impossible**. Le tri des Daaras désactivés est fait par le serveur
+        (`DaaraViewSet.get_queryset`), là où il ne peut pas être contourné.
+      */
       const items = await AuthService.getDaaras(lddId);
-      const activeDaaras = items.filter((item) => item.is_active);
-      setDaaras(activeDaaras);
-      if (activeDaaras.length === 0) {
-        setDaaraError("Aucun Daara actif trouvé pour cette localité.");
+      setDaaras(items);
+      if (items.length === 0) {
+        setDaaraError("Aucun Daara trouvé pour cette localité.");
       }
-    } catch (e) {
+    } catch {
       setDaaraError("Impossible de charger les Daaras.");
     } finally {
       setDaaraLoading(false);
@@ -157,16 +255,27 @@ export default function RegisterScreen() {
         phone: values.phone || undefined,
         daara_id: values.daara_id,
       });
-      Alert.alert(
-        "Compte créé",
-        "Votre demande d'inscription a été reçue. Vous pourrez vous connecter après validation par un administrateur.",
-        [{ text: "OK", onPress: () => router.replace("/login" as any) }],
-      );
-    } catch (e: any) {
-      // The store handles the general error banner, 
-      // but we could also parse e.response.data for field-specific errors.
+      setSuccess({
+        firstName: values.first_name.trim(),
+        daaraName: daaras.find((d) => d.id === values.daara_id)?.name ?? null,
+        /* Ce qu'il devra saisir à la connexion — l'adresse si elle existe,
+           sinon le numéro composé. C'est la question qu'il se posera. */
+        identifier: values.email?.trim() || values.phone || "",
+        emailSent: Boolean(values.email?.trim()),
+      });
+    } catch {
+      /* Le store porte le bandeau d'erreur : le rendu le lit dans `error`. */
     }
   };
+
+  if (success) {
+    return (
+      <RegistrationSuccess
+        {...success}
+        onContinue={() => router.replace("/login")}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -177,9 +286,11 @@ export default function RegisterScreen() {
         contentFit="contain"
       />
 
+      <ScreenHeader onBack={() => router.back()} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
+        style={styles.flex}
       >
         <ScrollView
           contentContainerStyle={styles.content}
@@ -189,20 +300,11 @@ export default function RegisterScreen() {
             <RefreshControl
               refreshing={daaraRefreshing}
               onRefresh={() => selectedLdd && loadDaaras(selectedLdd, true)}
-              tintColor={Colors.accent.DEFAULT}
-              colors={[Colors.accent.DEFAULT]}
+              tintColor={Violet[500]}
+              colors={[Violet[500]]}
             />
           }
         >
-          <Pressable
-            onPress={() => router.back()}
-            hitSlop={12}
-            style={styles.back}
-          >
-            <ArrowLeft size={20} color={Colors.ink.muted} />
-            <Text style={styles.backText}>Retour</Text>
-          </Pressable>
-
           <View style={styles.header}>
             <ExpoImage
               source={require("@/assets/images/favicon.png")}
@@ -225,7 +327,7 @@ export default function RegisterScreen() {
 
           <View style={styles.form}>
             <View style={styles.row}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.half}>
                 <Controller
                   control={control}
                   name="first_name"
@@ -240,13 +342,12 @@ export default function RegisterScreen() {
                       }}
                       onBlur={onBlur}
                       error={errors.first_name?.message}
-                      icon={<User size={16} color={Colors.ink.faint} />}
+                      icon={<User size={16} color={Ink[300]} strokeWidth={1.5} />}
                     />
                   )}
                 />
               </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
+              <View style={styles.half}>
                 <Controller
                   control={control}
                   name="last_name"
@@ -261,7 +362,7 @@ export default function RegisterScreen() {
                       }}
                       onBlur={onBlur}
                       error={errors.last_name?.message}
-                      icon={<User size={16} color={Colors.ink.faint} />}
+                      icon={<User size={16} color={Ink[300]} strokeWidth={1.5} />}
                     />
                   )}
                 />
@@ -273,8 +374,16 @@ export default function RegisterScreen() {
               name="email"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
-                  label="Email (Optionnel si téléphone rempli)"
-                  placeholder="member@yessalgui.com"
+                  label="Adresse e-mail"
+                  /*
+                    ⚠ Le libellé disait « Email (Optionnel si téléphone
+                    rempli) ». La phase F l'a nettoyé — et a emporté la RÈGLE
+                    avec : le schéma exige l'un OU l'autre (`refine`, en tête de
+                    fichier), et plus rien ne le disait avant l'erreur de
+                    soumission. Le `hint` la remet sous les yeux, à sa place.
+                  */
+                  hint="L'adresse e-mail ou le téléphone : l'un des deux suffit."
+                  placeholder="membre@exemple.com"
                   keyboardType="email-address"
                   autoCapitalize="none"
                   value={value}
@@ -284,34 +393,44 @@ export default function RegisterScreen() {
                   }}
                   onBlur={onBlur}
                   error={errors.email?.message}
-                  icon={<Mail size={16} color={Colors.ink.faint} />}
+                  icon={<Mail size={16} color={Ink[300]} strokeWidth={1.5} />}
                 />
               )}
             />
 
+            {/*
+              `Controller` n'enveloppe plus la saisie : le champ visible porte
+              les CHIFFRES d'abonné, quand `phone` porte l'E.164 composé. Le
+              contrôleur ne sert donc qu'à relayer `onBlur` et l'erreur.
+            */}
             <Controller
               control={control}
               name="phone"
-              render={({ field: { onChange, onBlur, value } }) => (
+              render={({ field: { onBlur } }) => (
                 <View>
                   <Input
-                    label="Téléphone (Optionnel si email rempli)"
-                    placeholder="+221 77 000 00 00"
+                    label="Téléphone"
+                    hint="C'est aussi ce qui vous identifiera à la connexion."
+                    placeholder={country.iso === "SN" ? "77 000 00 00" : "Votre numéro"}
                     keyboardType="phone-pad"
-                    value={value}
-                    onChangeText={(t) => {
-                      onChange(t);
-                      clearError();
-                    }}
+                    autoComplete="tel"
+                    value={phoneDigits}
+                    onChangeText={onPhoneDigits}
                     onBlur={onBlur}
-                    icon={<Phone size={16} color={Colors.ink.faint} />}
+                    maxLength={subscriberBounds(country).max}
+                    prefixSlot={
+                      <DialPrefix
+                        country={country}
+                        onPress={() => setCountrySheetOpen(true)}
+                      />
+                    }
                   />
                   {isInternational && (
                     <View style={styles.diasporaHint}>
-                      <Globe size={12} color={Colors.accent.DEFAULT} />
+                      <Globe size={12} color={Violet[700]} strokeWidth={1.5} />
                       <Text style={styles.diasporaHintText}>
-                        Détecté comme membre Diaspora (Notification Push/Email
-                        prioritaires).
+                        Numéro international : vous serez prévenu par
+                        notification et par courriel.
                       </Text>
                     </View>
                   )}
@@ -334,7 +453,7 @@ export default function RegisterScreen() {
                   }}
                   onBlur={onBlur}
                   error={errors.password?.message}
-                  icon={<Lock size={16} color={Colors.ink.faint} />}
+                  icon={<Lock size={16} color={Ink[300]} strokeWidth={1.5} />}
                 />
               )}
             />
@@ -342,11 +461,12 @@ export default function RegisterScreen() {
             <View style={styles.daaraBlock}>
               <SearchablePicker
                 label="1. Mon LDD"
-                placeholder="Sélectionnez votre LDD"
+                placeholder="Sélectionnez votre localité"
                 options={ldds}
                 value={selectedLdd || undefined}
                 onChange={setSelectedLdd}
                 loading={lddLoading}
+                error={lddError}
               />
 
               {selectedLdd && (
@@ -365,13 +485,12 @@ export default function RegisterScreen() {
               )}
             </View>
 
-            <View style={{ marginTop: 24 }}>
-              <Button
-                label="Créer mon compte"
-                onPress={handleSubmit(submit)}
-                loading={isLoading}
-              />
-            </View>
+            <Button
+              label="Créer mon compte"
+              onPress={handleSubmit(submit)}
+              loading={isLoading}
+              style={styles.submit}
+            />
           </View>
 
           <View style={styles.footerWrap}>
@@ -379,7 +498,7 @@ export default function RegisterScreen() {
               Déjà inscrit ?{" "}
               <Text
                 style={styles.footerLink}
-                onPress={() => router.replace("/login" as any)}
+                onPress={() => router.replace("/login")}
               >
                 Se connecter
               </Text>
@@ -387,150 +506,220 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CountrySheet
+        visible={countrySheetOpen}
+        selected={country}
+        onSelect={onPhoneCountry}
+        onClose={() => setCountrySheetOpen(false)}
+      />
+    </SafeAreaView>
+  );
+}
+
+/**
+ * L'état terminal de l'inscription.
+ *
+ * Trois choses, dans cet ordre : que c'est fait, ce qui se passe ensuite, et
+ * avec quoi se connecter. La troisième est celle qu'on oublie le plus souvent
+ * et celle qu'un membre cherche le lendemain.
+ *
+ * ⚠ Le courriel n'est promis QUE s'il y a une adresse : `send_to_user` le
+ * saute silencieusement pour un compte sans e-mail (« Courriel ignoré : le
+ * membre n'a pas d'adresse » dans les journaux). Annoncer un message qui ne
+ * partira jamais ferait attendre le membre pour rien.
+ */
+function RegistrationSuccess({
+  firstName,
+  daaraName,
+  identifier,
+  emailSent,
+  onContinue,
+}: {
+  firstName: string;
+  daaraName: string | null;
+  identifier: string;
+  emailSent: boolean;
+  onContinue: () => void;
+}) {
+  const etapes = [
+    daaraName
+      ? `Un responsable du Daara ${daaraName} vérifie votre demande.`
+      : "Un responsable de votre Daara vérifie votre demande.",
+    emailSent
+      ? "Vous recevez un message dès qu'elle est acceptée — pensez à regarder vos indésirables."
+      : "Vous êtes prévenu dès qu'elle est acceptée.",
+    identifier
+      ? `Vous vous connectez ensuite avec ${identifier}.`
+      : "Vous vous connectez ensuite avec l'identifiant que vous venez de choisir.",
+  ];
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <ScrollView
+        contentContainerStyle={styles.successContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.successHero}>
+          <ExpoImage
+            source={require("@/assets/images/confettis.png")}
+            style={styles.confettis}
+            contentFit="contain"
+          />
+          <View style={styles.successMark}>
+            <Check size={38} color={Violet[900]} strokeWidth={2.5} />
+          </View>
+        </View>
+
+        <View style={styles.successHeading}>
+          {/* Le prénom : c'est la seule ligne de tout le parcours qui s'adresse
+              à la personne plutôt qu'à l'utilisateur. */}
+          <Text style={styles.successTitle}>Bienvenue, {firstName} !</Text>
+          <Text style={styles.successLead}>
+            {daaraName
+              ? `Votre demande d'inscription au Daara ${daaraName} est bien partie.`
+              : "Votre demande d'inscription est bien partie."}
+          </Text>
+        </View>
+
+        <View style={styles.successCard}>
+          <Text style={styles.successCardTitle}>Ce qui se passe maintenant</Text>
+          {etapes.map((etape, index) => (
+            <View key={etape} style={styles.etape}>
+              <View style={styles.etapeNum}>
+                <Text style={styles.etapeNumText}>{index + 1}</Text>
+              </View>
+              <Text style={styles.etapeText}>{etape}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Dit avant qu'il n'essaie et n'échoue. */}
+        <Text style={styles.successNote}>
+          Votre compte n&apos;est pas encore actif : la connexion ne fonctionnera
+          qu&apos;une fois la demande acceptée.
+        </Text>
+      </ScrollView>
+
+      <View style={styles.successFooter}>
+        <Button label="Aller à la connexion" onPress={onContinue} />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
+  safe: { flex: 1, backgroundColor: Surface.default },
+  flex: { flex: 1 },
   decoration: {
     position: "absolute",
     top: -40,
     left: -70,
     width: 280,
     height: 280,
-    opacity: 0.18,
+    opacity: 0.14,
     zIndex: 0,
     transform: [{ rotate: "15deg" }],
   },
   content: {
-    padding: 24,
-    paddingBottom: 48,
+    paddingHorizontal: GUTTER,
+    paddingBottom: Space.huge,
     zIndex: 1,
   },
-  back: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    marginBottom: 24,
-  },
-  backText: {
-    fontSize: 14,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_500Medium",
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  logo: {
-    width: 48,
-    height: 48,
-    marginBottom: 16,
-  },
+  header: { alignItems: "center", marginBottom: Space.xxxl },
+  logo: { width: 48, height: 48, marginBottom: Space.lg },
   kicker: {
-    color: Colors.accent.DEFAULT,
-    fontSize: 12,
-    textTransform: "uppercase",
+    ...UIType.badgeLabel,
+    color: Violet[700],
     letterSpacing: 1.5,
-    fontFamily: "Inter_700Bold",
-    marginBottom: 8,
+    marginBottom: Space.sm,
   },
-  title: {
-    fontSize: 28,
-    lineHeight: 34,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_300Light",
-    textAlign: "center",
-  },
+  title: { ...Type.screenTitle, fontSize: 26, lineHeight: 32, color: Ink[900], textAlign: "center" },
   subtitle: {
-    marginTop: 12,
-    color: Colors.ink.muted,
-    fontSize: 14,
-    lineHeight: 22,
-    fontFamily: "Inter_400Regular",
+    ...Type.body,
+    color: Ink[500],
     textAlign: "center",
-    maxWidth: "85%",
+    maxWidth: "88%",
+    marginTop: Space.md,
   },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
+  half: { flex: 1 },
   errorBanner: {
-    backgroundColor: Colors.status.error + "18",
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: Colors.status.error + "40",
-    padding: 14,
-    marginBottom: 24,
+    backgroundColor: "rgba(166,43,43,0.08)",
+    borderRadius: Radius.input,
+    ...continuous,
+    padding: Space.lg,
+    marginBottom: Space.xxl,
   },
-  errorBannerText: {
-    fontSize: 13,
-    color: Colors.status.error,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-  },
-  form: {
-    gap: 4,
-  },
-  daaraBlock: {
-    marginTop: 16,
-    gap: 12,
-  },
-  daaraHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sectionTitle: {
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: Colors.ink.faint,
-    fontFamily: "Inter_700Bold",
-  },
-  fieldError: {
-    fontSize: 12,
-    color: Colors.status.error,
-    fontFamily: "Inter_400Regular",
-    marginTop: -4,
-  },
+  errorBannerText: { ...Type.body, color: Status.error, textAlign: "center" },
+  form: { gap: Space.lg },
+  daaraBlock: { marginTop: Space.xs, gap: Space.lg },
+  /**
+   * Le repère de saisie internationale. Violet-100 et non le vert `montant` :
+   * ce n'est pas un montant, et le vert n'a qu'un seul sens dans ce produit.
+   */
   diasporaHint: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: -8,
-    marginBottom: 8,
-    backgroundColor: "rgba(26, 92, 58, 0.05)",
-    padding: 8,
-    borderRadius: 8,
+    marginTop: Space.sm,
+    backgroundColor: Violet[100],
+    padding: Space.sm,
+    borderRadius: Space.sm,
+    ...continuous,
   },
-  diasporaHintText: {
-    fontSize: 11,
-    color: Colors.accent.DEFAULT,
-    fontFamily: "Inter_500Medium",
-    flex: 1,
+  diasporaHintText: { ...Type.micro, color: Violet[900], flex: 1 },
+  submit: { marginTop: Space.md },
+  successContent: {
+    flexGrow: 1,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.xxxl,
+    paddingBottom: Space.xl,
+    gap: Space.xxl,
+    zIndex: 1,
   },
-  metaText: {
-    fontSize: 12,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  footerWrap: {
-    marginTop: 32,
+  successHero: { alignItems: "center", justifyContent: "center", height: 150 },
+  confettis: { ...StyleSheet.absoluteFill, opacity: 0.5 },
+  successMark: {
+    width: 88,
+    height: 88,
+    borderRadius: Radius.chip,
+    backgroundColor: Violet[300],
     alignItems: "center",
+    justifyContent: "center",
   },
-  footer: {
-    color: Colors.ink.muted,
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
+  successHeading: { alignItems: "center", gap: Space.sm },
+  successTitle: {
+    ...Type.screenTitle,
+    fontSize: 26,
+    lineHeight: 32,
+    color: Violet[900],
+    textAlign: "center",
   },
-  footerLink: {
-    color: Colors.accent.light,
-    fontFamily: "Inter_600SemiBold",
+  successLead: { ...Type.body, color: Ink[500], textAlign: "center" },
+  successCard: {
+    backgroundColor: Surface.alt,
+    borderRadius: Radius.card,
+    ...continuous,
+    padding: Space.xl,
+    gap: Space.lg,
   },
+  successCardTitle: { ...UIType.chipLabel, color: Ink[500] },
+  etape: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
+  etapeNum: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.chip,
+    backgroundColor: Violet[200],
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  etapeNumText: { ...UIType.badgeLabel, color: Violet[900] },
+  etapeText: { ...Type.body, color: Ink[900], flex: 1 },
+  successNote: { ...Type.label, color: Status.warning, textAlign: "center" },
+  successFooter: { paddingHorizontal: GUTTER, paddingBottom: Space.xl },
+
+  footerWrap: { marginTop: Space.xxxl, alignItems: "center" },
+  footer: { ...Type.body, color: Ink[500] },
+  footerLink: { color: Violet[700], fontFamily: Type.label.fontFamily },
 });

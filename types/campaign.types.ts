@@ -9,31 +9,53 @@ export interface Campaign {
   deadline: string;
   status: CampaignStatus;
   event?: number | null;
+  /**
+   * Le nom de la fête. **Réparé le 2026-09-04 côté Django** : `fete_name` a été
+   * ajouté à `CampaignSerializer` (`events/serializers.py`), et
+   * `normalizeCampaign` le lit déjà par son repli `item.fete_name`.
+   *
+   * Avant cela il valait toujours `null`, et le sur-titre de la photographie du
+   * détail d'un Ndiguel — posé en phase D pour y lire la fête — ne s'affichait
+   * jamais. Reste `null` pour un Ndiguel qui n'est rattaché à aucune fête,
+   * ce qui est un cas légitime.
+   */
   event_name?: string | null;
+  /** L'identifiant du Daara, servi en clé primaire par `CampaignSerializer`. */
   daara?: number | null;
+  /**
+   * Le nom du Daara. **Réparé le 2026-09-04 côté Django**, en même temps que
+   * `event_name` : `daara_name = CharField(source='daara.name')` a été ajouté à
+   * `CampaignSerializer`, comme `DirectoryUserSerializer` le faisait déjà.
+   *
+   * Auparavant `Meta.fields` ne servait que les clés `daara` et `fete`, deux
+   * entiers : le champ valait donc toujours `null`, et `home.tsx` disait
+   * « Votre Daara » à tout le monde. Constaté au lot « Mon Daara » en
+   * vérifiant les champs contre le sérialiseur — la quatrième fois que ce
+   * dépôt se fait prendre par un type écrit de mémoire.
+   *
+   * Reste `null` pour un Ndiguel sans Daara : la relation est `SET_NULL`.
+   */
   daara_name?: string | null;
+  /** Ce à quoi sert la collecte. Distinct de `description`, qui raconte. */
+  objective?: string | null;
+  /** Le chef ou l'organisateur désigné — `CampaignSerializer.get_organizer_name`. */
+  organizer_name?: string | null;
   created_at: string;
   updated_at?: string;
   /**
    * La photographie du Ndiguel, téléversée depuis l'administration web.
+   *
    * C'est le NOM RÉEL du champ — `events/models.py:39`, rendu par
-   * `CampaignSerializer` (`events/serializers.py:57`).
+   * `CampaignSerializer` (`events/serializers.py:57`). Le type déclarait
+   * auparavant un champ `image` que le serveur n'envoie pas ; un type qui ment
+   * ne produit aucune erreur de compilation, seulement un `undefined`
+   * silencieux. Le pis-aller de `lib/campaign-visuals.ts` s'appliquait donc à
+   * 100 % des Ndiguels, y compris à ceux qui portaient une photographie.
+   *
+   * L'URL est rendue absolue par `normalizeCampaign` : c'est la seule frontière
+   * où la forme de l'API se traduit, et donc le seul endroit qui doit le faire.
    */
   illustrative_photo?: string | null;
-  /**
-   * ⚠ N'EXISTE PAS dans la réponse de l'API. Déclaré ici par erreur, il a fait
-   * croire pendant toute la phase D qu'aucun Ndiguel ne portait d'image : le
-   * code lisait `campaign.image`, toujours `undefined`, et le pis-aller de
-   * `lib/campaign-visuals.ts` s'appliquait à 100 % des Ndiguels — y compris à
-   * ceux qui avaient bel et bien une photographie.
-   *
-   * Conservé le temps que `app/(app)/campaign/[id].tsx` passe au système de la
-   * refonte ; c'est le dernier écran à le lire. **À supprimer ensuite** —
-   * laisser un champ fantôme dans un type, c'est reposer le piège.
-   *
-   * @deprecated lire `illustrative_photo`.
-   */
-  image?: string | null;
 }
 
 export interface Contributor {

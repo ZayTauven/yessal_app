@@ -1,28 +1,38 @@
+/**
+ * app/modal.tsx — la surface de confirmation générique, passée au système
+ * (phase F).
+ *
+ * ⚠ **Aucun écran n'y renvoie.** C'est le gabarit livré par `create-expo-app`,
+ * conservé parce qu'une route modale neutre coûte soixante lignes et se révèle
+ * utile le jour où une confirmation n'a pas de meilleur foyer. Si la phase G
+ * confirme qu'il ne sert toujours à rien, il part avec
+ * `components/modals/SuccessCelebration.tsx` — même arbitrage, même lot.
+ */
 import { Link } from "expo-router";
-import { StyleSheet, View, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { CheckCircle2 } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { GUTTER, Ink, Radius, Space, Surface, Type, Violet, continuous } from "@/theme";
 
 export default function ModalScreen() {
   return (
     <View style={styles.container}>
-      <GlassCard style={styles.card}>
+      <Card style={styles.card}>
         <View style={styles.iconWrap}>
-          <CheckCircle2 size={28} color={Colors.accent.DEFAULT} />
+          <CheckCircle2 size={28} color={Violet[700]} strokeWidth={1.5} />
         </View>
         <Text style={styles.title}>Action terminée</Text>
         <Text style={styles.text}>
           Cette fenêtre sert de surface de confirmation cohérente avec le reste
-          de l’application.
+          de l&apos;application.
         </Text>
 
         <Link href="/" dismissTo asChild>
           <Button label="Retour à l’accueil" onPress={() => {}} />
         </Link>
-      </GlassCard>
+      </Card>
     </View>
   );
 }
@@ -32,35 +42,19 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
-    backgroundColor: Colors.surface.subtle,
+    padding: GUTTER,
+    backgroundColor: Surface.alt,
   },
-  card: {
-    width: "100%",
-    padding: 24,
-    alignItems: "center",
-  },
+  card: { width: "100%", alignItems: "center", gap: Space.md },
   iconWrap: {
     width: 60,
     height: 60,
-    borderRadius: 18,
-    backgroundColor: Colors.accent.dim,
+    borderRadius: Radius.card,
+    ...continuous,
+    backgroundColor: Violet[100],
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
   },
-  title: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    marginBottom: 8,
-  },
-  text: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 20,
-  },
+  title: { ...Type.cardTitle, color: Ink[900] },
+  text: { ...Type.body, color: Ink[500], textAlign: "center" },
 });

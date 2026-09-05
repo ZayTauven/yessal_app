@@ -46,8 +46,18 @@ interface InputProps extends TextInputProps {
   error?: string;
   /** Précision sous le champ, quand il n'y a pas d'erreur. */
   hint?: string;
-  /** Indicatif ou unité figée à gauche, séparée par un filet — « +221 ». */
+  /** Indicatif ou unité FIGÉE à gauche, séparée par un filet — « +221 ». */
   prefix?: string;
+  /**
+   * Un indicatif CHOISI plutôt que figé : le sélecteur de pays de
+   * l'inscription et de la connexion. Rendu à la place de `prefix`, avec le
+   * même filet de séparation.
+   *
+   * ⚠ Le nœud fourni porte sa propre zone tactile. Il est posé en FRÈRE du
+   * `TextInput`, jamais autour : une cible tactile imbriquée dans une autre
+   * devient inatteignable sur Android.
+   */
+  prefixSlot?: React.ReactNode;
   icon?: React.ReactNode;
   isPassword?: boolean;
   disabled?: boolean;
@@ -59,6 +69,7 @@ export function Input({
   error,
   hint,
   prefix,
+  prefixSlot,
   icon,
   isPassword = false,
   disabled = false,
@@ -77,7 +88,12 @@ export function Input({
       <View style={[styles.field, FIELD[state]]}>
         {icon ? <View style={styles.icon}>{icon}</View> : null}
 
-        {prefix ? (
+        {prefixSlot ? (
+          <>
+            {prefixSlot}
+            <View style={styles.divider} />
+          </>
+        ) : prefix ? (
           <>
             <Text style={styles.prefix}>{prefix}</Text>
             <View style={styles.divider} />

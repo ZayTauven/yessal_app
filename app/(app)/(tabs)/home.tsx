@@ -45,9 +45,12 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { ProfileCompletionBanner } from "@/components/profile/ProfileCompletionBanner";
+import { useProfileCompletion } from "@/hooks/useProfileCompletion";
 import { Skeleton, SkeletonCampaignCard } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { campaignVisual } from "@/lib/campaign-visuals";
+import { canSeeAmounts } from "@/lib/roles";
 import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA, formatPercent } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
@@ -68,9 +71,6 @@ import {
   continuous,
 } from "@/theme";
 import { LinearGradient } from "expo-linear-gradient";
-
-/** Les rôles qui voient les montants. Un talibé n'en fait pas partie. */
-const AMOUNT_ROLES = ["admin", "chef_daara", "collector"];
 
 /** Carte du rail — dimensions du contrat. */
 const RAIL_CARD_WIDTH = 288;
@@ -129,7 +129,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [railIndex, setRailIndex] = useState(0);
 
-  const showsAmounts = AMOUNT_ROLES.includes(user?.role ?? "");
+  const showsAmounts = canSeeAmounts(user?.role);
   const firstName = user?.first_name ?? "Membre";
 
   useEffect(() => {
@@ -152,6 +152,7 @@ export default function HomeScreen() {
   const loading = status === "loading";
   const failed = status === "failed";
   const { campaigns, tutelles, news } = state;
+  const completion = useProfileCompletion();
 
   return (
     <View style={styles.screen}>
@@ -196,6 +197,14 @@ export default function HomeScreen() {
             />
           </Pressable>
         </View>
+
+        {/*
+          L'alerte de profil incomplet — règle de produit Yessal, déjà tenue par
+          `front-web`. Posée juste sous l'en-tête : c'est le premier écran de
+          chaque session, et elle disparaît d'elle-même une fois le profil
+          rempli. Voir `lib/profile-completion.ts`.
+        */}
+        <ProfileCompletionBanner state={completion} />
 
         {loading ? (
           <HomeSkeleton />
@@ -332,7 +341,14 @@ export default function HomeScreen() {
                       <Text style={styles.newsTitle} numberOfLines={2}>
                         {post.title}
                       </Text>
-                      <Text style={styles.newsMeta}>{relativeTime(post.created_at)}</Text>
+                      {/* `published_at` d'abord : c'est la date sur laquelle le
+                          serveur trie la liste (`news/models.py:22`). Voir le
+                          commentaire de `NewsPost` — le champ manquait au type
+                          jusqu'à la phase F, et l'accueil datait donc les
+                          articles de leur rédaction, pas de leur parution. */}
+                      <Text style={styles.newsMeta}>
+                        {relativeTime(post.published_at ?? post.created_at)}
+                      </Text>
                     </View>
                   </Card>
                 ))}

@@ -41,6 +41,7 @@ import { Input } from "@/components/ui/Input";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { campaignVisual } from "@/lib/campaign-visuals";
+import { canSeeAmounts } from "@/lib/roles";
 import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
@@ -60,9 +61,6 @@ import {
   continuous,
   montant,
 } from "@/theme";
-
-/** Les rôles qui voient les montants collectés. */
-const AMOUNT_ROLES = ["admin", "chef_daara", "collector"];
 
 type Filter = CampaignStatus | "all";
 
@@ -103,7 +101,7 @@ export default function CampaignsScreen() {
   const openDrawer = useUiStore((state) => state.openDrawer);
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
-  const showsAmounts = AMOUNT_ROLES.includes(user?.role ?? "");
+  const showsAmounts = canSeeAmounts(user?.role);
 
   const [state, setState] = useState<ListState>({ status: "loading", campaigns: [] });
   const [refreshing, setRefreshing] = useState(false);

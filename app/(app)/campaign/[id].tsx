@@ -1,647 +1,604 @@
-import { useEffect, useState } from "react";
+/**
+ * app/(app)/campaign/[id].tsx — le détail d'un Ndiguel.
+ *
+ * Écran 2 des cinq de la planche « Faire un Jëf ». Il vient après la liste et
+ * mène à la feuille du Jëf.
+ *
+ * LA COMPOSITION : une photographie de 300 qui porte le nom, puis le corps —
+ * qui participe, où en est la collecte, ce que le guide demande, et qui répond
+ * de ce Ndiguel. L'action est épinglée en bas, elle ne défile jamais.
+ *
+ * ── La règle des rôles, et sa nuance ────────────────────────────────────────
+ *
+ * Un talibé ne voit pas la somme collectée. À sa place, la planche met les
+ * visages et le nombre de participants : **l'écran ne rétrécit pas, il dit
+ * autre chose.** La piste de progression reste dessinée, vide — une barre
+ * absente se lirait comme un défaut de chargement.
+ *
+ * ⚠ Ce masquage est une règle d'AFFICHAGE, pas une frontière de sécurité :
+ * `/etat/` renvoie les montants à tout utilisateur authentifié. Voir
+ * `lib/roles.ts` et le registre de dette.
+ *
+ * ── Ce qui a disparu de l'ancien écran ──────────────────────────────────────
+ *
+ * — **le carrousel « Moyens de paiement acceptés »**. Cinq logos alignés sur
+ *   une fiche de campagne : l'information est vraie mais elle arrive deux
+ *   écrans trop tôt, et elle est répétée par l'écran de paiement, qui lui la
+ *   rend actionnable ;
+ * — **la carte « Rattachement »**, avec ses pastilles « Événement » et
+ *   « Daara ». La fête est désormais la sur-titre de la photographie, là où on
+ *   la lit sans la chercher ;
+ * — les trois colonnes Collecté / Objectif / Progression, remplacées par la
+ *   ligne unique de la planche.
+ *
+ * ── Une déviation assumée par rapport à la planche ──────────────────────────
+ *
+ * La planche pose le chevron de retour DANS la photographie, donc il défile
+ * avec elle. Sur un appareil, passé 300 px de défilement, l'utilisateur n'a
+ * plus de retour visible — seul le geste natif reste. Le chevron est donc
+ * ÉPINGLÉ ici, et prend le ton `neutral` (gris #EDF0ED) plutôt que le blanc
+ * translucide de la planche : un blanc à 92 % disparaîtrait sur le fond blanc
+ * du corps, alors qu'un gris clair se lit aussi bien sur la photographie que
+ * sur le blanc. Un seul ton, lisible partout, aucun état à tenir.
+ */
+import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
-import { ArrowLeft, CalendarDays, Heart, Share2, Users, Clock } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronLeft, MessageSquare, Share2 } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
+import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
+import { formatCountdown, formatFCFA, formatNumber, formatPercent } from "@/lib/format";
+import { canSeeAmounts } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
-import type { Campaign } from "@/types/campaign.types";
+import type { Campaign, CampaignEtat } from "@/types/campaign.types";
+import {
+  Border,
+  Font,
+  GUTTER,
+  Ink,
+  Radius,
+  ScrimPhoto,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+  montant,
+} from "@/theme";
 
-const PRIVILEGED_ROLES = ["admin", "chef_daara", "collector"];
+/** Hauteur de la photographie, mesurée sur la planche. */
+const HERO_HEIGHT = 300;
+/** Au-delà, la description est repliée derrière « Lire la suite ». */
+const DESCRIPTION_CLAMP = 4;
+/** Visages montrés avant la pastille « +N ». */
+const FACES = 4;
 
-const PAYMENT_LOGOS: Record<string, any> = {
-  orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/wave.png"),
-  bictorys: require("@/assets/images/carte-paiement.png"),
-  virement: require("@/assets/images/banque.png"),
-  manual: require("@/assets/images/collecteur.png"),
-};
-
-// Les moyens réellement acceptés, alignés sur `PaymentMethod`.
-const PAYMENT_METHODS = [
-  { key: "orange_money", label: "Orange Money" },
-  { key: "wave", label: "Wave" },
-  { key: "bictorys", label: "Carte bancaire" },
-  { key: "virement", label: "Virement" },
-  { key: "manual", label: "Collecteur" },
-];
-
-function parseId(value?: string | string[]) {
+function parseId(value?: string | string[]): number | null {
   const raw = Array.isArray(value) ? value[0] : value;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function statusLabel(status: Campaign["status"]) {
-  switch (status) {
-    case "active": return "En cours";
-    case "completed": return "Clôturée";
-    case "pending": return "En attente";
-    default: return "Inactive";
-  }
+interface DetailState {
+  status: "loading" | "ready" | "failed";
+  campaign: Campaign | null;
+  /**
+   * L'état de la collecte — participants et contributions. `null` quand
+   * l'appel échoue, ce qui n'est PAS une erreur d'écran : la fiche du Ndiguel
+   * se lit très bien sans le décompte, et refuser de l'afficher pour cela
+   * serait disproportionné.
+   */
+  etat: CampaignEtat | null;
 }
 
-function statusColor(status: Campaign["status"]) {
-  switch (status) {
-    case "active": return Colors.accent.DEFAULT;
-    case "completed": return Colors.status?.success ?? "#2D6A4F";
-    case "pending": return Colors.gold?.DEFAULT ?? "#B8860B";
-    default: return Colors.ink.faint;
-  }
-}
-
-function formatDeadline(date?: string | null) {
-  if (!date) return null;
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+/**
+ * Les deux appels partent ensemble. Seul l'échec du PREMIER fait basculer
+ * l'écran en erreur : sans le Ndiguel il n'y a rien à montrer, sans son état
+ * il manque une ligne.
+ */
+async function fetchDetail(id: number): Promise<DetailState> {
+  const [campaign, etat] = await Promise.all([
+    ContentService.getCampaignById(id).catch(() => null),
+    ContentService.getCampaignEtat(id).catch(() => null),
+  ]);
+  if (!campaign) return { status: "failed", campaign: null, etat: null };
+  return { status: "ready", campaign, etat };
 }
 
 export default function CampaignDetail() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const campaignId = parseId(params.id);
   const { user } = useAuthStore();
-  const isPrivileged = PRIVILEGED_ROLES.includes(user?.role ?? "");
+  const showsAmounts = canSeeAmounts(user?.role);
 
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<DetailState>({
+    status: campaignId ? "loading" : "failed",
+    campaign: null,
+    etat: null,
+  });
+  const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    if (!campaignId) { setLoading(false); return; }
-    let active = true;
-    const load = async () => {
-      try {
-        const data = await ContentService.getCampaignById(campaignId);
-        if (active) setCampaign(data);
-      } catch {
-        if (active) setCampaign(null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    load();
-    return () => { active = false; };
+  const load = useCallback(() => {
+    if (!campaignId) return;
+    setState((previous) => ({ ...previous, status: "loading" }));
+    fetchDetail(campaignId).then(setState);
   }, [campaignId]);
 
-  const hasGoal = (campaign?.goal_amount ?? 0) > 0;
-  const progress = campaign && hasGoal
-    ? Math.min(campaign.collected_amount / campaign.goal_amount, 1)
-    : 0;
-  const color = campaign ? statusColor(campaign.status) : Colors.accent.DEFAULT;
-  const deadline = formatDeadline(campaign?.deadline);
+  useEffect(() => {
+    if (!campaignId) return;
+    let active = true;
+    fetchDetail(campaignId).then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [campaignId]);
 
-  const handleDonate = () => {
-    router.push(campaign
-      ? { pathname: "/donate", params: { campaignId: String(campaign.id) } } as any
-      : "/donate" as any
-    );
-  };
+  const { status, campaign, etat } = state;
 
   return (
-    <View style={styles.container}>
+    <View style={styles.screen}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* ─── Hero header ─── */}
-      <View style={styles.header}>
-        {campaign?.image ? (
-          <>
-            <ExpoImage
-              source={{ uri: campaign.image }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-            />
-            <View style={styles.heroOverlay} />
-          </>
-        ) : (
-          <>
-            <View style={styles.headerBg} />
-            <View style={styles.headerBlobLeft} />
-            <View style={styles.headerBlobRight} />
-            <ExpoImage
-              source={require("@/assets/images/arabesque.png")}
-              style={styles.headerArabesque}
-              contentFit="contain"
-              tintColor={Colors.accent.DEFAULT}
-            />
-          </>
-        )}
-
-        <View style={[styles.topBar, campaign?.image && styles.topBarOnImage]}>
-          <Pressable onPress={() => router.back()} style={[styles.iconBtn, campaign?.image && styles.iconBtnDark]}>
-            <ArrowLeft size={22} color={campaign?.image ? "#FFF" : Colors.ink.DEFAULT} />
-          </Pressable>
-          <Pressable style={[styles.iconBtn, campaign?.image && styles.iconBtnDark]}>
-            <Share2 size={22} color={campaign?.image ? "#FFF" : Colors.ink.DEFAULT} />
-          </Pressable>
+      {status === "failed" ? (
+        <View style={[styles.centered, { paddingTop: insets.top + Space.huge }]}>
+          <ErrorState
+            body="Ce Ndiguel n'a pas pu être chargé."
+            onRetry={campaignId ? load : undefined}
+          />
         </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
+        >
+          <Hero campaign={campaign} />
 
-        <View style={styles.headerContent}>
-          {campaign ? (
-            <View style={[styles.heroBadge, { borderColor: color + "40", backgroundColor: campaign?.image ? "rgba(0,0,0,0.4)" : Colors.surface.DEFAULT }]}>
-              <CalendarDays size={13} color={campaign?.image ? "#FFF" : color} />
-              <Text style={[styles.heroBadgeText, { color: campaign?.image ? "#FFF" : color }]}>
-                {statusLabel(campaign.status)}
-              </Text>
-            </View>
-          ) : null}
-          <Text style={[styles.title, campaign?.image && styles.titleOnImage]}>
-            {campaign?.name ?? "Chargement…"}
-          </Text>
-          {deadline ? (
-            <View style={styles.statsRow}>
-              <Clock size={15} color={campaign?.image ? "rgba(255,255,255,0.85)" : Colors.ink.muted} />
-              <Text style={[styles.statText, campaign?.image && styles.statTextOnImage]}>
-                Jusqu'au {deadline}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+          <View style={styles.body}>
+            {status === "loading" || !campaign ? (
+              <LoadingBody />
+            ) : (
+              <>
+                <Participants etat={etat} />
+
+                <Collecte
+                  campaign={campaign}
+                  showsAmounts={showsAmounts}
+                />
+
+                <Description
+                  campaign={campaign}
+                  expanded={expanded}
+                  onExpand={() => setExpanded(true)}
+                />
+
+                <Organisateur
+                  campaign={campaign}
+                  onMessage={() => router.push("/chat")}
+                />
+              </>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Le chevron épinglé — voir l'en-tête du fichier. */}
+      <View style={[styles.backSlot, { top: insets.top + Space.sm }]} pointerEvents="box-none">
+        <IconButton
+          icon={<ChevronLeft size={20} color={Ink[900]} strokeWidth={1.5} />}
+          accessibilityLabel="Revenir"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace("/campaigns"))}
+        />
       </View>
 
-      {/* ─── Content ─── */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
-      >
-        {loading ? (
-          <GlassCard style={styles.loadingCard}>
-            <ActivityIndicator color={Colors.accent.DEFAULT} />
-          </GlassCard>
-        ) : null}
-
-        {!loading && campaign ? (
-          <>
-            {/* Progress card — privilégiés uniquement */}
-            {isPrivileged && (
-              <GlassCard style={styles.infoCard}>
-                {hasGoal ? (
-                  <>
-                    <ProgressBar
-                      progress={progress}
-                      label={`${campaign.collected_amount.toLocaleString("fr-FR")} / ${campaign.goal_amount.toLocaleString("fr-FR")} FCFA`}
-                    />
-                    <View style={styles.metaRow}>
-                      <View style={styles.metaItem}>
-                        <Text style={styles.metaLabel}>Collecté</Text>
-                        <Text style={[styles.metaValue, { color: Colors.accent.DEFAULT }]}>
-                          {campaign.collected_amount.toLocaleString("fr-FR")} FCFA
-                        </Text>
-                      </View>
-                      <View style={styles.metaDivider} />
-                      <View style={styles.metaItem}>
-                        <Text style={styles.metaLabel}>Objectif</Text>
-                        <Text style={styles.metaValue}>
-                          {campaign.goal_amount.toLocaleString("fr-FR")} FCFA
-                        </Text>
-                      </View>
-                      <View style={styles.metaDivider} />
-                      <View style={styles.metaItem}>
-                        <Text style={styles.metaLabel}>Progression</Text>
-                        <Text style={[styles.metaValue, { color: progress >= 0.9 ? Colors.gold?.DEFAULT ?? "#B8860B" : Colors.accent.DEFAULT }]}>
-                          {Math.round(progress * 100)}%
-                        </Text>
-                      </View>
-                    </View>
-                  </>
-                ) : (
-                  <View style={styles.metaRow}>
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaLabel}>Total collecté</Text>
-                      <Text style={[styles.metaValue, { color: Colors.accent.DEFAULT }]}>
-                        {campaign.collected_amount.toLocaleString("fr-FR")} FCFA
-                      </Text>
-                    </View>
-                    <View style={styles.metaDivider} />
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaLabel}>Objectif</Text>
-                      <Text style={styles.metaValue}>Ouvert</Text>
-                    </View>
-                  </View>
-                )}
-              </GlassCard>
-            )}
-
-            {/* Linked info */}
-            {(campaign.event_name || campaign.daara_name) ? (
-              <GlassCard style={styles.linkedCard}>
-                <Text style={styles.sectionTitle}>Rattachement</Text>
-                {campaign.event_name ? (
-                  <View style={styles.linkedRow}>
-                    <View style={styles.linkedPill}><Text style={styles.linkedPillLabel}>Événement</Text></View>
-                    <Text style={styles.linkedValue}>{campaign.event_name}</Text>
-                  </View>
-                ) : null}
-                {campaign.daara_name ? (
-                  <View style={styles.linkedRow}>
-                    <View style={styles.linkedPill}><Text style={styles.linkedPillLabel}>Daara</Text></View>
-                    <Text style={styles.linkedValue}>{campaign.daara_name}</Text>
-                  </View>
-                ) : null}
-              </GlassCard>
-            ) : null}
-
-            {/* Description */}
-            {campaign.description ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>À propos de ce Jëf</Text>
-                <Text style={styles.description}>{campaign.description}</Text>
-              </View>
-            ) : null}
-
-            {/* Statut + Date — résumé compact */}
-            <View style={styles.pillsRow}>
-              <View style={[styles.infoPill, { backgroundColor: color + "14", borderColor: color + "30" }]}>
-                <CalendarDays size={13} color={color} />
-                <Text style={[styles.infoPillText, { color }]}>{statusLabel(campaign.status)}</Text>
-              </View>
-              {deadline ? (
-                <View style={styles.infoPill}>
-                  <Clock size={13} color={Colors.ink.faint} />
-                  <Text style={styles.infoPillText}>{deadline}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* Payment methods avec vraies images */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Moyens de paiement acceptés</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.paymentScroll}
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <View key={method.key} style={styles.paymentItem}>
-                    {PAYMENT_LOGOS[method.key] ? (
-                      <ExpoImage
-                        source={PAYMENT_LOGOS[method.key]}
-                        style={styles.paymentLogo}
-                        contentFit="contain"
-                      />
-                    ) : (
-                      <View style={[styles.paymentLogo, styles.paymentLogoFallback]}>
-                        <Text style={styles.paymentLogoFallbackText}>
-                          {method.label.slice(0, 2).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <Text style={styles.paymentName}>{method.label}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Voir état — réservé aux privilégiés */}
-            {isPrivileged ? (
-              <View style={[styles.section, { marginBottom: 40 }]}>
-                <Button
-                  label="Voir l'état du Ndiguel"
-                  variant="outline"
-                  onPress={() => router.push(`/campaign/etat-${campaign.id}` as any)}
-                  icon={<Users size={18} color={Colors.accent.DEFAULT} />}
-                />
-              </View>
-            ) : null}
-          </>
-        ) : null}
-
-        {!loading && !campaign ? (
-          <GlassCard style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Campagne introuvable</Text>
-            <Text style={styles.emptyText}>
-              Cette campagne n'est plus disponible ou l'identifiant est invalide.
-            </Text>
-          </GlassCard>
-        ) : null}
-      </ScrollView>
-
-      {/* ─── CTA footer ─── */}
-      {campaign ? (
-        campaign.status === "active" ? (
-          <View style={styles.footer}>
-            <Button
-              label="Participer Fi Sabillah"
-              onPress={handleDonate}
-              icon={<Heart size={20} color="#FFF" />}
-            />
-          </View>
-        ) : (
-          <View style={styles.footer}>
-            <View style={[styles.closedBanner, { backgroundColor: color + "14", borderColor: color + "30" }]}>
-              <Text style={[styles.closedText, { color }]}>
-                Ce ndiguel est {statusLabel(campaign.status).toLowerCase()} — les contributions sont clôturées.
-              </Text>
-            </View>
-          </View>
-        )
+      {status === "ready" && campaign ? (
+        <ActionBar
+          campaign={campaign}
+          bottomInset={insets.bottom}
+          onDonate={() =>
+            router.push({
+              pathname: "/donate",
+              params: { campaignId: String(campaign.id) },
+            })
+          }
+        />
       ) : null}
     </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Hero({ campaign }: { campaign: Campaign | null }) {
+  const countdown = campaign ? formatCountdown(campaign.deadline) : null;
+  /** Le décompte n'a de sens que devant : « Clôturé » est déjà dit par le statut. */
+  const showCountdown = Boolean(countdown) && countdown !== "Clôturé";
+
+  return (
+    <View style={styles.hero}>
+      {campaign ? (
+        <ExpoImage
+          source={campaignVisual(campaign, "wide")}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, styles.heroPlaceholder]} />
+      )}
+
+      <LinearGradient
+        colors={ScrimPhoto.colors}
+        locations={ScrimPhoto.locations}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {campaign ? (
+        <>
+          {showCountdown ? (
+            <View style={styles.countdown}>
+              <Text style={styles.countdownLabel}>{countdown}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.heroText}>
+            {campaign.event_name ? (
+              <Text style={styles.heroOverline} numberOfLines={1}>
+                {campaign.event_name}
+              </Text>
+            ) : null}
+            <Text style={styles.heroTitle} numberOfLines={3}>
+              {campaign.name}
+            </Text>
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function Participants({ etat }: { etat: CampaignEtat | null }) {
+  const count = etat?.donation_count ?? 0;
+  if (!etat || count === 0) return null;
+
+  /**
+   * Les contributeurs anonymes comptent dans le total mais ne montrent pas de
+   * visage : la pile afficherait leurs initiales, c'est-à-dire celles de
+   * « Contributeur anonyme » — quatre fois la même pastille « CA ».
+   */
+  const faces: StackedPerson[] = etat.contributions
+    .filter((c) => !c.is_anonymous)
+    .slice(0, FACES)
+    .map((c) => ({ name: c.member_name }));
+
+  return (
+    <View style={styles.participants}>
+      {faces.length > 0 ? (
+        <AvatarStack people={faces} size={32} max={FACES} total={count} />
+      ) : null}
+      <Text style={styles.participantsLabel}>
+        {count === 1
+          ? "1 talibé y participe"
+          : `${formatNumber(count)} talibés y participent`}
+      </Text>
+    </View>
+  );
+}
+
+function Collecte({
+  campaign,
+  showsAmounts,
+}: {
+  campaign: Campaign;
+  showsAmounts: boolean;
+}) {
+  const goal = campaign.goal_amount ?? 0;
+  const ratio = goal > 0 ? Math.min(campaign.collected_amount / goal, 1) : 0;
+  const closing = formatDeadline(campaign.deadline);
+
+  if (!showsAmounts) {
+    return (
+      <View style={styles.collecte}>
+        {/* Piste vide, jamais absente : `hidden` est fait pour ce cas. */}
+        <ProgressBar hidden />
+        <Text style={styles.collecteNote}>
+          {closing
+            ? `La collecte est suivie par le chef de votre Daara. Clôture le ${closing}.`
+            : "La collecte est suivie par le chef de votre Daara."}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.collecte}>
+      <View style={styles.collecteHead}>
+        <Text style={styles.collecteAmount}>{formatFCFA(campaign.collected_amount)}</Text>
+        {goal > 0 ? (
+          <Text style={styles.collecteGoal}>sur {formatNumber(goal)}</Text>
+        ) : null}
+      </View>
+      <ProgressBar progress={ratio} />
+      <Text style={styles.collecteNote}>
+        {[
+          goal > 0 ? `${formatPercent(ratio)} de l'objectif` : "Objectif ouvert",
+          closing ? `clôture le ${closing}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </Text>
+    </View>
+  );
+}
+
+function Description({
+  campaign,
+  expanded,
+  onExpand,
+}: {
+  campaign: Campaign;
+  expanded: boolean;
+  onExpand: () => void;
+}) {
+  /**
+   * `objective` dit à quoi sert la collecte, `description` la raconte. Quand
+   * les deux existent, l'objectif ferme le paragraphe — il répond à la question
+   * que la description vient de poser.
+   */
+  const text = [campaign.description, campaign.objective]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  if (!text) return null;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Le Ndiguel</Text>
+      <Text
+        style={styles.description}
+        numberOfLines={expanded ? undefined : DESCRIPTION_CLAMP}
+      >
+        {text}
+      </Text>
+      {expanded ? null : (
+        <Pressable
+          onPress={onExpand}
+          accessibilityRole="button"
+          hitSlop={Space.sm}
+          style={styles.more}
+        >
+          <Text style={styles.moreLabel}>Lire la suite</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function Organisateur({
+  campaign,
+  onMessage,
+}: {
+  campaign: Campaign;
+  onMessage: () => void;
+}) {
+  const name = campaign.organizer_name?.trim();
+  if (!name) return null;
+
+  return (
+    <Card style={styles.organizer}>
+      <Avatar name={name} size={40} />
+      <View style={styles.organizerText}>
+        <Text style={styles.organizerName} numberOfLines={1}>
+          {name}
+        </Text>
+        {campaign.daara_name ? (
+          <Text style={styles.organizerRole} numberOfLines={1}>
+            Daara de {campaign.daara_name}
+          </Text>
+        ) : null}
+      </View>
+      {/*
+        Le bouton de message est DÉCORATIF sur la planche. Il ne l'est pas ici :
+        `comms/` n'expose pas d'ouverture de conversation par utilisateur, et un
+        bouton qui ne fait rien est pire qu'un bouton absent. Il mène donc à la
+        messagerie, où la conversation se retrouve.
+      */}
+      <IconButton
+        icon={<MessageSquare size={18} color={Ink[900]} strokeWidth={1.5} />}
+        accessibilityLabel={`Écrire à ${name}`}
+        onPress={onMessage}
+      />
+    </Card>
+  );
+}
+
+function ActionBar({
+  campaign,
+  bottomInset,
+  onDonate,
+}: {
+  campaign: Campaign;
+  bottomInset: number;
+  onDonate: () => void;
+}) {
+  /**
+   * Un Ndiguel clôturé ou en attente n'accepte pas de Jëf — le backend le
+   * refuserait (`handleSubmit` vérifiait déjà `status !== "active"`, mais après
+   * avoir laissé l'utilisateur remplir tout le formulaire). Autant le dire
+   * avant, sur le bouton.
+   */
+  const open = campaign.status === "active";
+
+  return (
+    <View style={[styles.actionBar, { paddingBottom: Math.max(bottomInset, Space.xl) }]}>
+      <LinearGradient
+        colors={["rgba(255,255,255,0)", Surface.default]}
+        locations={[0, 0.42]}
+        style={styles.actionFade}
+        pointerEvents="none"
+      />
+      <View style={styles.actionRow}>
+        <Button
+          label={open ? "Faire un Jëf" : "Ndiguel clôturé"}
+          onPress={onDonate}
+          disabled={!open}
+          style={styles.actionButton}
+        />
+        <IconButton
+          icon={<Share2 size={20} color={Violet[900]} strokeWidth={1.5} />}
+          accessibilityLabel="Partager ce Ndiguel"
+          tone="neutral"
+          onPress={() => shareCampaign(campaign)}
+          style={styles.actionShare}
+        />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Le partage passe par la feuille native. `Share` vient de React Native, pas
+ * d'une dépendance : c'est le même geste que celui de n'importe quelle autre
+ * application, et le lien profond que l'on partage est celui que la garde sait
+ * désormais rejouer après connexion (`lib/pending-route.ts`).
+ */
+async function shareCampaign(campaign: Campaign) {
+  const { Share } = await import("react-native");
+  try {
+    await Share.share({
+      message: `${campaign.name} — un Ndiguel sur Yessal Gui\nyessalgui://campaign/${campaign.id}`,
+    });
+  } catch {
+    /* L'utilisateur a fermé la feuille. Ce n'est pas une erreur. */
+  }
+}
+
+function LoadingBody() {
+  return (
+    <View style={styles.loading}>
+      <Skeleton width="60%" height={20} />
+      <Skeleton width="100%" height={8} radius={Radius.chip} />
+      <Skeleton width="45%" height={14} />
+      <Skeleton width="100%" height={72} radius={Radius.card} />
+    </View>
+  );
+}
+
+/** « 2026-09-13 » → « 13 septembre ». L'année n'est utile qu'au-delà. */
+function formatDeadline(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  header: {
-    height: 280,
+  screen: { flex: 1, backgroundColor: Surface.default },
+  centered: { flex: 1, paddingHorizontal: GUTTER },
+  /** La barre d'action est absolue : le défilement doit pouvoir passer dessous. */
+  scroll: { paddingBottom: 120 },
+
+  hero: {
+    height: HERO_HEIGHT,
+    backgroundColor: Violet[900],
     justifyContent: "flex-end",
-    paddingBottom: 28,
-    paddingHorizontal: 24,
     overflow: "hidden",
   },
-  heroOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(0,0,0,0.38)",
-  },
-  headerBg: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "#FAF8F3",
-  },
-  headerBlobLeft: {
+  heroPlaceholder: { backgroundColor: Violet[900] },
+  countdown: {
     position: "absolute",
-    top: -90,
-    left: -70,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: Colors.accent.dim,
-    opacity: 0.6,
+    top: Space.md,
+    right: GUTTER,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    borderRadius: Radius.chip,
+    backgroundColor: "rgba(255,255,255,0.92)",
   },
-  headerBlobRight: {
-    position: "absolute",
-    top: 10,
-    right: -90,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: "rgba(184, 134, 11, 0.08)",
-  },
-  headerArabesque: {
-    position: "absolute",
-    right: -20,
-    bottom: -20,
-    width: 200,
-    height: 200,
-    opacity: 0.12,
-  },
-  topBar: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 56 : 40,
-    left: 24,
-    right: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  topBarOnImage: {
-    // Same position, icons adapt via color
-  },
-  iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.85)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
-  iconBtnDark: {
-    backgroundColor: "rgba(0,0,0,0.35)",
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  headerContent: {
-    gap: 10,
-  },
-  heroBadge: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  heroBadgeText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-  },
-  title: {
-    fontSize: 26,
-    lineHeight: 33,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  titleOnImage: {
-    color: "#FFF",
-  },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statText: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.muted,
-  },
-  statTextOnImage: {
-    color: "rgba(255,255,255,0.85)",
-  },
-  scroll: {
-    padding: 20,
-    paddingBottom: 120,
-    paddingTop: 20,
-    gap: 20,
-  },
-  loadingCard: {
-    minHeight: 100,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  infoCard: {
-    padding: 18,
-    gap: 14,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 0,
-  },
-  metaItem: {
-    flex: 1,
-    alignItems: "center",
-    gap: 3,
-  },
-  metaDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: Colors.border.DEFAULT,
-  },
-  metaLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.faint,
+  countdownLabel: { ...UIType.badgeLabel, color: Violet[900] },
+  heroText: { paddingHorizontal: GUTTER, paddingBottom: Space.lg, gap: Space.xs },
+  heroOverline: {
+    ...Type.micro,
+    fontFamily: Font.semibold,
+    letterSpacing: 1.1,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    color: "rgba(255,255,255,0.78)",
   },
-  metaValue: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    textAlign: "center",
-  },
-  linkedCard: {
-    padding: 16,
-    gap: 10,
-  },
-  linkedRow: {
-    gap: 4,
-  },
-  linkedPill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: Colors.accent.dim,
-  },
-  linkedPillLabel: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  linkedValue: {
-    fontSize: 14,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_600SemiBold",
-  },
-  section: {
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  description: {
-    fontSize: 15,
-    lineHeight: 24,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  pillsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  infoPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.04)",
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-  },
-  infoPillText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.muted,
-  },
-  paymentScroll: {
-    gap: 10,
-    paddingRight: 8,
-  },
-  paymentItem: {
-    width: 90,
-    height: 90,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.04)",
-  },
-  paymentLogo: {
-    width: 44,
-    height: 30,
-  },
-  paymentLogoFallback: {
-    width: 44,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  paymentLogoFallbackText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-  },
-  paymentName: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.muted,
-    textAlign: "center",
-  },
-  emptyCard: {
-    padding: 18,
-    gap: 8,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  emptyText: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.muted,
-    lineHeight: 20,
-  },
-  footer: {
+  heroTitle: { ...Type.greeting, color: "#FFFFFF" },
+
+  backSlot: { position: "absolute", left: GUTTER },
+
+  body: { paddingHorizontal: GUTTER, paddingTop: Space.xl, gap: Space.xl },
+  loading: { gap: Space.lg },
+
+  participants: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  participantsLabel: { ...Type.label, color: Ink[500], flexShrink: 1 },
+
+  collecte: { gap: Space.md },
+  collecteHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  collecteAmount: { ...Type.greeting, color: montant },
+  collecteGoal: { ...Type.label, color: Ink[500] },
+  collecteNote: { ...Type.label, color: Ink[500], lineHeight: 18 },
+
+  section: { gap: Space.sm },
+  sectionTitle: { ...Type.cardTitle, color: Ink[900] },
+  description: { ...Type.body, color: Ink[900] },
+  more: { alignSelf: "flex-start" },
+  moreLabel: { fontFamily: Font.bold, fontSize: 14, lineHeight: 21, color: Violet[700] },
+
+  organizer: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  organizerText: { flex: 1, gap: 2 },
+  organizerName: { ...UIType.personName, color: Ink[900] },
+  organizerRole: { ...Type.label, color: Ink[500] },
+
+  actionBar: {
     position: "absolute",
-    bottom: 0,
     left: 0,
     right: 0,
-    padding: 20,
-    paddingBottom: Platform.OS === "ios" ? 38 : 20,
-    backgroundColor: "rgba(255,255,255,0.88)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.05)",
+    bottom: 0,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.lg,
   },
-  closedBanner: {
-    borderRadius: 14,
+  /** Le dégradé déborde vers le haut : le contenu s'efface avant d'atteindre le bouton. */
+  actionFade: { position: "absolute", left: 0, right: 0, bottom: 0, top: -Space.xxl },
+  actionRow: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  actionButton: { flex: 1 },
+  actionShare: {
+    width: 52,
+    height: 52,
+    borderRadius: Radius.button,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  closedText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
-    lineHeight: 20,
+    borderColor: Border.strong,
+    backgroundColor: Surface.default,
+    ...continuous,
   },
 });

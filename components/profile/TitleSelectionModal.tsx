@@ -1,18 +1,49 @@
+/**
+ * TitleSelectionModal — la demande de titre, passée au système (phase F).
+ *
+ * ── ⚠ Ce composant n'avait plus aucun appelant ──────────────────────────────
+ *
+ * Il vivait dans le `profile.tsx` de 738 lignes. La scission du §3.4, en
+ * phase E, a réparti l'identité d'un côté et les réglages de l'autre — et **a
+ * laissé la demande de titre sur le carreau**. Le service existe pourtant
+ * (`AuthService.getTitles`, `AuthService.submitTitleRequest`), les points d'API
+ * existent, et `daara.tsx` **affiche** `title_name` dans l'annuaire : un membre
+ * pouvait voir le titre des autres sans avoir aucun moyen de demander le sien.
+ *
+ * Ce n'est donc pas du code mort, c'est une fonction dont on avait perdu la
+ * poignée. Elle est rebranchée dans les Paramètres, sous « Compte ».
+ *
+ * La feuille suit la mécanique de `Select` : fond violet-950 à 32 %, coins
+ * hauts au rayon de carte, poignée de 36.
+ */
 import { useState } from "react";
 import {
+  Alert,
   Modal,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  Pressable,
-  ScrollView,
-  Alert,
 } from "react-native";
-import { X, Check } from "lucide-react-native";
+import { Check, X } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Button, IconButton } from "@/components/ui/Button";
 import type { TitleOption } from "@/types";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Radius,
+  Shadow,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
 interface TitleSelectionModalProps {
   visible: boolean;
@@ -32,192 +63,136 @@ export function TitleSelectionModal({
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
+  const submit = async () => {
     if (selectedId === null) {
-      Alert.alert("Sélection requise", "Veuillez choisir un titre.");
+      Alert.alert("Aucun titre choisi", "Sélectionnez le titre que vous demandez.");
       return;
     }
 
     setSubmitting(true);
     try {
       await onSelect(selectedId);
+      setSelectedId(null);
       onClose();
     } catch {
-      // Error handled by parent
+      // L'appelant porte le message : lui seul sait ce que le serveur a répondu.
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <View style={styles.content}>
-          <View style={styles.header}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} accessibilityLabel="Fermer" onPress={onClose} />
+
+      <View style={styles.sheet}>
+        <View style={styles.grabber} />
+
+        <View style={styles.header}>
+          <View style={styles.headerText}>
             <Text style={styles.title}>Demander un titre</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <X size={24} color={Colors.ink.DEFAULT} />
-            </Pressable>
+            <Text style={styles.subtitle}>
+              Votre demande est transmise au responsable de votre Daara, qui la
+              valide ou la refuse.
+            </Text>
           </View>
-
-          <Text style={styles.subtitle}>
-            Choisissez le titre qui correspond le mieux à votre rôle dans la confrérie.
-          </Text>
-
-          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {titles.map((title) => {
-              const isActive = selectedId === title.id;
-              const isCurrent = currentTitle === title.name;
-
-              return (
-                <Pressable
-                  key={title.id}
-                  onPress={() => setSelectedId(title.id)}
-                  style={[
-                    styles.item,
-                    isActive && styles.itemActive,
-                    isCurrent && styles.itemDisabled,
-                  ]}
-                  disabled={isCurrent}
-                >
-                  <View style={styles.itemRow}>
-                    <View style={styles.itemInfo}>
-                      <Text
-                        style={[
-                          styles.itemName,
-                          isActive && styles.itemTextActive,
-                          isCurrent && styles.itemTextDisabled,
-                        ]}
-                      >
-                        {title.name}
-                      </Text>
-                      {title.description && (
-                        <Text style={styles.itemDesc}>{title.description}</Text>
-                      )}
-                    </View>
-                    {isActive && (
-                      <Check size={20} color={Colors.accent.DEFAULT} />
-                    )}
-                    {isCurrent && (
-                      <View style={styles.currentBadge}>
-                        <Text style={styles.currentBadgeText}>Actuel</Text>
-                      </View>
-                    )}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <Button
-              label="Soumettre la demande"
-              onPress={handleSubmit}
-              loading={submitting}
-              disabled={selectedId === null}
-            />
-          </View>
+          <IconButton
+            icon={<X size={20} color={Ink[900]} strokeWidth={1.5} />}
+            accessibilityLabel="Fermer"
+            onPress={onClose}
+          />
         </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+          {titles.map((title) => {
+            const active = selectedId === title.id;
+            const held = currentTitle === title.name;
+
+            return (
+              <Pressable
+                key={title.id}
+                onPress={() => setSelectedId(title.id)}
+                disabled={held}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active, disabled: held }}
+                style={({ pressed }) => [
+                  styles.item,
+                  active && styles.itemActive,
+                  held && styles.itemHeld,
+                  pressed && !held && styles.pressed,
+                ]}
+              >
+                <View style={styles.itemText}>
+                  <Text style={[styles.itemName, active && styles.itemNameActive]}>
+                    {title.name}
+                  </Text>
+                  {title.description ? (
+                    <Text style={styles.itemDesc}>{title.description}</Text>
+                  ) : null}
+                </View>
+
+                {held ? <Badge label="Actuel" tone="closed" /> : null}
+                {active && !held ? (
+                  <Check size={20} color={Violet[700]} strokeWidth={2} />
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Button
+          label="Soumettre la demande"
+          onPress={submit}
+          loading={submitting}
+          disabled={selectedId === null}
+        />
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
+  backdrop: { flex: 1, backgroundColor: "rgba(25,11,61,0.32)" },
+  sheet: {
+    maxHeight: "82%",
+    backgroundColor: Surface.default,
+    borderTopLeftRadius: Radius.card + 4,
+    borderTopRightRadius: Radius.card + 4,
+    ...continuous,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.md,
+    paddingBottom: Space.xxxl,
+    gap: Space.md,
+    boxShadow: Shadow.sheet,
   },
-  content: {
-    backgroundColor: Colors.surface.subtle,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    padding: 24,
-    maxHeight: "80%",
+  grabber: {
+    alignSelf: "center",
+    width: 36,
+    height: 4,
+    borderRadius: Radius.chip,
+    backgroundColor: Ink[100],
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  closeBtn: {
-    padding: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  list: {
-    marginBottom: 24,
-  },
+  header: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
+  headerText: { flex: 1, gap: Space.xs },
+  title: { ...Type.cardTitle, color: Ink[900] },
+  subtitle: { ...Type.body, color: Ink[500] },
+
+  list: { gap: Space.sm, paddingBottom: Space.sm },
   item: {
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: Colors.surface.DEFAULT,
-    borderWidth: 1,
-    borderColor: Colors.border.DEFAULT,
-    marginBottom: 12,
-  },
-  itemActive: {
-    borderColor: Colors.accent.DEFAULT,
-    backgroundColor: Colors.accent.dim,
-  },
-  itemDisabled: {
-    opacity: 0.6,
-    backgroundColor: Colors.surface.muted,
-  },
-  itemRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: Space.md,
+    padding: Space.lg,
+    borderRadius: Radius.card,
+    ...continuous,
+    borderWidth: 1,
+    borderColor: Border.hairline,
   },
-  itemInfo: {
-    flex: 1,
-  },
-  itemName: {
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-  },
-  itemTextActive: {
-    color: Colors.accent.DEFAULT,
-  },
-  itemTextDisabled: {
-    color: Colors.ink.faint,
-  },
-  itemDesc: {
-    fontSize: 12,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-    marginTop: 4,
-  },
-  currentBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: Colors.surface.muted,
-  },
-  currentBadgeText: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-  },
-  footer: {
-    paddingBottom: 24,
-  },
+  itemActive: { backgroundColor: Violet[100], borderColor: Violet[300] },
+  itemHeld: { backgroundColor: Surface.alt, borderColor: "transparent" },
+  pressed: { opacity: 0.72 },
+  itemText: { flex: 1, gap: 2 },
+  itemName: { ...UIType.rowTitle, color: Ink[900] },
+  itemNameActive: { color: Violet[900] },
+  itemDesc: { ...Type.body, color: Ink[500] },
 });

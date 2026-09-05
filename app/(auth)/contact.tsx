@@ -1,28 +1,69 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+/**
+ * app/(auth)/contact.tsx — le support, passé au système (phase F).
+ *
+ * Écran hérité : aucune maquette ne le dessine, il reçoit donc les tokens et
+ * les composants sans être repensé (§5.2). Ce qui change : `SectionHeader`
+ * — 174 px, deux blobs verts et Inter — devient `ScreenHeader`, et `GlassCard`
+ * devient `Card`.
+ *
+ * ⚠ Les trois canaux sont écrits en dur, comme avant. Le backend n'expose
+ * aucun point de contact ; les inventer ici serait déjà mieux que de les
+ * inventer ailleurs, mais ils restent à confirmer par le commanditaire avant
+ * mise en production.
+ */
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Mail, PhoneCall, MessageCircle, ArrowLeft } from "lucide-react-native";
+import { Mail, MessageCircle, PhoneCall } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Card } from "@/components/ui/Card";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import {
+  Border,
+  GUTTER,
+  Ink,
+  Radius,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
-const supportOptions = [
+interface SupportChannel {
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+  /** `undefined` : la ligne s'affiche sans être pressable. */
+  href?: string;
+}
+
+const CHANNELS: SupportChannel[] = [
   {
-    icon: Mail,
-    title: "Email support",
+    icon: <Mail size={18} color={Violet[700]} strokeWidth={1.5} />,
+    title: "Écrire au support",
     detail: "support@yessalgui.com",
+    href: "mailto:support@yessalgui.com",
   },
   {
-    icon: PhoneCall,
-    title: "Support téléphonique",
+    icon: <PhoneCall size={18} color={Violet[700]} strokeWidth={1.5} />,
+    title: "Appeler le support",
     detail: "+221 77 000 00 00",
+    href: "tel:+221770000000",
   },
   {
-    icon: MessageCircle,
-    title: "Chat communauté",
-    detail: "Réponse pendant les heures ouvrées",
+    icon: <MessageCircle size={18} color={Violet[700]} strokeWidth={1.5} />,
+    title: "Heures d'ouverture",
+    detail: "Du lundi au samedi, de 9 h à 18 h",
   },
 ];
 
@@ -30,93 +71,99 @@ export default function ContactScreen() {
   const router = useRouter();
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <SectionHeader
-        title="Support"
-        subtitle="Choisissez le canal le plus adapté à votre besoin"
-        icon={<MessageCircle size={24} color="#FFF" />}
-      />
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <ScreenHeader title="Support" onBack={() => router.back()} />
 
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.back}>
-          <ArrowLeft size={18} color={Colors.ink.muted} />
-          <Text style={styles.backText}>Retour</Text>
-        </Pressable>
+        <Text style={styles.lead}>
+          Choisissez le canal le plus adapté à votre besoin. Un membre de
+          l&apos;équipe vous répond pendant les heures ouvrées.
+        </Text>
 
-        <GlassCard style={styles.card}>
-          {supportOptions.map((item) => {
-            const Icon = item.icon;
-            return (
-              <View key={item.title} style={styles.option}>
-                <View style={styles.optionIcon}>
-                  <Icon size={18} color={Colors.accent.DEFAULT} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.optionTitle}>{item.title}</Text>
-                  <Text style={styles.optionDetail}>{item.detail}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </GlassCard>
+        <Card padded={false} style={styles.card}>
+          {CHANNELS.map((channel, index) => (
+            <Row
+              key={channel.title}
+              channel={channel}
+              divided={index > 0}
+            />
+          ))}
+        </Card>
 
-        <Button label="Retour à la connexion" onPress={() => router.replace("/login" as any)} />
+        <Button
+          label="Retour à la connexion"
+          variant="secondary"
+          onPress={() => router.replace("/login")}
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function Row({ channel, divided }: { channel: SupportChannel; divided: boolean }) {
+  const inner = (
+    <>
+      <View style={styles.rowIcon}>{channel.icon}</View>
+      <View style={styles.rowText}>
+        <Text style={styles.rowTitle}>{channel.title}</Text>
+        <Text style={styles.rowDetail}>{channel.detail}</Text>
+      </View>
+    </>
+  );
+
+  if (!channel.href) {
+    return <View style={[styles.row, divided && styles.divided]}>{inner}</View>;
+  }
+
+  const href = channel.href;
+
+  return (
+    <Pressable
+      onPress={() => Linking.openURL(href)}
+      accessibilityRole="link"
+      accessibilityLabel={`${channel.title} — ${channel.detail}`}
+      style={({ pressed }) => [
+        styles.row,
+        divided && styles.divided,
+        pressed && styles.pressed,
+      ]}
+    >
+      {inner}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
+  safe: { flex: 1, backgroundColor: Surface.default },
   content: {
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-    marginTop: -18,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.sm,
+    paddingBottom: Space.xxxl,
+    gap: Space.xl,
   },
-  back: {
+  lead: { ...Type.body, color: Ink[500] },
+  card: { paddingHorizontal: Space.xl, paddingVertical: Space.xs },
+  pressed: { opacity: 0.72 },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
+    gap: Space.lg,
+    paddingVertical: Space.lg,
   },
-  backText: {
-    fontSize: 14,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_600SemiBold",
-  },
-  card: {
-    padding: 18,
-    gap: 16,
-    marginBottom: 18,
-  },
-  option: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  optionIcon: {
+  divided: { borderTopWidth: 1, borderTopColor: Border.hairline },
+  rowIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: Radius.input,
+    ...continuous,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.accent.dim,
+    backgroundColor: Violet[100],
   },
-  optionTitle: {
-    color: Colors.ink.DEFAULT,
-    fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
-  },
-  optionDetail: {
-    color: Colors.ink.muted,
-    fontSize: 13,
-    marginTop: 2,
-    fontFamily: "Inter_400Regular",
-  },
+  rowText: { flex: 1, gap: 2 },
+  rowTitle: { ...UIType.rowTitle, color: Ink[900] },
+  rowDetail: { ...Type.body, color: Ink[500] },
 });

@@ -1,455 +1,193 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import {
-  MessageSquare,
-  Plus,
-  Search,
-  ShieldCheck,
-  ChevronRight,
-  Users,
-} from "lucide-react-native";
+/**
+ * app/(app)/(tabs)/chat.tsx — la liste des conversations.
+ *
+ * Planche « Accueil et Onglets », vues `messagesFull` et `messagesEmpty` :
+ * en-tête (tiroir · titre), puis des rangées séparées d'un filet — avatar, nom,
+ * dernier message, heure, pastille de non-lus. Rien d'autre.
+ *
+ * ── Ce qui a disparu de l'ancien écran ──────────────────────────────────────
+ *
+ * — **Le calcul du dernier message côté client.** L'écran téléchargeait TOUS
+ *   les messages de TOUTES les conversations (`getMessages()`), les triait, et
+ *   n'en gardait qu'un par fil. Le serveur compose déjà ce condensé :
+ *   `ChatSerializer.get_last_message`, en un seul sous-requêtage annoté. Un
+ *   appel au lieu de deux, et une charge qui ne grandit plus avec l'historique ;
+ * — **la pastille de non-lus câblée à `unread: 0`.** Elle était donc invisible
+ *   par construction. `unread_count` existe côté serveur depuis le début, et
+ *   personne ne le lisait — voir `normalizeChat` ;
+ * — **les deux sections « Mon Daara » / « Discussions ».** La planche pose une
+ *   liste unique, triée par récence. C'est la convention de toute messagerie :
+ *   ce qui vient d'arriver est en haut ;
+ * — **le bandeau d'administration** (« Vous gérez toutes les discussions ») et
+ *   **la pastille « Admin » sur chaque ligne**. Rappeler son propre rôle à
+ *   chaque ligne d'une liste n'apprend rien à celui qui le porte ;
+ * — **le bouton « Nouveau groupe »**, qui ouvrait une alerte renvoyant au
+ *   tableau de bord web. Un bouton dont la seule action est de dire qu'il ne
+ *   fait rien ;
+ * — **la recherche.** La planche des Ndiguels dessine une loupe, celle des
+ *   Messages n'en dessine pas : un talibé a le salon de son Daara et quelques
+ *   échanges, filtrer une liste qu'on voit entière n'a pas d'objet.
+ */
+import { useCallback, useEffect, useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MessagesSquare, Menu } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { SectionHeader } from "@/components/ui/SectionHeader";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Input } from "@/components/ui/Input";
-import { Avatar } from "@/components/ui/Avatar";
+import { ChatRow } from "@/components/chat/ChatRow";
+import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { IconButton } from "@/components/ui/Button";
+import { SkeletonListRow } from "@/components/ui/Skeleton";
+import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { ContentService } from "@/lib/content.service";
-import { useAuthStore } from "@/store/auth.store";
-import type { Chat, Message } from "@/types/content.types";
-
 import { useUiStore } from "@/store/ui.store";
-const ADMIN_ROLES = ["admin", "chef_daara"];
+import type { Chat } from "@/types/content.types";
+import { GUTTER, Ink, Space, Surface, Type, Violet } from "@/theme";
 
-type ChatSummary = Chat & {
-  lastMessage?: Message;
-  unread: number;
-};
-
-function chatLabel(chat: Chat) {
-  if (chat.name) return chat.name;
-  if (chat.daara_name) return chat.daara_name;
-  if (chat.daara) return "Chat du Daara";
-  return "Discussion";
+interface ListState {
+  status: "loading" | "ready" | "failed";
+  chats: Chat[];
 }
 
-function formatTime(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  if (isToday) return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+/**
+ * Le tri : la conversation qui a bougé en dernier passe devant. Celles qui
+ * n'ont aucun message ferment la liste — elles n'ont pas d'horodatage à
+ * comparer, et les mettre en tête donnerait la première place au silence.
+ */
+function byRecency(a: Chat, b: Chat): number {
+  const at = a.last_message?.sent_at ? new Date(a.last_message.sent_at).getTime() : 0;
+  const bt = b.last_message?.sent_at ? new Date(b.last_message.sent_at).getTime() : 0;
+  return bt - at;
 }
 
-export default function CommunityScreen() {
-  const openDrawer = useUiStore((state) => state.openDrawer);
+/**
+ * Rend un état COMPLET. Le `setState` vit après l'`await`, jamais dans le corps
+ * de l'effet — c'est ce que `react-hooks/set-state-in-effect` exige, et c'est
+ * le même montage que `fetchDetail` dans `campaign/[id].tsx`.
+ */
+async function fetchChats(): Promise<ListState> {
+  try {
+    const chats = await ContentService.getChats();
+    return { status: "ready", chats: [...chats].sort(byRecency) };
+  } catch {
+    return { status: "failed", chats: [] };
+  }
+}
+
+export default function MessagesScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? "");
+  const insets = useSafeAreaInsets();
+  const openDrawer = useUiStore((state) => state.openDrawer);
 
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<ListState>({ status: "loading", chats: [] });
   const [refreshing, setRefreshing] = useState(false);
-  const [query, setQuery] = useState("");
 
-  const load = async () => {
-    try {
-      const [chatData, messageData] = await Promise.all([
-        ContentService.getChats(),
-        ContentService.getMessages(),
-      ]);
-      setChats(chatData);
-      setMessages(messageData);
-    } catch {
-      setChats([]);
-      setMessages([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const summaries = useMemo<ChatSummary[]>(() => {
-    const latestByChat = new Map<number, Message>();
-    [...messages]
-      .sort((a, b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime())
-      .forEach((msg) => {
-        if (!latestByChat.has(msg.chat)) latestByChat.set(msg.chat, msg);
-      });
-
-    return chats
-      .map((chat) => ({ ...chat, lastMessage: latestByChat.get(chat.id), unread: 0 }))
-      .sort((a, b) => {
-        if (a.daara && !b.daara) return -1;
-        if (!a.daara && b.daara) return 1;
-        const aTime = a.lastMessage ? new Date(a.lastMessage.sent_at).getTime() : 0;
-        const bTime = b.lastMessage ? new Date(b.lastMessage.sent_at).getTime() : 0;
-        return bTime - aTime;
-      });
-  }, [chats, messages]);
-
-  const filteredChats = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return summaries;
-    return summaries.filter((chat) => {
-      const name = chatLabel(chat);
-      const content = chat.lastMessage?.content ?? "";
-      return name.toLowerCase().includes(needle) || content.toLowerCase().includes(needle);
+  useEffect(() => {
+    let active = true;
+    fetchChats().then((next) => {
+      if (active) setState(next);
     });
-  }, [query, summaries]);
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const daaraChats = filteredChats.filter((c) => c.daara);
-  const otherChats = filteredChats.filter((c) => !c.daara);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setState(await fetchChats());
+    setRefreshing(false);
+  }, []);
 
-  const handleNewGroup = () => {
-    Alert.alert(
-      "Nouveau groupe",
-      "Fonctionnalité disponible depuis le tableau de bord web pour les administrateurs.",
-      [{ text: "OK" }]
-    );
-  };
+  const { status, chats } = state;
 
   return (
-    <View style={styles.container}>
-      <SectionHeader
-        onMenu={openDrawer}
-        title="Messagerie"
-        subtitle={isAdmin ? "Gérez les discussions de la communauté" : "Échangez avec votre Daara et vos frères"}
-        icon={<MessageSquare size={24} color="#FFF" />}
-        actions={isAdmin ? [
-          {
-            label: "Nouveau groupe",
-            icon: <Plus size={20} color={Colors.ink.DEFAULT} />,
-            onPress: handleNewGroup,
-          },
-        ] : []}
-      />
-
-      <View style={styles.content}>
-        <View style={styles.searchBar}>
-          <Input
-            placeholder="Rechercher une discussion..."
-            value={query}
-            onChangeText={setQuery}
-            icon={<Search size={16} color={Colors.ink.faint} />}
-          />
-        </View>
-
-        {/* Admin indicator */}
-        {isAdmin && (
-          <View style={styles.adminBanner}>
-            <ShieldCheck size={14} color={Colors.accent.DEFAULT} />
-            <Text style={styles.adminBannerText}>
-              {user?.role === "chef_daara" ? "Chef de Daara — vous gérez les messages de votre daara" : "Administrateur — vous gérez toutes les discussions"}
-            </Text>
-          </View>
-        )}
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scroll}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={async () => {
-                setRefreshing(true);
-                await load();
-              }}
-            />
-          }
-        >
-          {loading ? (
-            <View style={styles.loadingCard}>
-              <ActivityIndicator color={Colors.accent.DEFAULT} />
-              <Text style={styles.loadingText}>Chargement des discussions…</Text>
-            </View>
-          ) : null}
-
-          {!loading && filteredChats.length === 0 ? (
-            <GlassCard style={styles.emptyCard}>
-              <Users size={32} color={Colors.ink.faint} />
-              <Text style={styles.emptyTitle}>Aucune discussion trouvée</Text>
-              <Text style={styles.emptyText}>
-                Essayez avec un autre mot-clé ou rafraîchissez.
-              </Text>
-            </GlassCard>
-          ) : null}
-
-          {!loading && daaraChats.length > 0 ? (
-            <>
-              <Text style={styles.sectionLabel}>Mon Daara</Text>
-              {daaraChats.map((chat) => (
-                <ChatRow
-                  key={chat.id}
-                  chat={chat}
-                  isAdmin={isAdmin}
-                  onPress={() => router.push(`/chat/${chat.id}` as any)}
-                />
-              ))}
-            </>
-          ) : null}
-
-          {!loading && otherChats.length > 0 ? (
-            <>
-              <Text style={styles.sectionLabel}>Discussions</Text>
-              {otherChats.map((chat) => (
-                <ChatRow
-                  key={chat.id}
-                  chat={chat}
-                  isAdmin={isAdmin}
-                  onPress={() => router.push(`/chat/${chat.id}` as any)}
-                />
-              ))}
-            </>
-          ) : null}
-        </ScrollView>
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <IconButton
+          icon={<Menu size={20} color={Ink[900]} strokeWidth={1.6} />}
+          onPress={openDrawer}
+          accessibilityLabel="Ouvrir le menu"
+        />
+        <Text style={styles.title}>Messages</Text>
       </View>
+
+      <ScrollView
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: insets.bottom + TAB_BAR_SPACE + Space.xl },
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Violet[500]} />
+        }
+      >
+        {status === "loading" ? (
+          <>
+            <SkeletonListRow />
+            <SkeletonListRow />
+            <SkeletonListRow />
+          </>
+        ) : status === "failed" ? (
+          <ErrorState
+            body="Vos conversations n'ont pas pu être chargées."
+            onRetry={refresh}
+            style={styles.state}
+          />
+        ) : chats.length === 0 ? (
+          /*
+            ⚠ Le corps disait « les annonces publiques restent dans l'onglet
+            Accueil ». C'ÉTAIT FAUX : l'Accueil sert `getNews()`, c'est-à-dire
+            des `NewsPost` — des articles — et n'affiche aucun `Announcement`.
+            Un membre suivait donc l'indication et ne trouvait rien.
+
+            Pire, la phrase était PORTEUSE : `PinnedAnnouncement` écarte les
+            annonces globales du bandeau épinglé en s'appuyant dessus. Entre les
+            deux, une annonce globale n'était joignable par AUCUN chemin.
+
+            Elle renvoie maintenant là où les annonces vivent réellement.
+          */
+          <EmptyState
+            picto={<MessagesSquare size={56} color={Violet[900]} strokeWidth={1.5} />}
+            title="Aucun message"
+            body="Le chef de votre Daara vous écrira ici. Les annonces publiées se lisent à part."
+            actionLabel="Voir les annonces"
+            onAction={() => router.push("/announcements")}
+            card={false}
+            style={styles.state}
+          />
+        ) : (
+          chats.map((chat) => (
+            <ChatRow
+              key={chat.id}
+              chat={chat}
+              onPress={() => router.push(`/chat/${chat.id}`)}
+            />
+          ))
+        )}
+      </ScrollView>
     </View>
   );
 }
 
-function ChatRow({
-  chat,
-  isAdmin,
-  onPress,
-}: {
-  chat: ChatSummary;
-  isAdmin: boolean;
-  onPress: () => void;
-}) {
-  const label = chatLabel(chat);
-  const lastMessage = chat.lastMessage?.content ?? "Aucun message pour le moment.";
-  const time = formatTime(chat.lastMessage?.sent_at);
-
-  return (
-    <Pressable onPress={onPress}>
-      <GlassCard style={styles.chatCard}>
-        <View style={styles.chatRow}>
-          {/* Avatar / group icon */}
-          <View style={styles.avatarWrap}>
-            {chat.daara ? (
-              <View style={styles.groupAvatar}>
-                <ShieldCheck size={22} color={Colors.accent.DEFAULT} />
-              </View>
-            ) : (
-              <Avatar name={label} size={50} />
-            )}
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <View style={styles.chatHeader}>
-              <View style={styles.chatNameRow}>
-                <Text style={styles.chatName} numberOfLines={1}>{label}</Text>
-                {chat.daara ? (
-                  <View style={styles.daaraBadge}>
-                    <Text style={styles.daaraBadgeText}>Daara</Text>
-                  </View>
-                ) : null}
-                {isAdmin && (
-                  <View style={styles.adminBadge}>
-                    <ShieldCheck size={10} color={Colors.accent.DEFAULT} />
-                  </View>
-                )}
-              </View>
-              <Text style={styles.chatTime}>{time}</Text>
-            </View>
-
-            <View style={styles.chatFooter}>
-              <Text style={styles.lastMsg} numberOfLines={1}>{lastMessage}</Text>
-              {chat.unread > 0 && (
-                <View style={styles.unreadBadge}>
-                  <Text style={styles.unreadText}>{chat.unread}</Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          <ChevronRight size={16} color={Colors.ink.ghost} />
-        </View>
-      </GlassCard>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  searchBar: {
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  adminBanner: {
+  screen: { flex: 1, backgroundColor: Surface.default },
+
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: Colors.accent.dim,
-    marginBottom: 8,
+    gap: Space.md,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.sm,
+    paddingBottom: Space.lg,
   },
-  adminBannerText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.accent.DEFAULT,
-    lineHeight: 16,
-  },
-  scroll: {
-    paddingBottom: 120,
-    paddingTop: 4,
-    gap: 8,
-  },
-  loadingCard: {
-    minHeight: 100,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-    color: Colors.ink.faint,
-  },
-  emptyCard: {
-    padding: 24,
-    alignItems: "center",
-    gap: 10,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    color: Colors.ink.DEFAULT,
-    fontFamily: "Inter_700Bold",
-  },
-  emptyText: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.faint,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginLeft: 4,
-    marginTop: 6,
-    marginBottom: 2,
-  },
-  chatCard: {
-    padding: 14,
-  },
-  chatRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatarWrap: {
-    // container for avatar or group icon
-  },
-  groupAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: `${Colors.accent.DEFAULT}30`,
-  },
-  chatNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    flex: 1,
-  },
-  chatHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-    gap: 8,
-  },
-  chatName: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-    flex: 1,
-  },
-  daaraBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: Colors.accent.dim,
-  },
-  daaraBadgeText: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  adminBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    backgroundColor: Colors.accent.dim,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chatTime: {
-    fontSize: 11,
-    color: Colors.ink.faint,
-    fontFamily: "Inter_400Regular",
-    flexShrink: 0,
-  },
-  chatFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  lastMsg: {
-    fontSize: 13,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-    flex: 1,
-  },
-  unreadBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.accent.DEFAULT,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 6,
-    marginLeft: 8,
-  },
-  unreadText: {
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    color: "#FFF",
-  },
+  /*
+    `Type.screenTitle` vaut 32 là où la planche des Messages écrit 28. C'est le
+    cran retenu pour tous les titres d'onglet depuis la liste des Ndiguels : un
+    titre qui change de taille d'un onglet à l'autre se remarque plus qu'un
+    écart de quatre points avec la maquette.
+  */
+  title: { ...Type.screenTitle, color: Violet[900], flex: 1 },
+
+  list: { paddingHorizontal: GUTTER },
+  state: { marginTop: 72 },
 });

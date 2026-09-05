@@ -1,353 +1,336 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+/**
+ * app/(app)/profile/tutelle.tsx — les tutelles, passées au système (phase F).
+ *
+ * Écran hérité (§5.2). Trois corrections en chemin.
+ *
+ * ── 🔴 Le bouton « Contribuer pour X » menait à une route inexistante ───────
+ *
+ *     router.push(`/(app)/donate?beneficiary=${member.id}` as any)
+ *
+ * `(app)` est un **groupe** : il ne fait pas partie de l'URL. La route réelle
+ * est `/donate`. Le `as any` — posé pour faire taire `typedRoutes`, qui refusait
+ * précisément cette chaîne — a masqué l'erreur pendant tout ce temps. C'est le
+ * seul bouton de l'écran qui fasse quelque chose, et il ne le faisait pas.
+ *
+ * Écrit maintenant sous la forme objet, comme partout ailleurs :
+ * `{ pathname: "/donate", params: { beneficiary } }` — vérifiée par
+ * `typedRoutes`, donc impossible à casser en silence.
+ *
+ * ── Huit couleurs hors palette ──────────────────────────────────────────────
+ *
+ * `RELATION_COLORS` attribuait une couleur par lien de parenté — indigo pour le
+ * père, rose pour la mère, ambre pour la fille… — et, à défaut, tirait dans une
+ * palette de six teintes par hachage du mot. Aucune de ces quatorze couleurs
+ * n'appartient au produit. Elles disparaissent au profit d'`Avatar` et de
+ * `TutelleCard`, qui existaient depuis la phase B **sans aucun appelant** hors
+ * de la galerie : cet écran est leur foyer naturel.
+ *
+ * ── Le formulaire dépliant ──────────────────────────────────────────────────
+ *
+ * Il restait sous la liste, derrière un bouton qui basculait entre « Ajouter un
+ * membre » et « Fermer le formulaire ». Sur une liste de six proches, il fallait
+ * dérouler tout l'écran pour le trouver. Il passe en feuille modale — même
+ * mécanique que `Select`.
+ *
+ * ── Ce que l'écran ne peut pas faire ────────────────────────────────────────
+ *
+ * ⚠ **Ni modifier ni supprimer une tutelle.** `ContentService` n'expose que
+ * `getTutelles` et `createTutelle`. Une faute de frappe dans un nom est donc
+ * définitive côté mobile. Le point d'API existe peut-être ; il n'est pas câblé,
+ * et ce lot ne l'ouvre pas — porté au registre de dette.
+ */
+import { useCallback, useEffect, useState } from "react";
+import {
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, ChevronRight, Heart, UserPlus, Users } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Heart, UserPlus } from "lucide-react-native";
 
-import { Colors } from "@/constants/colors";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { ErrorState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
-import { SectionHeader } from "@/components/ui/SectionHeader";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { SkeletonTutelleCard } from "@/components/ui/Skeleton";
+import { TutelleCard, TutelleEmptyState } from "@/components/profile/TutelleCard";
 import { ContentService } from "@/lib/content.service";
 import type { Tutelle } from "@/types/content.types";
+import {
+  GUTTER,
+  Ink,
+  Radius,
+  Shadow,
+  Space,
+  Surface,
+  Type,
+  UIType,
+  Violet,
+  continuous,
+} from "@/theme";
 
-const RELATION_COLORS: Record<string, string> = {
-  père: "#6366F1",
-  mère: "#EC4899",
-  fils: "#0EA5E9",
-  fille: "#F59E0B",
-  frère: "#10B981",
-  sœur: "#8B5CF6",
-  épouse: "#EF4444",
-  époux: "#3B82F6",
-};
+interface State {
+  status: "loading" | "ready" | "failed";
+  tutelles: Tutelle[];
+}
 
-function avatarColor(relation: string) {
-  const key = relation.toLowerCase().trim();
-  for (const [k, v] of Object.entries(RELATION_COLORS)) {
-    if (key.includes(k)) return v;
+async function fetchTutelles(): Promise<State> {
+  try {
+    return { status: "ready", tutelles: await ContentService.getTutelles() };
+  } catch {
+    return { status: "failed", tutelles: [] };
   }
-  let hash = 0;
-  for (let i = 0; i < relation.length; i++) hash = relation.charCodeAt(i) + ((hash << 5) - hash);
-  const palette = ["#6366F1", "#10B981", "#F59E0B", "#3B82F6", "#8B5CF6", "#EC4899"];
-  return palette[Math.abs(hash) % palette.length];
 }
 
 export default function TutelleScreen() {
   const router = useRouter();
-  const [tutelles, setTutelles] = useState<Tutelle[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [memberFirstName, setMemberFirstName] = useState("");
-  const [memberLastName, setMemberLastName] = useState("");
-  const [memberRelation, setMemberRelation] = useState("");
+  const [state, setState] = useState<State>({ status: "loading", tutelles: [] });
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
-
-    const load = async () => {
-      try {
-        const tutelleData = await ContentService.getTutelles();
-        if (active) setTutelles(tutelleData);
-      } catch {
-        if (active) setTutelles([]);
-      } finally {
-        if (active) setLoading(false);
-      }
+    fetchTutelles().then((next) => {
+      if (active) setState(next);
+    });
+    return () => {
+      active = false;
     };
-
-    load();
-    return () => { active = false; };
   }, []);
 
-  const handleCreateMember = async () => {
-    const first_name = memberFirstName.trim();
-    const last_name = memberLastName.trim();
-    const relation = memberRelation.trim();
+  const reload = useCallback(() => {
+    setState((previous) => ({ ...previous, status: "loading" }));
+    fetchTutelles().then(setState);
+  }, []);
 
-    if (!first_name || !last_name || !relation) {
-      Alert.alert("Champs requis", "Complétez le prénom, le nom et le lien de parenté.");
-      return;
-    }
+  const onCreated = useCallback((created: Tutelle) => {
+    setState((previous) => ({ ...previous, tutelles: [created, ...previous.tutelles] }));
+    setFormOpen(false);
+  }, []);
 
-    setCreating(true);
-    try {
-      const created = await ContentService.createTutelle({ first_name, last_name, relation });
-      setTutelles((current) => [created, ...current]);
-      setMemberFirstName("");
-      setMemberLastName("");
-      setMemberRelation("");
-      setShowAdd(false);
-      Alert.alert("Succès", "Membre ajouté à votre tutelle.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Impossible d'ajouter le membre.";
-      Alert.alert("Erreur", message);
-    } finally {
-      setCreating(false);
-    }
-  };
+  const donateFor = useCallback(
+    (tutelle: Tutelle) => {
+      router.push({
+        pathname: "/donate",
+        params: { beneficiary: String(tutelle.id) },
+      });
+    },
+    [router],
+  );
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <SectionHeader
-        title="Tutelle familiale"
-        subtitle="Gérez les membres de votre cercle familial"
-        icon={<Users size={24} color="#FFF" />}
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      <ScreenHeader
+        title="Mes tutelles"
+        onBack={() => router.back()}
+        right={{
+          icon: <UserPlus size={20} color={Ink[900]} strokeWidth={1.5} />,
+          accessibilityLabel: "Ajouter une tutelle",
+          onPress: () => setFormOpen(true),
+        }}
       />
 
-      <View style={styles.content}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          contentInsetAdjustmentBehavior="automatic"
-          scrollIndicatorInsets={{ bottom: 180 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <ArrowLeft size={20} color={Colors.ink.DEFAULT} />
-            <Text style={styles.backText}>Retour</Text>
-          </Pressable>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Text style={styles.lead}>
+          Porter un proche, c&apos;est contribuer aux Ndiguels en son nom. Les
+          personnes enregistrées ici apparaissent au moment du Jëf.
+        </Text>
 
-          <GlassCard style={styles.introCard}>
-            <Text style={styles.introTitle}>Vos proches en tutelle</Text>
-            <Text style={styles.introText}>
-              Enregistrez les membres de votre famille pour effectuer des dons en leur nom depuis
-              l'écran de contribution.
-            </Text>
-          </GlassCard>
+        {state.status === "loading" ? (
+          <View style={styles.list}>
+            <SkeletonTutelleCard />
+            <SkeletonTutelleCard />
+          </View>
+        ) : null}
 
-          {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={Colors.accent.DEFAULT} />
-            </View>
-          ) : tutelles.length === 0 ? (
-            <GlassCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Aucun membre enregistré</Text>
-              <Text style={styles.emptyText}>
-                Ajoutez un premier proche pour lui dédier des contributions.
-              </Text>
-            </GlassCard>
-          ) : (
-            <View style={styles.list}>
-              {tutelles.map((member) => {
-                const color = avatarColor(member.relation);
-                const initials = `${member.first_name?.[0] ?? ""}${member.last_name?.[0] ?? ""}`.toUpperCase();
+        {state.status === "failed" ? (
+          <ErrorState body="Vos tutelles n'ont pas pu être chargées." onRetry={reload} />
+        ) : null}
 
-                return (
-                  <GlassCard key={member.id} style={styles.memberCard}>
-                    <View style={styles.memberRow}>
-                      <View style={[styles.avatar, { backgroundColor: `${color}18`, borderColor: `${color}40` }]}>
-                        <Text style={[styles.avatarText, { color }]}>{initials}</Text>
-                      </View>
-                      <View style={styles.memberInfo}>
-                        <Text style={styles.memberName}>{member.first_name} {member.last_name}</Text>
-                        <View style={[styles.relationChip, { backgroundColor: `${color}18` }]}>
-                          <Text style={[styles.relationText, { color }]}>{member.relation}</Text>
-                        </View>
-                      </View>
-                    </View>
+        {state.status === "ready" && state.tutelles.length === 0 ? (
+          <TutelleEmptyState onAdd={() => setFormOpen(true)} />
+        ) : null}
 
-                    <Pressable
-                      style={styles.contributeBtn}
-                      onPress={() =>
-                        router.push(`/(app)/donate?beneficiary=${member.id}` as any)
-                      }
-                    >
-                      <Heart size={14} color={Colors.accent.DEFAULT} />
-                      <Text style={styles.contributeBtnText}>
-                        Contribuer pour {member.first_name}
-                      </Text>
-                      <ChevronRight size={14} color={Colors.accent.DEFAULT} />
-                    </Pressable>
-                  </GlassCard>
-                );
-              })}
-            </View>
-          )}
-
-          {showAdd && (
-            <GlassCard style={styles.formCard}>
-              <Text style={styles.formTitle}>Ajouter un membre</Text>
-              <Input
-                label="Prénom"
-                placeholder="Ex: Souleymane"
-                value={memberFirstName}
-                onChangeText={setMemberFirstName}
-              />
-              <Input
-                label="Nom"
-                placeholder="Ex: Diop"
-                value={memberLastName}
-                onChangeText={setMemberLastName}
-              />
-              <Input
-                label="Lien de parenté"
-                placeholder="Ex: Fils, père, épouse"
-                value={memberRelation}
-                onChangeText={setMemberRelation}
-              />
-              <View style={styles.formActions}>
-                <Button
-                  label="Annuler"
-                  variant="outline"
-                  onPress={() => setShowAdd(false)}
-                  style={{ flex: 1 }}
+        {state.tutelles.length > 0 ? (
+          <View style={styles.list}>
+            {state.tutelles.map((tutelle) => (
+              <View key={tutelle.id} style={styles.entry}>
+                <TutelleCard
+                  name={`${tutelle.first_name} ${tutelle.last_name}`.trim()}
+                  relation={tutelle.relation}
+                  avatarUri={tutelle.avatar_url}
                 />
-                <Button
-                  label="Enregistrer"
-                  onPress={handleCreateMember}
-                  loading={creating}
-                  style={{ flex: 1.5 }}
-                />
+                <Pressable
+                  onPress={() => donateFor(tutelle)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Contribuer pour ${tutelle.first_name}`}
+                  style={({ pressed }) => [styles.donate, pressed && styles.pressed]}
+                >
+                  <Heart size={14} color={Violet[700]} strokeWidth={1.75} />
+                  <Text style={styles.donateText}>Contribuer pour {tutelle.first_name}</Text>
+                </Pressable>
               </View>
-            </GlassCard>
-          )}
+            ))}
+          </View>
+        ) : null}
 
+        {state.tutelles.length > 0 ? (
           <Button
-            label={showAdd ? "Fermer le formulaire" : "Ajouter un membre"}
-            icon={<UserPlus size={16} color={Colors.accent.DEFAULT} />}
-            onPress={() => setShowAdd((v) => !v)}
+            label="Ajouter un proche"
             variant="outline"
+            icon={<UserPlus size={16} color={Violet[900]} strokeWidth={1.75} />}
+            onPress={() => setFormOpen(true)}
           />
-        </ScrollView>
-      </View>
+        ) : null}
+      </ScrollView>
+
+      <AddTutelleSheet
+        visible={formOpen}
+        onClose={() => setFormOpen(false)}
+        onCreated={onCreated}
+      />
     </SafeAreaView>
   );
 }
 
+function AddTutelleSheet({
+  visible,
+  onClose,
+  onCreated,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onCreated: (created: Tutelle) => void;
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [relation, setRelation] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = useCallback(async () => {
+    const first_name = firstName.trim();
+    const last_name = lastName.trim();
+    const link = relation.trim();
+
+    if (!first_name || !last_name || !link) {
+      Alert.alert("Champs requis", "Le prénom, le nom et le lien de parenté sont obligatoires.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const created = await ContentService.createTutelle({
+        first_name,
+        last_name,
+        relation: link,
+      });
+      setFirstName("");
+      setLastName("");
+      setRelation("");
+      onCreated(created);
+    } catch (error) {
+      Alert.alert(
+        "Enregistrement impossible",
+        error instanceof Error ? error.message : "Le proche n'a pas pu être ajouté.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [firstName, lastName, onCreated, relation]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} accessibilityLabel="Fermer" onPress={onClose} />
+      <View style={styles.sheet}>
+        <View style={styles.grabber} />
+        <Text style={styles.sheetTitle}>Ajouter un proche</Text>
+
+        <Input
+          label="Prénom"
+          placeholder="Souleymane"
+          value={firstName}
+          onChangeText={setFirstName}
+          autoCapitalize="words"
+        />
+        <Input
+          label="Nom"
+          placeholder="Diop"
+          value={lastName}
+          onChangeText={setLastName}
+          autoCapitalize="words"
+        />
+        <Input
+          label="Lien de parenté"
+          placeholder="Mère, fils, petit-neveu maternel…"
+          value={relation}
+          onChangeText={setRelation}
+          autoCapitalize="sentences"
+        />
+
+        <View style={styles.sheetActions}>
+          <Button label="Annuler" variant="secondary" onPress={onClose} style={styles.action} />
+          <Button
+            label="Enregistrer"
+            onPress={submit}
+            loading={saving}
+            style={styles.actionWide}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: Colors.surface.subtle,
-  },
-  content: {
-    flex: 1,
-  },
+  safe: { flex: 1, backgroundColor: Surface.default },
   scroll: {
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 180,
-    gap: 14,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.sm,
+    paddingBottom: Space.huge,
+    gap: Space.lg,
   },
-  backBtn: {
+  lead: { ...Type.body, color: Ink[500] },
+  list: { gap: Space.md },
+  entry: { gap: Space.xs },
+
+  donate: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  backText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: Colors.ink.DEFAULT,
-  },
-  introCard: {
-    padding: 18,
-    gap: 8,
-  },
-  introTitle: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  introText: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  loadingWrap: {
-    minHeight: 100,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyCard: {
-    padding: 18,
-    gap: 6,
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  emptyText: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: Colors.ink.muted,
-    fontFamily: "Inter_400Regular",
-  },
-  list: {
-    gap: 12,
-  },
-  memberCard: {
-    padding: 16,
-    gap: 14,
-  },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-  },
-  avatarText: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-  },
-  memberInfo: {
-    flex: 1,
-    gap: 6,
-  },
-  memberName: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  relationChip: {
+    gap: Space.sm,
     alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    borderRadius: Radius.chip,
+    backgroundColor: Violet[100],
   },
-  relationText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+  donateText: { ...UIType.chipLabel, color: Violet[900] },
+  pressed: { opacity: 0.72 },
+
+  backdrop: { flex: 1, backgroundColor: "rgba(25,11,61,0.32)" },
+  sheet: {
+    backgroundColor: Surface.default,
+    borderTopLeftRadius: Radius.card + 4,
+    borderTopRightRadius: Radius.card + 4,
+    ...continuous,
+    paddingHorizontal: GUTTER,
+    paddingTop: Space.md,
+    paddingBottom: Space.xxxl,
+    gap: Space.md,
+    boxShadow: Shadow.sheet,
   },
-  contributeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.accent.dim,
-    borderWidth: 1,
-    borderColor: `${Colors.accent.DEFAULT}40`,
+  grabber: {
+    alignSelf: "center",
+    width: 36,
+    height: 4,
+    borderRadius: Radius.chip,
+    backgroundColor: Ink[100],
   },
-  contributeBtnText: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: Colors.accent.DEFAULT,
-    flex: 1,
-    textAlign: "center",
-  },
-  formCard: {
-    padding: 18,
-    gap: 12,
-  },
-  formTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: Colors.ink.DEFAULT,
-  },
-  formActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 4,
-  },
+  sheetTitle: { ...Type.cardTitle, color: Ink[900] },
+  sheetActions: { flexDirection: "row", gap: Space.md, marginTop: Space.sm },
+  action: { flex: 1 },
+  actionWide: { flex: 1.4 },
 });
