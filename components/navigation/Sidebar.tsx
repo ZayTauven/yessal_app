@@ -33,7 +33,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, type Href } from "expo-router";
-import { HeartHandshake, X } from "lucide-react-native";
+import { X } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { donationsTitle } from "@/lib/roles";
@@ -247,19 +247,15 @@ export function Sidebar({ activeRoute }: SidebarProps) {
           })}
         </ScrollView>
 
+        {/*
+          « Inviter un proche au Daara » a été RETIRÉ d'ici. L'entrée menait à
+          /daara, où rien n'invite : aucun point d'entrée d'invitation n'existe
+          côté Django — ni modèle, ni envoi, ni acceptation. Même arbitrage que
+          « Vue collecteur » au lot 4 : une entrée de tiroir qui ment sur sa
+          destination coûte plus qu'une entrée absente, parce qu'elle se paie en
+          confiance et non en clic. À remettre le jour où l'endpoint existe.
+        */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + Space.xl }]}>
-          <Pressable
-            onPress={() => go("/daara")}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.invite, pressed && styles.itemPressed]}
-          >
-            {/* Pictogramme provisoire — le jeu de dix tracés originaux reste dû. */}
-            <View style={styles.invitePicto}>
-              <HeartHandshake size={24} color={Violet[900]} strokeWidth={1.5} />
-            </View>
-            <Text style={styles.inviteLabel}>Inviter un proche au Daara</Text>
-          </Pressable>
-
           <Pressable
             onPress={handleLogout}
             accessibilityRole="button"
@@ -332,31 +328,6 @@ const styles = StyleSheet.create({
   roleBadgeLabel: { ...UIType.badgeLabel, color: Ink[500] },
 
   footer: { gap: Space.md },
-  invite: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Space.md,
-    padding: 14,
-    borderRadius: Radius.card,
-    ...continuous,
-    backgroundColor: Violet[100],
-  },
-  invitePicto: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    ...continuous,
-    backgroundColor: Violet[200],
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inviteLabel: {
-    flex: 1,
-    fontFamily: Font.semibold,
-    fontSize: 12,
-    lineHeight: 17,
-    color: Violet[900],
-  },
   logout: {
     height: 44,
     borderRadius: Radius.button,

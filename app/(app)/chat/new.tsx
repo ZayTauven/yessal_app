@@ -45,7 +45,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronLeft, Search, Send, Users } from "lucide-react-native";
 
@@ -136,10 +136,19 @@ export default function NewChatScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
 
+  /*
+    Une AMORCE de recherche, pas un destinataire. « Mon Daara » envoie ici le nom
+    de son chef pour que le membre n'ait pas à le retaper. L'invitation reste un
+    geste explicite : on ne frappe pas à la porte de quelqu'un parce qu'un écran
+    précédent a poussé un paramètre.
+  */
+  const params = useLocalSearchParams<{ q?: string | string[] }>();
+  const amorce = (Array.isArray(params.q) ? params.q[0] : params.q)?.trim() ?? "";
+
   const [pilotage, setPilotage] = useState<MessagingPilotage | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(amorce);
   const [results, setResults] = useState<MemberSearchResult[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(amorce.length >= MIN_QUERY);
   const [sendingTo, setSendingTo] = useState<number | null>(null);
 
   const [groupOpen, setGroupOpen] = useState(false);
@@ -205,13 +214,39 @@ export default function NewChatScreen() {
     }, DEBOUNCE_MS);
   }, []);
 
-  /* Le seul effet restant ne fait que nettoyer : aucun `setState` dedans. */
+  /* Nettoyage seul : aucun `setState` dedans. */
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
     [],
   );
+
+  /*
+    La recherche d'amorce, une fois. Elle ne passe PAS par `onQuery` : celui-ci
+    pose `setSearching(true)` de façon synchrone, ce que le React Compiler
+    refuse dans un effet — la règle même qui a sorti la recherche des effets
+    plus haut. L'état de départ porte donc l'attente, et l'effet ne touche à
+    rien avant que le serveur ait répondu. Le ticket reste celui de la frappe :
+    si le membre tape avant la réponse, c'est sa saisie qui gagne.
+  */
+  useEffect(() => {
+    if (amorce.length < MIN_QUERY) return;
+    const mien = ++ticket.current;
+    ContentService.searchMembers(amorce)
+      .then((rows) => {
+        if (mien === ticket.current) {
+          setResults(rows);
+          setSearching(false);
+        }
+      })
+      .catch(() => {
+        if (mien === ticket.current) {
+          setResults([]);
+          setSearching(false);
+        }
+      });
+  }, [amorce]);
 
   const invite = useCallback(
     async (member: MemberSearchResult) => {

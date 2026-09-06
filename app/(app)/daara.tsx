@@ -281,7 +281,12 @@ export default function DaaraScreen() {
                 <ChefCard
                   daara={daara}
                   members={members}
-                  onWrite={() => router.push("/chat")}
+                  onWrite={() =>
+                    router.push({
+                      pathname: "/chat/new",
+                      params: { q: daara.chef_full_name?.trim() ?? "" },
+                    })
+                  }
                 />
 
                 <Counters daara={daara} campaigns={campaigns} />
@@ -422,12 +427,25 @@ function ChefCard({
         <Text style={styles.chefName} numberOfLines={1}>
           {name}
         </Text>
-        <Text style={styles.chefRole}>Chef du Daara</Text>
+        {/*
+          L'annuaire, trois lignes plus bas, nomme cette même personne par son
+          titre honorifique — « Amir ». Deux libellés pour un seul homme dans un
+          seul écran se lisent comme deux personnes. Le titre passe donc devant
+          ici aussi, et la fonction reste : c'est ce que cette carte est venue
+          dire, et elle est la seule à le dire.
+        */}
+        <Text style={styles.chefRole} numberOfLines={1}>
+          {row?.title_name?.trim()
+            ? `${row.title_name.trim()} · Chef du Daara`
+            : "Chef du Daara"}
+        </Text>
       </View>
       {/*
-        « Écrire » mène à la messagerie, pas à une conversation : `comms/`
-        n'expose pas d'ouverture par utilisateur. Même arbitrage qu'au détail
-        d'un Ndiguel — un bouton qui ne fait rien est pire qu'un bouton absent.
+        « Écrire » mène à `chat/new` avec le nom du chef déjà cherché, et non
+        plus à la liste des messages. Le fil ne peut pas s'ouvrir d'ici : `comms/`
+        force `chat_type = GROUP` et le tête-à-tête naît d'une invitation
+        acceptée. L'écran de destination le dit lui-même — mieux vaut cela qu'un
+        bouton qui dépose le membre devant une liste où il ne trouvera rien.
       */}
       <Button
         label="Écrire"
