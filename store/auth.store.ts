@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { ApiError } from "@/lib/api";
 import { AuthService } from "@/lib/auth.service";
+import { PushService } from "@/lib/push.service";
 import type {
   ForgotPasswordPayload,
   LoginPayload,
@@ -84,6 +85,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (access) {
         const user = await AuthService.getMe();
         set({ user, isAuthenticated: true });
+        /*
+          Le jeton FCM se renouvelle tout seul — réinstallation, restauration
+          d'une sauvegarde, vidage des données. On le repose donc à chaque
+          session retrouvée, pas seulement à la connexion. `update_or_create`
+          côté Django rend l'opération idempotente.
+
+          Volontairement SANS `await` : la poussée est un confort, l'écran
+          d'accueil ne doit pas attendre une permission système pour s'afficher.
+        */
+        void PushService.register();
       } else {
         set({ user: null, isAuthenticated: false });
       }
@@ -101,6 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await AuthService.login(payload);
       const user = await AuthService.getMe();
       set({ user, isAuthenticated: true });
+      void PushService.register();
     } catch (e: any) {
       const msg = messageServeur(e, "Identifiants incorrects. Veuillez réessayer.");
       set({ error: msg });
@@ -165,6 +177,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     set({ isLoading: true });
+    /*
+      ⚠ LE RETRAIT PASSE EN PREMIER, et l'ordre est la seule chose qui compte
+      ici : `comms/fcm-token/` exige une session, et `AuthService.logout()`
+      efface les jetons d'accès. Retirer après, c'est un 401 — le jeton FCM
+      resterait en base, et le membre suivant sur cet appareil recevrait les
+      notifications du précédent.
+
+      Attendu, contrairement à l'enregistrement : c'est le dernier moment où
+      on peut le faire, et une déconnexion supporte un aller-retour réseau.
+    */
+    await PushService.unregister();
     await AuthService.logout();
     set({ user: null, isAuthenticated: false, isLoading: false });
   },

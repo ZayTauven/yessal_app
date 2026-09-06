@@ -174,7 +174,21 @@ const api = {
     request<T>(path, { method: "PUT", body }, options),
   patch: <T,>(path: string, body?: unknown, options?: ApiOptions) =>
     request<T>(path, { method: "PATCH", body }, options),
-  delete: <T,>(path: string, options?: ApiOptions) => request<T>(path, { method: "DELETE" }, options),
+  /**
+   * ⚠ `DELETE` PORTE UN CORPS, comme les autres verbes d'écriture.
+   *
+   * Il n'en acceptait pas, et `request` sait pourtant en sérialiser un. Or DRF
+   * lit `request.data` sur un `delete` comme sur un `post` : le retrait d'un
+   * jeton de notification (`comms/fcm-token/`) désigne le jeton À RETIRER dans
+   * le corps, faute de quoi le serveur ne sait pas lequel supprimer et le
+   * garde. Un appareil rendu ou revendu continuerait de recevoir les
+   * notifications de son ancien propriétaire.
+   *
+   * La signature suit celle de `post`, `put` et `patch` — corps en deuxième,
+   * options en troisième. Aucun appel existant ne passait d'options ici.
+   */
+  delete: <T,>(path: string, body?: unknown, options?: ApiOptions) =>
+    request<T>(path, { method: "DELETE", body }, options),
 };
 
 export default api;

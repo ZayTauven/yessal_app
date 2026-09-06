@@ -9,7 +9,7 @@
  *
  * Les ratios en commentaire sont calculés sur fond blanc et vérifiés.
  */
-import type { TextStyle } from "react-native";
+import { StyleSheet, type TextStyle } from "react-native";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Couleurs
@@ -258,8 +258,39 @@ export const continuous = { borderCurve: "continuous" } as const;
  *                 qu'il faut au-dessus d'une couche cliquable : le texte ne
  *                 vole pas la touche, le bouton la prend.
  */
-export const noTouch = { pointerEvents: "none" } as const;
-export const passThrough = { pointerEvents: "box-none" } as const;
+/*
+ * 🔴 ILS DOIVENT PASSER PAR `StyleSheet.create`. Ce n'est pas une coquetterie.
+ *
+ * Écrits en objets simples — `{ pointerEvents: "box-none" }` — ils étaient
+ * IGNORÉS sur le web, et l'application entière devenait insensible au clic.
+ *
+ * react-native-web ne sait traduire `box-none` et `box-only` que dans le
+ * compilateur de `StyleSheet` (`StyleSheet/compiler/index.js:366`), qui les
+ * développe en deux règles : `pointer-events: none!important` sur l'élément,
+ * et `pointer-events: auto` sur ses enfants directs. Un objet brut posé dans
+ * un tableau de styles ne traverse pas ce chemin : la valeur tombe, et
+ * l'élément garde `auto`.
+ *
+ * Ce que ça donnait, constaté au navigateur le 2026-09-06 : le tiroir
+ * (`Sidebar.styles.screen`, plein écran, `zIndex: 50`, monté en permanence
+ * par `(app)/_layout.tsx`) restait à `pointer-events: auto` et avalait chaque
+ * clic de chaque écran sous la garde. L'accueil s'affichait entièrement et ne
+ * répondait à rien — « on dirait que la page est statique ». La connexion, elle,
+ * marchait : `(auth)` vit hors de `(app)`, donc sans tiroir au-dessus.
+ *
+ * ⚠ Ne jamais réécrire ces deux-là en objets littéraux, et ne jamais les
+ * étaler (`{ ...passThrough }`) : étaler une entrée de `StyleSheet` la
+ * ramène à un objet brut et rejoue exactement le même défaut.
+ */
+const Touch = StyleSheet.create({
+  /** La vue ET ses enfants ignorent le toucher — voiles, dégradés, décor. */
+  none: { pointerEvents: "none" },
+  /** La vue laisse passer, ses enfants pressables captent. */
+  boxNone: { pointerEvents: "box-none" },
+});
+
+export const noTouch = Touch.none;
+export const passThrough = Touch.boxNone;
 
 /** Échelle de 4. */
 export const Space = {

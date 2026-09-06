@@ -19,12 +19,21 @@ import { Redirect, Stack, usePathname, useUnstableGlobalHref } from "expo-router
 import { View, StyleSheet } from "react-native";
 
 import { Sidebar } from "@/components/navigation/Sidebar";
+import { usePushNavigation } from "@/hooks/usePushNavigation";
 import { rememberPendingRoute } from "@/lib/pending-route";
 import { useAuthStore } from "@/store/auth.store";
 import { Radius, Surface } from "@/theme";
 
 export default function AppLayout() {
   const { isAuthenticated, isLoading } = useAuthStore();
+
+  /*
+    Taper une notification doit mener à CE dont elle parle. Le crochet vit ici
+    et pas plus haut : sous la garde, donc jamais avant d'avoir une session —
+    router vers un Ndiguel un membre déconnecté l'enverrait à la connexion
+    sans rien retenir. Il ne rend rien.
+  */
+  usePushNavigation();
 
   /**
    * La route active, pour marquer la ligne courante du tiroir — et, quand la
