@@ -92,12 +92,29 @@ function deviceType(): "android" | "ios" | "web" {
  * rien pouvoir en faire est le genre de demande qui se refuse une fois pour
  * toutes — et une permission refusée ne se redemande pas.
  */
-function terrainViable(): boolean {
+/**
+ * Les API de notification DISTANTE existent-elles seulement sur ce terrain ?
+ *
+ * Question différente de « le push peut-il marcher ». Ici on demande si
+ * l'appel ne va pas LEVER. Sur Expo Go depuis le SDK 53, toucher à ces API
+ * jette — `addNotificationResponseReceivedListener` compris, qui n'est pas
+ * une promesse et dont le refus remonte donc jusqu'au rendu.
+ *
+ * Constaté sur émulateur : sans ce garde, l'écran rouge d'Expo Go recouvre
+ * l'application et l'effet se rejoue — 91 entrées de journal pour une seule
+ * session. Le produit devenait intestable là où on le teste le plus.
+ */
+export function pushDistantDisponible(): boolean {
   if (Platform.OS === "web") return false;
+  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
+  return true;
+}
+
+function terrainViable(): boolean {
+  // Web et Expo Go : les API n'existent pas ou lèvent.
+  if (!pushDistantDisponible()) return false;
   // Un émulateur n'a pas de service Google Play : le jeton n'arrive jamais.
   if (!Device.isDevice) return false;
-  // Expo Go : plus de push distant depuis le SDK 53.
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) return false;
   // Voir l'en-tête : un jeton APNs n'est pas adressable par firebase-admin.
   if (Platform.OS === "ios") return false;
   return true;

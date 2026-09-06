@@ -23,9 +23,10 @@
  * tape une notification quand on n'est pas déjà dans l'application.
  */
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
 import { useRouter } from "expo-router";
 import * as Notifications from "expo-notifications";
+
+import { pushDistantDisponible } from "@/lib/push.service";
 import type { Href } from "expo-router";
 
 /**
@@ -84,7 +85,13 @@ export function usePushNavigation() {
   const demarrageTraite = useRef(false);
 
   useEffect(() => {
-    if (Platform.OS === "web") return;
+    /*
+      Même garde que l'enregistrement du jeton, et pour la même raison : sur
+      Expo Go, ces API LÈVENT au lieu de rendre un résultat vide. Le test du
+      seul `web` laissait passer Expo Go, et l'écran rouge y recouvrait
+      l'application à chaque montage.
+    */
+    if (!pushDistantDisponible()) return;
 
     function ouvrir(reponse: Notifications.NotificationResponse | null) {
       if (!reponse) return;
@@ -109,7 +116,19 @@ export function usePushNavigation() {
         });
     }
 
-    const abonnement = Notifications.addNotificationResponseReceivedListener(ouvrir);
-    return () => abonnement.remove();
+    /*
+      La ceinture, en plus du garde : `addNotificationResponseReceivedListener`
+      est SYNCHRONE. Ce qu'il jette ne tombe dans aucun `.catch()` et remonte
+      jusqu'au rendu — c'est ce qui produisait l'écran rouge. Un tap sur une
+      notification qu'on ne peut de toute façon pas recevoir ne vaut pas de
+      casser l'écran d'accueil.
+    */
+    let abonnement: Notifications.EventSubscription | null = null;
+    try {
+      abonnement = Notifications.addNotificationResponseReceivedListener(ouvrir);
+    } catch {
+      /* Terrain sans notifications distantes : rien à écouter. */
+    }
+    return () => abonnement?.remove();
   }, [router]);
 }

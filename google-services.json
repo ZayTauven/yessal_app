@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "885079557757",
-    "project_id": "yessal-gui-6d7e0",
-    "storage_bucket": "yessal-gui-6d7e0.firebasestorage.app"
+    "project_number": "737413621097",
+    "project_id": "yessal-gui-444",
+    "storage_bucket": "yessal-gui-444.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:885079557757:android:601364eea633c9a1105314",
+        "mobilesdk_app_id": "1:737413621097:android:2aa60f029f974b648109f8",
         "android_client_info": {
-          "package_name": "com.yessalgui.com"
+          "package_name": "com.yessalgui.app"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAx8_kX3zUYf4Vyh3M8y2xclrOeaFTasxI"
+          "current_key": "AIzaSyCZ4dlpWQJuZ04sx5vh9GRkwP7VG2bn_RM"
         }
       ],
       "services": {
