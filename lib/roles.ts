@@ -112,6 +112,14 @@ export function roleLabelLong(role?: string | null): string {
 export function donationsTitle(role?: string | null): string {
   if (role === "admin") return "Les Jëfs";
   if (role === "chef_daara") return "Jëfs du Daara";
-  if (role === "collector") return "Jëfs collectés";
+  /*
+    ⚠ « Jëfs collectés » est devenu faux le 2026-09-06, et c'est une bonne
+    nouvelle : la portée du serveur ne rendait au collecteur QUE ses
+    encaissements, jamais ses propres dons. Corrigé — il voit désormais les
+    deux, et le titre doit le dire. Chaque ligne porte déjà « En mon nom » ou
+    le nom du donateur : la distinction se lit dans la liste, le titre n'a qu'à
+    ne pas mentir sur ce qu'elle contient.
+  */
+  if (role === "collector") return "Mes Jëfs et mes collectes";
   return "Mes Jëfs";
 }

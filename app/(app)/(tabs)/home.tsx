@@ -475,9 +475,24 @@ function RailCard({
             <ProgressBar progress={ratio} variant="onPhoto" />
           </>
         ) : (
-          <Text style={styles.railMeta} numberOfLines={1}>
-            {campaign.daara_name ?? "Votre Daara"}
-          </Text>
+          /*
+            🔴 Cette ligne lisait `campaign.daara_name ?? "Votre Daara"`.
+
+            Les deux moitiés posaient problème. Le repli AFFIRMAIT que le
+            Ndiguel était celui du lecteur alors qu'il disait seulement que le
+            champ était vide — et un Ndiguel sans Daara ciblé s'adresse à toute
+            la confrérie, ce qui est le contraire. Quant à la valeur elle-même,
+            `daara_name` est le Daara CIBLÉ, pas un propriétaire : un Ndiguel
+            n'appartient à aucun Daara.
+
+            On montre la fête, qui est le vrai contexte d'un Ndiguel, et à
+            défaut rien. Une ligne vide vaut mieux qu'une ligne fausse.
+          */
+          campaign.event_name ? (
+            <Text style={styles.railMeta} numberOfLines={1}>
+              {campaign.event_name}
+            </Text>
+          ) : null
         )}
 
         <Button label="Faire un Jëf" onPress={onDonate} size="md" style={styles.railCta} />

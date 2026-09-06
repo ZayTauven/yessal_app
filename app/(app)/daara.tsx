@@ -687,7 +687,13 @@ function Chantiers({
         <EmptyState
           picto={<Hammer size={56} color={Violet[900]} strokeWidth={1.5} />}
           title="Aucun chantier en cours"
-          body="Votre Daara n'a pas encore ouvert de Ndiguel. Vous serez prévenu dès qu'un appel est lancé."
+          /*
+            « Votre Daara n'a pas encore OUVERT de Ndiguel » prêtait au Daara
+            un geste qu'il n'a pas : les Ndiguels sont lancés par
+            l'administration (UC-06). Cette section montre ceux qui VISENT ce
+            Daara — un ciblage, pas une propriété.
+          */
+          body="Aucun Ndiguel ne vise votre Daara en ce moment. Vous serez prévenu dès qu'un appel est lancé."
         />
       </View>
     );

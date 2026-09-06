@@ -77,6 +77,7 @@ function normalizeCampaign(item: any): Campaign {
     daara_name: item.daara_name ?? null,
     objective: item.objective ?? null,
     organizer_name: item.organizer_name ?? null,
+    organizer_daara_name: item.organizer_daara_name ?? null,
     created_at: item.created_at,
     updated_at: item.updated_at ?? undefined,
     /**

@@ -1,14 +1,27 @@
 /**
  * app/(app)/campaign/new.tsx — lancer un Ndiguel.
  *
- * ── Qui a le droit, et pourquoi ça surprend ─────────────────────────────────
+ * ── Qui a le droit : l'ADMINISTRATEUR, et lui seul ──────────────────────────
  *
- * Pas seulement les responsables. `CAMPAIGN_CREATOR_ROLES` ouvre la création à
- * `admin`, `chef_daara`, `collector` **et `member`** (`events/views.py:19`) —
- * seule la tutelle en est exclue. Un talibé peut donc lancer un appel, c'est
- * déjà vrai au tableau de bord depuis toujours, et le mobile ne savait pas le
- * faire : l'audit de parité l'a relevé comme la deuxième fonction manquante,
- * juste après l'ouverture d'une conversation.
+ * 🔴 Cet en-tête affirmait le contraire au 2026-09-05 : « pas seulement les
+ * responsables… un talibé peut donc lancer un appel, c'est déjà vrai au
+ * tableau de bord depuis toujours ». **Les deux moitiés étaient fausses.**
+ *
+ * J'avais pris `CAMPAIGN_CREATOR_ROLES` côté Django pour l'énoncé de la règle.
+ * Cette liste était elle-même le défaut : le serveur acceptait ce qu'aucune
+ * interface ne proposait, `CampaignsClient.tsx` gardant « Lancer un Ndiguel »
+ * derrière `isAdmin` depuis toujours. Il suffisait de regarder le web plutôt
+ * que la permission.
+ *
+ * La règle est UC-06 (`AGENTS/tools/05_use_cases_regles.md`), qui ne porte
+ * qu'un acteur — l'administrateur — et `01_vision_produit.md`, qui attribue au
+ * chef de Daara la gestion de son Daara, la proposition de collecteurs et la
+ * création de salons, jamais celle des campagnes. Un appel aux dons engage la
+ * confrérie entière auprès de ses membres.
+ *
+ * `CAMPAIGN_CREATOR_ROLES` vaut désormais `('admin',)`, le bouton de l'onglet
+ * ne s'affiche que pour un administrateur, et cet écran refuse les autres —
+ * il reste atteignable par lien profond.
  *
  * ── Trois pièges du contrat, tous vérifiés ──────────────────────────────────
  *
@@ -32,20 +45,27 @@
  *   authentique, et téléverser une image avant même d'avoir lancé l'appel
  *   ajoute une étape à un formulaire qu'on veut court. Elle se pose depuis le
  *   tableau de bord.
- * — **Le responsable et le Daara.** Django les déduit ou les laisse vides ;
- *   les demander ici reviendrait à faire choisir un membre dans une liste de
- *   plusieurs centaines de noms, au doigt, pour un champ facultatif.
+ * — **Le responsable et le Daara ciblé.** Deux champs facultatifs et
+ *   INDÉPENDANTS l'un de l'autre, qu'il ne faut surtout pas confondre :
+ *   `daara` est un CIBLAGE (« Ciblage par Daara (optionnel) »,
+ *   `03_modeles_donnees.md`) — un Ndiguel n'appartient à aucun Daara — et
+ *   l'organisateur est la personne désignée pour mener l'opération, choisie
+ *   dans n'importe quel Daara. Les demander ici reviendrait à faire choisir un
+ *   membre dans une liste de plusieurs centaines de noms, au doigt. Ils se
+ *   posent au tableau de bord, où l'admin travaille au clavier.
  */
 import { useCallback, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
+import { ChevronLeft, ShieldAlert } from "lucide-react-native";
 
 import { Button, IconButton } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { ApiError } from "@/lib/api";
 import { ContentService } from "@/lib/content.service";
+import { useAuthStore } from "@/store/auth.store";
 import { formatFCFA } from "@/lib/format";
 import { GUTTER, Ink, Space, Surface, Type, Violet } from "@/theme";
 
@@ -87,6 +107,7 @@ function aujourdhui(): Date {
 
 export default function NewCampaignScreen() {
   const router = useRouter();
+  const role = useAuthStore((state) => state.user?.role);
 
   const [name, setName] = useState("");
   const [objective, setObjective] = useState("");
@@ -174,6 +195,24 @@ export default function NewCampaignScreen() {
         <Text style={styles.title}>Lancer un Ndiguel</Text>
       </View>
 
+      {/*
+        La garde, et non le seul masquage du bouton : l'écran reste atteignable
+        par lien profond. Elle DIT à qui s'adresser plutôt que de renvoyer un
+        refus sec — un membre qui a une collecte à proposer a besoin de savoir
+        par où elle passe, pas d'apprendre qu'il n'a pas le droit.
+      */}
+      {role !== "admin" ? (
+        <EmptyState
+          picto={<ShieldAlert size={56} color={Violet[900]} strokeWidth={1.5} />}
+          title="Réservé à l'administration"
+          body="Un Ndiguel engage la confrérie entière : il est lancé par l'administration. Proposez le vôtre au responsable de votre Daara, qui le fera remonter."
+          actionLabel="Revenir aux Ndiguels"
+          onAction={() => (router.canGoBack() ? router.back() : router.replace("/campaigns"))}
+          card={false}
+          style={styles.refus}
+        />
+      ) : (
+
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -243,11 +282,13 @@ export default function NewCampaignScreen() {
           disabled={saving}
         />
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  refus: { marginTop: Space.xxl, paddingHorizontal: GUTTER },
   screen: { flex: 1, backgroundColor: Surface.default },
 
   header: {

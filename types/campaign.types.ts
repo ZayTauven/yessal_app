@@ -40,6 +40,15 @@ export interface Campaign {
   objective?: string | null;
   /** Le chef ou l'organisateur désigné — `CampaignSerializer.get_organizer_name`. */
   organizer_name?: string | null;
+  /**
+   * Le Daara de l'ORGANISATEUR — à ne pas confondre avec `daara_name`, qui est
+   * le Daara CIBLÉ par le Ndiguel et souvent un autre.
+   *
+   * Un Ndiguel n'appartient pas à un Daara : `daara` est un ciblage facultatif
+   * (`AGENTS/tools/03_modeles_donnees.md`), et l'organisateur est choisi pour
+   * mener l'opération d'où qu'il vienne.
+   */
+  organizer_daara_name?: string | null;
   created_at: string;
   updated_at?: string;
   /**

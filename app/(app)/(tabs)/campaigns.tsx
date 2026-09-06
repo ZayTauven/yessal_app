@@ -166,16 +166,22 @@ export default function CampaignsScreen() {
           accessibilityLabel={searchOpen ? "Fermer la recherche" : "Rechercher un Ndiguel"}
         />
         {/*
-          ⚠ Ouvert à TOUS les rôles sauf la tutelle, et ce n'est pas une
-          négligence : `CAMPAIGN_CREATOR_ROLES` (`events/views.py:19`) autorise
-          `member` au même titre qu'un chef. Un talibé lance donc un appel
-          depuis son téléphone comme il pouvait déjà le faire au tableau de
-          bord. On ne masque pas ici un droit que le serveur accorde.
+          🔴 CE BOUTON S'OUVRAIT À TOUS LES RÔLES SAUF LA TUTELLE, et le
+          commentaire qui l'accompagnait affirmait qu'un talibé « pouvait déjà
+          le faire au tableau de bord ». C'ÉTAIT FAUX, et vérifiable en une
+          ligne : `CampaignsClient.tsx` n'affiche « Lancer un Ndiguel » que
+          derrière `isAdmin`.
+
+          L'erreur venait de ma lecture : j'avais pris `CAMPAIGN_CREATOR_ROLES`
+          côté Django pour la règle, alors que cette liste était elle-même le
+          défaut — le serveur acceptait ce qu'aucune interface ne proposait.
+          UC-06 (`AGENTS/tools/05_use_cases_regles.md`) ne porte qu'un acteur :
+          l'administrateur. Les deux sont corrigés.
 
           `canCollect` ne s'applique PAS : elle désigne qui encaisse pour
           autrui, ce qui est une autre question.
         */}
-        {role !== "tutelle" ? (
+        {role === "admin" ? (
           <IconButton
             icon={<Plus size={20} color={Ink[900]} strokeWidth={1.8} />}
             onPress={() => router.push("/campaign/new")}
@@ -276,7 +282,17 @@ function CampaignRow({
     campaign.status === "active" || campaign.status === "pending"
       ? formatCountdown(campaign.deadline)
       : null;
-  const meta = [campaign.daara_name, countdown].filter(Boolean).join(" · ");
+  /*
+    🔴 La méta portait `campaign.daara_name` — « KANDE · J-55 » — ce qui se
+    lit comme le Daara PROPRIÉTAIRE du Ndiguel. Il ne l'est pas : `daara` est
+    un ciblage facultatif, et un Ndiguel s'adresse à la confrérie.
+
+    La fête prend sa place. C'est le contexte réel d'un Ndiguel — « KAZU
+    RAJAB · J-55 » situe l'appel, là où un nom de Daara égarait. La fiche de
+    détail l'affiche déjà en sur-titre : les deux écrans disent enfin la même
+    chose de la même campagne.
+  */
+  const meta = [campaign.event_name, countdown].filter(Boolean).join(" · ");
 
   return (
     <Card

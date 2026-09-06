@@ -535,9 +535,19 @@ function Organisateur({
         <Text style={styles.organizerName} numberOfLines={1}>
           {name}
         </Text>
-        {campaign.daara_name ? (
+        {/*
+          🔴 CETTE LIGNE LISAIT `campaign.daara_name` — le Daara CIBLÉ par le
+          Ndiguel — et l'affichait comme celui de l'organisateur.
+
+          Or un Ndiguel n'appartient à aucun Daara : `daara` est un ciblage
+          facultatif, et l'organisateur est choisi pour mener l'opération d'où
+          qu'il vienne — c'est même le cas courant. L'écran attribuait donc à
+          une personne réelle un rattachement qui n'était pas le sien, avec
+          l'aplomb d'un fait. On lit maintenant le sien.
+        */}
+        {campaign.organizer_daara_name ? (
           <Text style={styles.organizerRole} numberOfLines={1}>
-            Daara de {campaign.daara_name}
+            Daara de {campaign.organizer_daara_name}
           </Text>
         ) : null}
       </View>
