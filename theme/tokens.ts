@@ -22,6 +22,28 @@ import { StyleSheet, type TextStyle } from "react-native";
  * luminosité. Le cran sombre porte tout le texte, le cran clair porte tous
  * les fonds d'action.
  */
+/*
+ * ── ARBITRAGE DU 2026-09-06 : DEUX DIALECTES, ASSUMÉS ───────────────────────
+ *
+ * Le bouton principal diverge entre les deux produits, et c'est une DÉCISION,
+ * pas une dérive à réparer :
+ *
+ *     mobile   #B79BF3, libellé #2F1966   (6,2:1)
+ *     web      #7954D4, libellé blanc     (5,2:1)
+ *
+ * Les deux passent AA ; ce n'est donc pas une question d'accessibilité. La
+ * lavande vient des planches « Refonte mobile Yessal Gui », qui la portent
+ * douze fois — le mobile suit son contrat, le web garde son accent.
+ *
+ * Ce qui reste COMMUN, et qui suffit à faire famille : le violet 400 / 500 /
+ * 700 (identique au code hexadécimal près) et le vert des montants #1A5C3A.
+ *
+ * Même arbitrage pour les fontes — Plus Jakarta Sans ici, Inter et Space
+ * Grotesk au tableau de bord. Unifier se fait en un jour et se vérifie sur
+ * trente écrans : reporté après la phase de vérification, pas oublié.
+ *
+ * ⚠ Ne pas « corriger » l'un vers l'autre sans rouvrir cet arbitrage.
+ */
 export const Violet = {
   /** Surfaces sombres, logo, splash — 18,2:1 */
   950: "#190B3D",
