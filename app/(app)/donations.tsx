@@ -1,5 +1,9 @@
 /**
- * app/(app)/donations.tsx — « Mes Jëfs », passé au système (phase F).
+ * app/(app)/donations.tsx — la liste des Jëfs, passée au système (phase F).
+ *
+ * ⚠ Le titre suit le RÔLE, parce que la donnée servie en dépend : un
+ * collecteur y voit ce qu'il a encaissé, pas ce qu'il a donné. Voir
+ * `donationsTitle` dans `lib/roles.ts`.
  *
  * Écran hérité (§5.2). Une correction de fond, sur le chiffre qui compte.
  *
@@ -46,6 +50,8 @@ import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { formatFCFA } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
+import { donationsTitle } from "@/lib/roles";
+import { useAuthStore } from "@/store/auth.store";
 import type { AnyPaymentMethod, Donation, PaymentStatus } from "@/types/donation.types";
 import {
   GUTTER,
@@ -138,6 +144,7 @@ async function fetchDonations(): Promise<State> {
 }
 
 export default function DonationsScreen() {
+  const user = useAuthStore((s) => s.user);
   const router = useRouter();
   const [state, setState] = useState<State>({ status: "loading", donations: [] });
   const [refreshing, setRefreshing] = useState(false);
@@ -214,7 +221,7 @@ export default function DonationsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScreenHeader
-        title="Mes Jëfs"
+        title={donationsTitle(user?.role)}
         onBack={() => router.back()}
         right={{
           icon: <Settings2 size={20} color={Ink[900]} strokeWidth={1.5} />,

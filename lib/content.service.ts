@@ -582,6 +582,35 @@ export const ContentService = {
     return normalizeTutelle(data);
   },
 
+  /**
+   * Corriger une tutelle.
+   *
+   * `TutelleViewSet` est un `ModelViewSet` complet et son `get_queryset` est
+   * borné à `tutor=request.user` : la modification et la suppression étaient
+   * donc disponibles DEPUIS TOUJOURS côté serveur, et le mobile n'exposait que
+   * la création. Une faute de frappe dans le nom d'un proche était définitive —
+   * un défaut porté au registre depuis la phase E.
+   */
+  async updateTutelle(
+    id: number,
+    payload: Partial<CreateTutellePayload>,
+  ): Promise<Tutelle> {
+    const data = await api.patch<any>(`tutelles/${id}/`, payload);
+    return normalizeTutelle(data);
+  },
+
+  /**
+   * Retirer une tutelle.
+   *
+   * ⚠ Elle n'emporte AUCUN Jëf : `Donation.beneficiary` est un
+   * `SET_NULL`/`PROTECT` côté Django selon les cas, et les dons déjà faits au
+   * nom de ce proche restent au registre. Retirer une tutelle, c'est cesser de
+   * porter quelqu'un — ce n'est pas effacer ce qu'on a donné pour lui.
+   */
+  async deleteTutelle(id: number): Promise<void> {
+    await api.delete(`tutelles/${id}/`);
+  },
+
   async getAnalytics(): Promise<AnalyticsResponse> {
     return api.get<AnalyticsResponse>("analytics/");
   },

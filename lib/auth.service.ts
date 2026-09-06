@@ -58,6 +58,26 @@ export const AuthService = {
     return api.post<RegisterResponse>("auth/register/", payload, { auth: false });
   },
 
+  /**
+   * Changer son mot de passe en étant connecté.
+   *
+   * `POST /auth/change-password/` existait côté Django et n'était appelé par
+   * AUCUN chemin mobile : la ligne « Changer le mot de passe » des Paramètres
+   * renvoyait vers `/forgot`, c'est-à-dire vers un parcours par courriel. Un
+   * membre inscrit par téléphone seul — l'inscription l'autorise — ne pouvait
+   * donc PAS changer son mot de passe. Or ce sont justement les comptes créés
+   * par un tiers, avec un mot de passe attribué, qui en ont le plus besoin.
+   *
+   * L'ancien mot de passe est exigé par le serveur, et c'est juste : sans lui,
+   * un jeton volé suffirait à verrouiller un compte définitivement.
+   *
+   * ⚠ Le succès RÉVOQUE toutes les sessions (`User.revoke_sessions()`), y
+   * compris celle-ci. L'appelant doit donc renvoyer à la connexion.
+   */
+  async changePassword(current_password: string, new_password: string): Promise<void> {
+    await api.post("auth/change-password/", { current_password, new_password });
+  },
+
   async forgotPassword(payload: ForgotPasswordPayload): Promise<void> {
     await api.post("auth/forgot-password/", payload, { auth: false });
   },

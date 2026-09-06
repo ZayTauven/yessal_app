@@ -92,3 +92,26 @@ export function roleLabelLong(role?: string | null): string {
   if (!role) return "—";
   return ROLE_LABEL_LONG[role] ?? role;
 }
+
+/**
+ * Le titre de la liste des Jëfs — il dépend du rôle parce que LA DONNÉE en
+ * dépend, pas par coquetterie.
+ *
+ * ⚠ `DonationViewSet.get_queryset` (`contributions/views.py:70`) sert des
+ * ensembles DIFFÉRENTS : un admin voit tout, un chef de Daara les dons de son
+ * Daara, un talibé les siens — et un **collecteur voit ce qu'il a ENCAISSÉ**
+ * (`filter(collector=user)`), pas ce qu'il a donné. Intituler cet écran « Mes
+ * Jëfs » pour un collecteur, c'est lui présenter les dons des autres comme les
+ * siens.
+ *
+ * ⚠ Conséquence à porter au registre, non corrigée ici parce qu'elle est côté
+ * Django : **un collecteur ne peut voir ses propres Jëfs nulle part.** Le
+ * tableau de bord a exactement le même défaut, et il l'intitule « Mes Jëfs »
+ * (`front-web/src/lib/nav.ts`, `donationsTitle`) — c'est le web à aligner.
+ */
+export function donationsTitle(role?: string | null): string {
+  if (role === "admin") return "Les Jëfs";
+  if (role === "chef_daara") return "Jëfs du Daara";
+  if (role === "collector") return "Jëfs collectés";
+  return "Mes Jëfs";
+}

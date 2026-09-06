@@ -124,6 +124,7 @@ export default function AppLayout() {
         <Stack.Screen name="news/[slug]" />
         <Stack.Screen name="profile/documents" />
         <Stack.Screen name="profile/informations" />
+        <Stack.Screen name="profile/password" />
         <Stack.Screen name="profile/settings" />
         <Stack.Screen name="profile/tutelle" />
       </Stack>

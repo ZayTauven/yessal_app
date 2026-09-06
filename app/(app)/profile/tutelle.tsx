@@ -34,10 +34,21 @@
  *
  * ── Ce que l'écran ne peut pas faire ────────────────────────────────────────
  *
- * ⚠ **Ni modifier ni supprimer une tutelle.** `ContentService` n'expose que
- * `getTutelles` et `createTutelle`. Une faute de frappe dans un nom est donc
- * définitive côté mobile. Le point d'API existe peut-être ; il n'est pas câblé,
- * et ce lot ne l'ouvre pas — porté au registre de dette.
+ * ── ✅ Modifier et retirer, ouverts au lot 4 ─────────────────────────────────
+ *
+ * L'écran ne savait que CRÉER, et une faute de frappe dans le nom d'un proche
+ * était définitive. Le point d'API existait pourtant depuis toujours :
+ * `TutelleViewSet` est un `ModelViewSet` complet dont le `get_queryset` est
+ * borné à `tutor=request.user` — il ne manquait que le câblage.
+ *
+ * La feuille sert donc les deux gestes, création et correction. Le retrait est
+ * une `Alert` de confirmation, pas un balayage : sur une liste de six proches
+ * qu'on touche deux fois par an, un geste destructeur ne doit pas pouvoir
+ * partir tout seul.
+ *
+ * ⚠ Retirer une tutelle N'EFFACE AUCUN Jëf. Les dons déjà faits en son nom
+ * restent au registre — c'est dit dans la confirmation, parce que c'est
+ * exactement ce qu'on craint en appuyant.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -51,7 +62,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Heart, UserPlus } from "lucide-react-native";
+import { Heart, Pencil, Trash2, UserPlus } from "lucide-react-native";
 
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/EmptyState";
@@ -63,10 +74,12 @@ import { ContentService } from "@/lib/content.service";
 import type { Tutelle } from "@/types/content.types";
 import {
   GUTTER,
+  HIT,
   Ink,
   Radius,
   Shadow,
   Space,
+  Status,
   Surface,
   Type,
   UIType,
@@ -90,7 +103,10 @@ async function fetchTutelles(): Promise<State> {
 export default function TutelleScreen() {
   const router = useRouter();
   const [state, setState] = useState<State>({ status: "loading", tutelles: [] });
+  /** `null` = création. Une tutelle = correction de celle-là. */
+  const [editing, setEditing] = useState<Tutelle | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [removing, setRemoving] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +128,59 @@ export default function TutelleScreen() {
     setFormOpen(false);
   }, []);
 
+  const onUpdated = useCallback((saved: Tutelle) => {
+    setState((previous) => ({
+      ...previous,
+      tutelles: previous.tutelles.map((t) => (t.id === saved.id ? saved : t)),
+    }));
+    setFormOpen(false);
+    setEditing(null);
+  }, []);
+
+  const openCreate = useCallback(() => {
+    setEditing(null);
+    setFormOpen(true);
+  }, []);
+
+  const openEdit = useCallback((tutelle: Tutelle) => {
+    setEditing(tutelle);
+    setFormOpen(true);
+  }, []);
+
+  /*
+    La confirmation nomme la personne et dit ce qui NE disparaît pas. « Êtes-vous
+    sûr ? » ne renseigne sur rien ; ce qu'on veut savoir avant d'appuyer, c'est
+    si les Jëfs déjà faits pour ce proche s'en vont avec lui.
+  */
+  const remove = useCallback((tutelle: Tutelle) => {
+    const nom = `${tutelle.first_name} ${tutelle.last_name}`.trim();
+    Alert.alert(
+      `Retirer ${nom} ?`,
+      "Vous ne pourrez plus contribuer en son nom. Les Jëfs déjà faits pour cette personne restent à votre registre.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Retirer",
+          style: "destructive",
+          onPress: async () => {
+            setRemoving(tutelle.id);
+            try {
+              await ContentService.deleteTutelle(tutelle.id);
+              setState((previous) => ({
+                ...previous,
+                tutelles: previous.tutelles.filter((t) => t.id !== tutelle.id),
+              }));
+            } catch {
+              Alert.alert("Retrait impossible", "Le proche n'a pas pu être retiré. Réessayez.");
+            } finally {
+              setRemoving(null);
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
   const donateFor = useCallback(
     (tutelle: Tutelle) => {
       router.push({
@@ -130,7 +199,7 @@ export default function TutelleScreen() {
         right={{
           icon: <UserPlus size={20} color={Ink[900]} strokeWidth={1.5} />,
           accessibilityLabel: "Ajouter une tutelle",
-          onPress: () => setFormOpen(true),
+          onPress: openCreate,
         }}
       />
 
@@ -152,7 +221,7 @@ export default function TutelleScreen() {
         ) : null}
 
         {state.status === "ready" && state.tutelles.length === 0 ? (
-          <TutelleEmptyState onAdd={() => setFormOpen(true)} />
+          <TutelleEmptyState onAdd={openCreate} />
         ) : null}
 
         {state.tutelles.length > 0 ? (
@@ -164,15 +233,46 @@ export default function TutelleScreen() {
                   relation={tutelle.relation}
                   avatarUri={tutelle.avatar_url}
                 />
-                <Pressable
-                  onPress={() => donateFor(tutelle)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Contribuer pour ${tutelle.first_name}`}
-                  style={({ pressed }) => [styles.donate, pressed && styles.pressed]}
-                >
-                  <Heart size={14} color={Violet[700]} strokeWidth={1.75} />
-                  <Text style={styles.donateText}>Contribuer pour {tutelle.first_name}</Text>
-                </Pressable>
+                <View style={styles.actions}>
+                  <Pressable
+                    onPress={() => donateFor(tutelle)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Contribuer pour ${tutelle.first_name}`}
+                    style={({ pressed }) => [styles.donate, pressed && styles.pressed]}
+                  >
+                    <Heart size={14} color={Violet[700]} strokeWidth={1.75} />
+                    <Text style={styles.donateText}>Contribuer pour {tutelle.first_name}</Text>
+                  </Pressable>
+
+                  {/*
+                    Corriger et retirer sont des gestes secondaires : ils se
+                    tiennent en retrait, en icône, quand « Contribuer » garde le
+                    libellé. C'est le geste qu'on vient faire ici.
+                  */}
+                  <Pressable
+                    onPress={() => openEdit(tutelle)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Corriger la fiche de ${tutelle.first_name}`}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}
+                  >
+                    <Pencil size={16} color={Ink[500]} strokeWidth={1.7} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => remove(tutelle)}
+                    disabled={removing === tutelle.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Retirer ${tutelle.first_name}`}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.iconAction, pressed && styles.pressed]}
+                  >
+                    <Trash2
+                      size={16}
+                      color={removing === tutelle.id ? Ink[300] : Status.error}
+                      strokeWidth={1.7}
+                    />
+                  </Pressable>
+                </View>
               </View>
             ))}
           </View>
@@ -183,32 +283,65 @@ export default function TutelleScreen() {
             label="Ajouter un proche"
             variant="outline"
             icon={<UserPlus size={16} color={Violet[900]} strokeWidth={1.75} />}
-            onPress={() => setFormOpen(true)}
+            onPress={openCreate}
           />
         ) : null}
       </ScrollView>
 
-      <AddTutelleSheet
+      {/* La `key` remonte la feuille à chaque changement de cible : c'est elle
+          qui repose les champs, sans effet de synchronisation. */}
+      <TutelleSheet
+        key={editing?.id ?? "nouvelle"}
         visible={formOpen}
-        onClose={() => setFormOpen(false)}
+        tutelle={editing}
+        onClose={() => {
+          setFormOpen(false);
+          setEditing(null);
+        }}
         onCreated={onCreated}
+        onUpdated={onUpdated}
       />
     </SafeAreaView>
   );
 }
 
-function AddTutelleSheet({
+/**
+ * La feuille sert les DEUX gestes — ajouter et corriger.
+ *
+ * Un second composant aurait dupliqué trois champs, une validation et un
+ * appel réseau pour ne changer qu'un verbe. La différence tient dans
+ * `tutelle` : absente, on crée ; présente, on corrige celle-là.
+ */
+function TutelleSheet({
   visible,
+  tutelle,
   onClose,
   onCreated,
+  onUpdated,
 }: {
   visible: boolean;
+  tutelle: Tutelle | null;
   onClose: () => void;
   onCreated: (created: Tutelle) => void;
+  onUpdated: (saved: Tutelle) => void;
 }) {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [relation, setRelation] = useState("");
+  /*
+    ⚠ LES CHAMPS SONT INITIALISÉS, PAS SYNCHRONISÉS.
+
+    Un premier jet les recopiait depuis `tutelle` dans un `useEffect`. Le React
+    Compiler le refuse (`react-hooks/set-state-in-effect`) — et il a raison :
+    remplir un formulaire n'est pas synchroniser deux états, c'est le monter
+    avec une valeur de départ. Le parent remonte donc la feuille par sa `key`
+    quand on passe d'une tutelle à une autre, et l'état repart de zéro sans
+    qu'aucun effet n'ait à courir après lui.
+
+    C'est la troisième fois que ce piège se présente sur ce dépôt ; la réponse
+    est chaque fois la même — sortir le `setState` de l'effet, pas le
+    contourner.
+  */
+  const [firstName, setFirstName] = useState(tutelle?.first_name ?? "");
+  const [lastName, setLastName] = useState(tutelle?.last_name ?? "");
+  const [relation, setRelation] = useState(tutelle?.relation ?? "");
   const [saving, setSaving] = useState(false);
 
   const submit = useCallback(async () => {
@@ -223,31 +356,42 @@ function AddTutelleSheet({
 
     setSaving(true);
     try {
-      const created = await ContentService.createTutelle({
-        first_name,
-        last_name,
-        relation: link,
-      });
-      setFirstName("");
-      setLastName("");
-      setRelation("");
-      onCreated(created);
+      if (tutelle) {
+        const saved = await ContentService.updateTutelle(tutelle.id, {
+          first_name,
+          last_name,
+          relation: link,
+        });
+        onUpdated(saved);
+      } else {
+        const created = await ContentService.createTutelle({
+          first_name,
+          last_name,
+          relation: link,
+        });
+        setFirstName("");
+        setLastName("");
+        setRelation("");
+        onCreated(created);
+      }
     } catch (error) {
       Alert.alert(
-        "Enregistrement impossible",
-        error instanceof Error ? error.message : "Le proche n'a pas pu être ajouté.",
+        tutelle ? "Correction impossible" : "Enregistrement impossible",
+        error instanceof Error ? error.message : "La fiche n'a pas pu être enregistrée.",
       );
     } finally {
       setSaving(false);
     }
-  }, [firstName, lastName, onCreated, relation]);
+  }, [firstName, lastName, onCreated, onUpdated, relation, tutelle]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} accessibilityLabel="Fermer" onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.grabber} />
-        <Text style={styles.sheetTitle}>Ajouter un proche</Text>
+        <Text style={styles.sheetTitle}>
+          {tutelle ? "Corriger la fiche" : "Ajouter un proche"}
+        </Text>
 
         <Input
           label="Prénom"
@@ -274,7 +418,7 @@ function AddTutelleSheet({
         <View style={styles.sheetActions}>
           <Button label="Annuler" variant="secondary" onPress={onClose} style={styles.action} />
           <Button
-            label="Enregistrer"
+            label={tutelle ? "Corriger" : "Enregistrer"}
             onPress={submit}
             loading={saving}
             style={styles.actionWide}
@@ -297,6 +441,14 @@ const styles = StyleSheet.create({
   list: { gap: Space.md },
   entry: { gap: Space.xs },
 
+  actions: { flexDirection: "row", alignItems: "center", gap: Space.sm },
+  iconAction: {
+    width: HIT,
+    height: HIT,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+  },
   donate: {
     flexDirection: "row",
     alignItems: "center",

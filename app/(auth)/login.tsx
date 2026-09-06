@@ -315,12 +315,32 @@ export default function Login() {
             containerStyle={styles.field}
           />
 
+          {/*
+            ⚠ LA RÉCUPÉRATION NE MARCHE QUE PAR COURRIEL.
+
+            `ForgotPasswordView` (`accounts/views.py:1046`) cherche
+            EXCLUSIVEMENT par adresse e-mail. Or l'inscription autorise un
+            compte téléphone seul : un tel membre lisait « Mot de passe
+            oublié ? » sur son propre écran de connexion et suivait un lien qui
+            ne pouvait rien pour lui.
+
+            Le lien reste, parce qu'un membre en mode téléphone peut très bien
+            avoir une adresse. Mais en mode téléphone il DIT ce qu'il fait, au
+            lieu de le laisser découvrir à l'écran suivant.
+          */}
           <Pressable
             onPress={() => router.push("/forgot")}
             style={styles.forgot}
             accessibilityRole="link"
+            accessibilityLabel={
+              byEmail
+                ? "Mot de passe oublié ?"
+                : "Mot de passe oublié ? La réinitialisation se fait par courriel."
+            }
           >
-            <Text style={styles.forgotLabel}>Mot de passe oublié ?</Text>
+            <Text style={styles.forgotLabel}>
+              {byEmail ? "Mot de passe oublié ?" : "Oublié ? Réinitialiser par courriel"}
+            </Text>
           </Pressable>
         </View>
 

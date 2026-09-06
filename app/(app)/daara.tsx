@@ -77,9 +77,11 @@ import {
   Hammer,
   Menu,
   Phone,
+  Search,
 } from "lucide-react-native";
 
 import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
+import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -211,6 +213,8 @@ export default function DaaraScreen() {
   const [refreshing, setRefreshing] = useState(false);
   /** 0 = annuaire replié. La planche montre les visages, pas la liste. */
   const [directoryLimit, setDirectoryLimit] = useState(0);
+  /** Le filtre de l'annuaire. Local : la liste est déjà chargée entière. */
+  const [directoryQuery, setDirectoryQuery] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -285,9 +289,12 @@ export default function DaaraScreen() {
                 <Talibes
                   members={members}
                   limit={directoryLimit}
-                  onToggle={() =>
-                    setDirectoryLimit((current) => (current === 0 ? DIRECTORY_PAGE : 0))
-                  }
+                  query={directoryQuery}
+                  onQuery={setDirectoryQuery}
+                  onToggle={() => {
+                    setDirectoryLimit((current) => (current === 0 ? DIRECTORY_PAGE : 0));
+                    setDirectoryQuery("");
+                  }}
                   onMore={() => setDirectoryLimit((current) => current + DIRECTORY_PAGE)}
                 />
 
@@ -480,14 +487,21 @@ function Counter({ label, value }: { label: string; value: string }) {
  * — et mélanger les sources donnerait un reste négatif le jour où ils
  * divergeront pour de bon.
  */
+/** En dessous, un champ de recherche gêne plus qu'il n'aide. */
+const SEARCH_FROM = 8;
+
 function Talibes({
   members,
   limit,
+  query,
+  onQuery,
   onToggle,
   onMore,
 }: {
   members: DirectoryUser[] | null;
   limit: number;
+  query: string;
+  onQuery: (next: string) => void;
   onToggle: () => void;
   onMore: () => void;
 }) {
@@ -514,7 +528,29 @@ function Talibes({
     name: fullName(m),
   }));
   const others = members.length - faces.length;
-  const shown = members.slice(0, limit);
+
+  /*
+    Le filtre. Local, et c'est le bon choix ici : l'annuaire est déjà chargé
+    entièrement (`getDirectory`), et `DirectoryUserViewSet` le borne déjà au
+    Daara pour un talibé. Un aller-retour serveur par frappe coûterait la 3G
+    sans rien apprendre de plus.
+
+    Il porte sur le nom ET le numéro : on cherche un membre par son nom, mais
+    on vérifie une identité par les derniers chiffres de son téléphone.
+  */
+  const filtre = query.trim().toLowerCase();
+  const chiffres = filtre.replace(/\D/g, "");
+  const filtres = filtre
+    ? members.filter((m) => {
+        const nom = fullName(m).toLowerCase();
+        if (nom.includes(filtre)) return true;
+        if (chiffres && (m.phone ?? "").replace(/\D/g, "").includes(chiffres)) return true;
+        return false;
+      })
+    : members;
+
+  /* Une recherche montre TOUT ce qu'elle trouve : on ne pagine pas un filtre. */
+  const shown = filtre ? filtres : members.slice(0, limit);
 
   return (
     <View style={styles.section}>
@@ -536,10 +572,34 @@ function Talibes({
 
       {limit > 0 ? (
         <View style={styles.directory}>
+          {/*
+            La recherche n'apparaît qu'annuaire déplié, et seulement s'il y a
+            de quoi chercher. Un champ de filtre au-dessus de quatre noms est
+            un obstacle ; au-dessus de quatre cents, c'est le seul chemin.
+          */}
+          {members.length >= SEARCH_FROM ? (
+            <Input
+              placeholder="Rechercher un membre"
+              value={query}
+              onChangeText={onQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+              icon={<Search size={18} color={Ink[300]} strokeWidth={1.6} />}
+              containerStyle={styles.directorySearch}
+            />
+          ) : null}
+
+          {shown.length === 0 ? (
+            <Text style={styles.note}>
+              Personne ne correspond à « {query.trim()} ».
+            </Text>
+          ) : null}
+
           {shown.map((member) => (
             <MemberRow key={member.id} member={member} />
           ))}
-          {members.length > shown.length ? (
+
+          {!filtre && members.length > shown.length ? (
             <Button
               label={`Afficher ${formatNumber(members.length - shown.length)} membres de plus`}
               onPress={onMore}
@@ -811,6 +871,7 @@ const styles = StyleSheet.create({
   faces: { flexDirection: "row", alignItems: "center", gap: Space.md },
   facesLabel: { ...Type.label, fontFamily: Font.semibold, color: Ink[500], flexShrink: 1 },
   directory: { gap: Space.md },
+  directorySearch: { marginBottom: Space.sm },
   directoryMore: { marginTop: Space.xs },
 
   member: { flexDirection: "row", alignItems: "center", gap: Space.md },

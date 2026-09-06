@@ -36,6 +36,7 @@ import { useRouter, type Href } from "expo-router";
 import { HeartHandshake, X } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { donationsTitle } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
 import type { UserRole } from "@/types/auth.types";
@@ -72,6 +73,13 @@ interface DrawerItem {
   roles?: UserRole[];
   /** Pastille : un nombre de non-lus, ou le mot « Rôle ». */
   badge?: "role";
+  /**
+   * Libellé calculé au rendu plutôt qu'écrit ici.
+   *
+   * « Mes Jëfs » est faux pour un collecteur : `/donations` lui sert ce qu'il a
+   * ENCAISSÉ, pas ce qu'il a donné. Le tiroir ne peut donc pas figer un mot.
+   */
+  label_role?: "donations";
 }
 
 /**
@@ -84,16 +92,11 @@ const ITEMS: DrawerItem[] = [
   { label: "Ndiguels", route: "/campaigns" },
   { label: "Mon Daara", route: "/daara" },
   { label: "Messages", route: "/chat" },
-  { label: "Mes Jëfs", route: "/donations" },
+  /* Le libellé dépend du rôle — voir `donationsTitle`. Résolu au rendu. */
+  { label: "", route: "/donations", label_role: "donations" },
   { label: "Mes tutelles", route: "/profile/tutelle" },
   { label: "Actualités", route: "/explore" },
   { label: "Événements", route: "/events", roles: ["admin"] },
-  {
-    label: "Vue collecteur",
-    route: "/donate",
-    roles: ["collector", "chef_daara", "admin"],
-    badge: "role",
-  },
   { label: "Aide & contact", route: "/contact" },
 ];
 
@@ -143,7 +146,9 @@ export function Sidebar({ activeRoute }: SidebarProps) {
   }));
 
   const role = user?.role;
-  const items = ITEMS.filter((item) => !item.roles || (role && item.roles.includes(role)));
+  const items = ITEMS.filter((item) => !item.roles || (role && item.roles.includes(role))).map(
+    (item) => (item.label_role === "donations" ? { ...item, label: donationsTitle(role) } : item),
+  );
 
   const fullName = user ? `${user.first_name} ${user.last_name}`.trim() : "Membre Yessal";
   const daaraName = user?.daara_name ?? user?.daara?.name;

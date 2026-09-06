@@ -414,7 +414,12 @@ export default function SettingsScreen() {
             label="Changer le mot de passe"
             /* Vrai, et vérifiable : `revoke_sessions()` est appelé au changement. */
             hint="Vos autres appareils seront déconnectés."
-            onPress={() => router.push("/forgot")}
+            /*
+              Menait vers `/forgot` — un parcours par COURRIEL — faute d'écran
+              de changement. Un membre inscrit par téléphone seul ne pouvait
+              donc pas changer son mot de passe. La destination existe (lot 4).
+            */
+            onPress={() => router.push("/profile/password")}
             last
           />
         </Group>

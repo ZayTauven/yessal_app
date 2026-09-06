@@ -266,8 +266,6 @@ export default function DonateScreen() {
       ? (data.tutelles.find((t) => t.id === parseId(params.beneficiary))?.id ?? null)
       : beneficiaryChoice;
   const beneficiary = data.tutelles.find((t) => t.id === beneficiaryId) ?? null;
-  /** La tutelle proposée quand aucune n'est cochée : la première, s'il y en a une. */
-  const firstTutelle = data.tutelles[0] ?? null;
   const member = directory.find((m) => m.id === memberId) ?? null;
 
   const amount = Number(digits) || 0;
@@ -469,11 +467,9 @@ export default function DonateScreen() {
           amount={amount}
           refused={refused}
           valid={valid}
-          beneficiary={beneficiary ?? firstTutelle}
-          beneficiaryOn={beneficiaryId !== null}
-          onToggleBeneficiary={() =>
-            setBeneficiaryChoice(beneficiaryId === null ? (firstTutelle?.id ?? null) : null)
-          }
+          tutelles={data.tutelles}
+          beneficiaryId={beneficiaryId}
+          onBeneficiary={setBeneficiaryChoice}
           onDigits={onDigits}
           onQuick={chooseQuick}
           onBack={goBack}
@@ -568,13 +564,58 @@ interface AmountStepProps {
   amount: number;
   refused: boolean;
   valid: boolean;
-  beneficiary: Tutelle | null;
-  beneficiaryOn: boolean;
-  onToggleBeneficiary: () => void;
+  /** Tous les proches portés. C'est la liste, pas seulement le premier. */
+  tutelles: Tutelle[];
+  /** `null` = le Jëf est en son propre nom. */
+  beneficiaryId: number | null;
+  onBeneficiary: (id: number | null) => void;
   onDigits: (next: string) => void;
   onQuick: (value: number) => void;
   onBack: () => void;
   onNext: () => void;
+}
+
+/**
+ * Une option de bénéficiaire.
+ *
+ * `radio` et non `checkbox` : les options s'excluent, et c'est ce que le
+ * lecteur d'écran doit annoncer. La pastille reprend la marque du contrat —
+ * cerclée au repos, pleine et cochée quand elle est choisie.
+ */
+function BeneficiaryOption({
+  label,
+  avatarUri,
+  selected,
+  onPress,
+}: {
+  label: string;
+  avatarUri?: string | null;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={label}
+      style={[styles.tutelle, selected && styles.tutelleOn]}
+    >
+      {avatarUri !== undefined ? (
+        <Avatar uri={avatarUri} name={label} size={32} />
+      ) : (
+        <View style={styles.selfDot}>
+          <UserCheck size={16} color={Violet[700]} strokeWidth={1.7} />
+        </View>
+      )}
+      <Text style={styles.tutelleLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <View style={[styles.mark, selected && styles.markOn]}>
+        {selected ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
+      </View>
+    </Pressable>
+  );
 }
 
 function AmountStep({
@@ -584,9 +625,9 @@ function AmountStep({
   amount,
   refused,
   valid,
-  beneficiary,
-  beneficiaryOn,
-  onToggleBeneficiary,
+  tutelles,
+  beneficiaryId,
+  onBeneficiary,
   onDigits,
   onQuick,
   onBack,
@@ -631,21 +672,38 @@ function AmountStep({
 
         <Text style={[styles.hint, refused && styles.hintWarning]}>{hint}</Text>
 
-        {beneficiary ? (
-          <Pressable
-            onPress={onToggleBeneficiary}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: beneficiaryOn }}
-            style={[styles.tutelle, beneficiaryOn && styles.tutelleOn]}
-          >
-            <Avatar uri={beneficiary.avatar_url} name={beneficiary.first_name} size={32} />
-            <Text style={styles.tutelleLabel} numberOfLines={1}>
-              Au nom de {beneficiary.first_name} {beneficiary.last_name}
-            </Text>
-            <View style={[styles.mark, beneficiaryOn && styles.markOn]}>
-              {beneficiaryOn ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
-            </View>
-          </Pressable>
+        {/*
+          🔴 ON NE POUVAIT DONNER QUE POUR SA PREMIÈRE TUTELLE.
+
+          Une case à cocher basculait entre « en mon nom » et `firstTutelle?.id`,
+          EN DUR. Un membre qui porte trois proches n'en voyait qu'un — la
+          capture `Action jef` du 2026-09-05 ne proposait que Sokhna Aida alors
+          que le compte porte aussi Serigne Cisse. Le seul autre chemin, le lien
+          « Contribuer pour X » depuis Mes tutelles, avait été cassé par le bug
+          de route de la phase F : donner pour un second proche était donc
+          impossible tout court.
+
+          Une case à cocher ne peut pas exprimer un choix entre trois valeurs.
+          Elle devient une rangée d'options — soi-même, puis chaque proche.
+        */}
+        {tutelles.length > 0 ? (
+          <View style={styles.beneficiaries}>
+            <Text style={styles.beneficiaryTitle}>Au nom de qui ?</Text>
+            <BeneficiaryOption
+              label="En mon nom"
+              selected={beneficiaryId === null}
+              onPress={() => onBeneficiary(null)}
+            />
+            {tutelles.map((t) => (
+              <BeneficiaryOption
+                key={t.id}
+                label={`${t.first_name} ${t.last_name}`.trim()}
+                avatarUri={t.avatar_url}
+                selected={beneficiaryId === t.id}
+                onPress={() => onBeneficiary(t.id)}
+              />
+            ))}
+          </View>
         ) : null}
       </ScrollView>
 
@@ -1150,6 +1208,17 @@ const styles = StyleSheet.create({
   memberName: { ...UIType.personName, color: Ink[900], flex: 1 },
 
   footer: { gap: Space.md, paddingTop: Space.sm },
+
+  beneficiaries: { gap: Space.xs, marginTop: Space.sm },
+  beneficiaryTitle: { ...Type.label, color: Ink[500], textTransform: "uppercase" },
+  selfDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: Violet[100],
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   wireScroll: { flex: 1 },
   wire: { gap: Space.lg, marginTop: Space.xl, paddingBottom: Space.lg },
