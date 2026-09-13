@@ -189,6 +189,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     */
     await PushService.unregister();
     await AuthService.logout();
+    /*
+      Le compte de pièces d'identité vit dans un magasin de module
+      (`hooks/useProfileCompletion.ts`) et ne disparaît donc pas avec `user`. Il
+      s'efface de lui-même : ce module s'abonne À CE STORE et se remet à zéro
+      quand la session tombe. L'abonnement va dans ce sens-là, et pas l'inverse,
+      pour ne pas créer de cycle d'imports entre `store/` et `hooks/`.
+    */
     set({ user: null, isAuthenticated: false, isLoading: false });
   },
 

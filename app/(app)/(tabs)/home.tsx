@@ -36,7 +36,7 @@ import {
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bell, Menu, Newspaper, PiggyBank, Plus } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
@@ -156,8 +156,17 @@ export default function HomeScreen() {
   const { campaigns, tutelles, news } = state;
   const completion = useProfileCompletion();
 
+  /*
+    La racine est un `SafeAreaView edges={["top"]}`, et non un `View` nu.
+
+    C'est l'écran sur lequel le défaut se voyait le plus : l'en-tête vit DANS
+    le `ScrollView`, sans `paddingTop` propre, si bien que « Jamm ak salaam »
+    démarrait à `Space.sm` du bord physique de l'écran — sous l'horloge. Seul
+    `profile.tsx` était enveloppé, d'où l'écart de marge d'un onglet à l'autre.
+    Voir le commentaire de `campaigns.tsx`.
+  */
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -359,7 +368,7 @@ export default function HomeScreen() {
           </>
         ) : null}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

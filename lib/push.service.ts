@@ -35,40 +35,16 @@
 import { Platform } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 
 import api from "./api";
 
-/**
- * Comment l'application se comporte quand une notification arrive alors
- * qu'elle est AU PREMIER PLAN.
- *
- * Par défaut, rien ne s'affiche — le membre qui lit ses Ndiguels ne verrait
- * pas passer un message du chef. On montre donc la bannière et la pastille,
- * sans son : une notification sonore pendant qu'on tient déjà le téléphone
- * est une intrusion, pas un service.
- */
 /*
- * Pas sur le web : `setNotificationHandler` y commanderait un affichage que la
- * plateforme ne rend pas. On ne pose donc rien là où rien ne s'applique.
- *
- * ⚠ Ce garde NE FAIT PAS taire l'avertissement que la console web affiche à
- * chaque chargement — « Listening to push token changes is not yet fully
- * supported on web ». Vérifié : il vient de `TokenEmitter.js:34`, à
- * l'INTÉRIEUR d'expo-notifications, et non d'un appel de ce fichier. Le noter
- * pour ne pas repartir le chercher ici : c'est un bruit de bibliothèque sur
- * une plateforme hors périmètre, pas un symptôme.
+ * ⚠ `import type`, ET RIEN D'AUTRE. Le module réel est chargé plus bas, à la
+ * demande, par `chargerNotifications()`. Le détail est expliqué là — mais la
+ * règle tient en une ligne : **remettre un `import` de valeur ici rend
+ * l'application intestable sur l'émulateur.**
  */
-if (Platform.OS !== "web") {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: true,
-    }),
-  });
-}
+import type * as NotificationsModule from "expo-notifications";
 
 /** Le jeton effectivement déposé au serveur, pour savoir lequel retirer. */
 let jetonEnregistre: string | null = null;
@@ -110,6 +86,86 @@ export function pushDistantDisponible(): boolean {
   return true;
 }
 
+/*
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  🔴 LE GARDE ARRIVAIT TROP TARD : L'IMPORT LUI-MÊME LEVAIT
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * `pushDistantDisponible()` est juste au-dessus, il est correct, et il ne
+ * servait à rien. Ce fichier commençait par :
+ *
+ *     import * as Notifications from "expo-notifications";
+ *
+ * Un `import` est HISSÉ et évalué au chargement du module — donc avant que la
+ * moindre de ces fonctions ne soit appelée. Or `expo-notifications` exécute au
+ * plus haut niveau de ses propres modules :
+ *
+ *     export default requireNativeModule('ExpoNotificationsEmitter');
+ *     export default requireNativeModule('ExpoNotificationScheduler');
+ *     …et huit autres (`node_modules/expo-notifications/build/*Module.native.js`)
+ *
+ * Dans Expo Go, ces modules natifs N'EXISTENT PLUS depuis le SDK 53 :
+ * `requireNativeModule` lève. L'exception part du corps du module, remonte la
+ * chaîne d'imports jusqu'à `store/auth.store.ts`, puis jusqu'à la racine — et
+ * l'application ne DÉMARRE pas. C'est l'écran rouge pointant la ligne 38 de ce
+ * fichier, et c'est la raison pour laquelle l'émulateur était inutilisable :
+ * il n'y avait aucun bogue à corriger dans la logique du push, seulement un
+ * import à ne pas faire.
+ *
+ * Le chargement est donc PARESSEUX, et derrière le garde. Sur une version de
+ * développement ou un build EAS, `require` réussit et tout se comporte comme
+ * avant. Dans Expo Go et sur le web, on rend `null` et les appelants sortent
+ * sans bruit — une absence de fonction, pas une panne.
+ *
+ * ⚠ Cela fonctionne parce que Metro exécute un `require()` AU MOMENT DE
+ * L'APPEL, là où un `import` s'exécute au chargement. La forme compte ; ne pas
+ * la « moderniser » en `await import()` sans vérifier, la fonction est appelée
+ * depuis du code synchrone (`addNotificationResponseReceivedListener`).
+ */
+let moduleNotifications: typeof NotificationsModule | null | undefined;
+
+export function chargerNotifications(): typeof NotificationsModule | null {
+  if (moduleNotifications !== undefined) return moduleNotifications;
+
+  if (!pushDistantDisponible()) {
+    moduleNotifications = null;
+    return null;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const charge = require("expo-notifications") as typeof NotificationsModule;
+
+    /*
+      Comment l'application se comporte quand une notification arrive alors
+      qu'elle est AU PREMIER PLAN.
+
+      Par défaut, rien ne s'affiche — le membre qui lit ses Ndiguels ne verrait
+      pas passer un message du chef. On montre donc la bannière et la pastille,
+      sans son : une notification sonore pendant qu'on tient déjà le téléphone
+      est une intrusion, pas un service.
+
+      Posé ici et non plus au chargement du fichier : c'est le seul endroit où
+      l'on sait que le module a réellement été obtenu.
+    */
+    charge.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: false,
+        shouldSetBadge: true,
+      }),
+    });
+
+    moduleNotifications = charge;
+  } catch {
+    /* Terrain sans notifications distantes : on s'en passe, en silence. */
+    moduleNotifications = null;
+  }
+
+  return moduleNotifications;
+}
+
 function terrainViable(): boolean {
   // Web et Expo Go : les API n'existent pas ou lèvent.
   if (!pushDistantDisponible()) return false;
@@ -132,6 +188,9 @@ export const PushService = {
    */
   async register(): Promise<PushStatus> {
     if (!terrainViable()) return "non-supporte";
+
+    const Notifications = chargerNotifications();
+    if (!Notifications) return "non-supporte";
 
     try {
       /*

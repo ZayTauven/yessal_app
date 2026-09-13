@@ -38,10 +38,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft, ChevronRight, Pencil } from "lucide-react-native";
+import { ChevronLeft, ChevronRight } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/EmptyState";
@@ -97,12 +96,10 @@ async function fetchPreferences(): Promise<State> {
 export default function SettingsScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const setUser = useAuthStore((state) => state.setUser);
 
   const [state, setState] = useState<State>({ status: "loading", prefs: null });
   /** La clé en cours d'écriture — elle grise sa ligne, pas tout l'écran. */
   const [pending, setPending] = useState<keyof MessagingPreferences | null>(null);
-  const [uploading, setUploading] = useState(false);
 
   /**
    * La demande de titre, rebranchée en phase F.
@@ -218,39 +215,6 @@ export default function SettingsScreen() {
     [pending],
   );
 
-  const changePhoto = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Accès refusé",
-        "Autorisez l'accès à vos photos pour changer votre portrait.",
-      );
-      return;
-    }
-
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      /* Un portrait est carré partout dans l'application — autant le cadrer ici. */
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (picked.canceled || !picked.assets[0]) return;
-
-    setUploading(true);
-    try {
-      /* `updateAvatar` monte le `FormData` : une image ne passe pas en JSON. */
-      setUser(await AuthService.updateAvatar(picked.assets[0].uri));
-    } catch {
-      Alert.alert(
-        "La photo n'a pas été enregistrée",
-        "Réessayez dans un instant.",
-      );
-    } finally {
-      setUploading(false);
-    }
-  }, [setUser]);
-
   const { status, prefs } = state;
 
   return (
@@ -274,34 +238,43 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {/*
+          ── LE PORTRAIT A DÉMÉNAGÉ VERS « Mes informations » ────────────────
+          Ce bloc ENVOYAIT la photo dès qu'on la choisissait : pas de
+          prévisualisation, pas de bouton, aucun moyen de revenir en arrière —
+          et, quand l'envoi échouait, l'écran ne montrait rien d'autre qu'une
+          alerte, le portrait restant celui d'avant sans que la cause soit dite.
+          Le geste tenait donc à un appui, dans un écran de RÉGLAGES où l'on ne
+          vient pas modifier son identité.
+
+          Il est désormais dans le formulaire d'état civil, avec les autres
+          champs de la fiche : on choisit, on voit, et c'est « Enregistrer » qui
+          transmet — la même règle que le prénom ou la date de naissance.
+
+          La ligne reste, mais en LECTURE, et elle mène là où le geste se fait.
+        */}
         <Pressable
-          onPress={changePhoto}
-          disabled={uploading}
+          onPress={() => router.push("/profile/informations")}
           accessibilityRole="button"
-          accessibilityLabel="Changer la photo de profil"
+          accessibilityLabel="Modifier mes informations et ma photo"
           style={styles.identity}
         >
           <View>
             {/* Même défaut qu'au Profil : `avatar_url` seul ignorait la
-                photographie TÉLÉVERSÉE, celle que ce bouton même permet de
-                choisir. Voir le commentaire de `profile.tsx`. */}
+                photographie TÉLÉVERSÉE. Voir le commentaire de `profile.tsx`. */}
             <Avatar
               uri={user?.avatar_url ?? user?.avatar}
               name={`${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim()}
               size={64}
             />
-            <View style={styles.pencil}>
-              <Pencil size={13} color={Violet[900]} strokeWidth={2} />
-            </View>
           </View>
           <View style={styles.identityText}>
             <Text style={styles.identityName} numberOfLines={1}>
               {`${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim() || "Mon compte"}
             </Text>
-            <Text style={styles.identityHint}>
-              {uploading ? "Envoi en cours…" : "Changer la photo"}
-            </Text>
+            <Text style={styles.identityHint}>Mes informations et ma photo</Text>
           </View>
+          <ChevronRight size={18} color={Ink[300]} strokeWidth={1.75} />
         </Pressable>
 
         {status === "failed" ? (

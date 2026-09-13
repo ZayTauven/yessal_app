@@ -40,7 +40,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
 
 import { ChatRow } from "@/components/chat/ChatRow";
@@ -175,8 +175,15 @@ export default function MessagesScreen() {
 
   const { status, chats, invitations } = state;
 
+  /*
+    La racine est un `SafeAreaView edges={["top"]}`, et non un `View` nu. Même
+    correction qu'à l'accueil et aux Ndiguels : seul `profile.tsx` était
+    enveloppé, et les trois autres onglets collaient leur titre à la barre
+    d'état. Voir le commentaire de `campaigns.tsx` pour le détail — et pour la
+    raison de ne pas le retirer (Android est en `edge-to-edge`).
+  */
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <IconButton
           icon={<Menu size={20} color={Ink[900]} strokeWidth={1.6} />}
@@ -276,7 +283,7 @@ export default function MessagesScreen() {
           ))
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

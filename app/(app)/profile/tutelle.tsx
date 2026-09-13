@@ -53,7 +53,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -384,47 +386,98 @@ function TutelleSheet({
     }
   }, [firstName, lastName, onCreated, onUpdated, relation, tutelle]);
 
+  /*
+    ═══════════════════════════════════════════════════════════════════════════
+     🔴 LE CLAVIER RECOUVRAIT LA FEUILLE
+    ═══════════════════════════════════════════════════════════════════════════
+
+    La feuille était une pile figée — `backdrop` en `flex: 1`, puis le panneau
+    collé en bas. Rien n'écoutait le clavier : à l'ouverture, il se posait
+    PAR-DESSUS, masquant « Lien de parenté » et les deux boutons. On saisissait
+    à l'aveugle, et « Enregistrer » n'était atteignable qu'en refermant le
+    clavier — ce que rien n'indiquait.
+
+    ⚠ `android:windowSoftInputMode="adjustResize"` est bien posé au manifeste,
+    et il ne suffit PAS : l'application tourne en `edge-to-edge`
+    (`android/gradle.properties`), où la fenêtre ne se redimensionne plus. Une
+    `Modal` React Native ouvre par ailleurs sa PROPRE fenêtre, qui n'hérite de
+    rien. Il faut donc écouter le clavier explicitement — c'est le travail de
+    `KeyboardAvoidingView`, et c'est la raison pour laquelle il enveloppe la
+    pile entière et non le seul panneau : en `height`, il rétrécit le
+    conteneur, le `backdrop` en `flex: 1` absorbe la différence, et la feuille
+    remonte d'autant.
+
+    Le `ScrollView` est la ceinture : sur un petit écran en paysage, la feuille
+    remontée peut rester plus haute que la place restante. On peut alors
+    l'atteindre au doigt plutôt que de se retrouver bloqué.
+
+    `statusBarTranslucent` et `navigationBarTranslucent` : sans eux, la fenêtre
+    de la `Modal` s'arrête aux barres système et la feuille remontée laisse une
+    bande opaque sous elle.
+  */
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} accessibilityLabel="Fermer" onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.grabber} />
-        <Text style={styles.sheetTitle}>
-          {tutelle ? "Corriger la fiche" : "Ajouter un proche"}
-        </Text>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
+      <KeyboardAvoidingView
+        style={styles.sheetShell}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable style={styles.backdrop} accessibilityLabel="Fermer" onPress={onClose} />
+        <ScrollView
+          style={styles.sheetScroll}
+          contentContainerStyle={styles.sheet}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.grabber} />
+          <Text style={styles.sheetTitle}>
+            {tutelle ? "Corriger la fiche" : "Ajouter un proche"}
+          </Text>
 
-        <Input
-          label="Prénom"
-          placeholder="Souleymane"
-          value={firstName}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-        />
-        <Input
-          label="Nom"
-          placeholder="Diop"
-          value={lastName}
-          onChangeText={setLastName}
-          autoCapitalize="words"
-        />
-        <Input
-          label="Lien de parenté"
-          placeholder="Mère, fils, petit-neveu maternel…"
-          value={relation}
-          onChangeText={setRelation}
-          autoCapitalize="sentences"
-        />
-
-        <View style={styles.sheetActions}>
-          <Button label="Annuler" variant="secondary" onPress={onClose} style={styles.action} />
-          <Button
-            label={tutelle ? "Corriger" : "Enregistrer"}
-            onPress={submit}
-            loading={saving}
-            style={styles.actionWide}
+          <Input
+            label="Prénom"
+            placeholder="Souleymane"
+            value={firstName}
+            onChangeText={setFirstName}
+            autoCapitalize="words"
+            returnKeyType="next"
           />
-        </View>
-      </View>
+          <Input
+            label="Nom"
+            placeholder="Diop"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+            returnKeyType="next"
+          />
+          <Input
+            label="Lien de parenté"
+            placeholder="Mère, fils, petit-neveu maternel…"
+            value={relation}
+            onChangeText={setRelation}
+            autoCapitalize="sentences"
+            returnKeyType="done"
+            onSubmitEditing={submit}
+          />
+
+          <View style={styles.sheetActions}>
+            <Button label="Annuler" variant="secondary" onPress={onClose} style={styles.action} />
+            <Button
+              label={tutelle ? "Corriger" : "Enregistrer"}
+              onPress={submit}
+              loading={saving}
+              style={styles.actionWide}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -462,17 +515,33 @@ const styles = StyleSheet.create({
   donateText: { ...UIType.chipLabel, color: Violet[900] },
   pressed: { opacity: 0.72 },
 
+  /** La pile entière : c'est elle que le clavier rétrécit. */
+  sheetShell: { flex: 1, justifyContent: "flex-end" },
   backdrop: { flex: 1, backgroundColor: "rgba(25,11,61,0.32)" },
-  sheet: {
+  /**
+   * ⚠ `flexGrow: 0` est ce qui garde la feuille COLLÉE EN BAS.
+   *
+   * Un `ScrollView` dans une colonne prend par défaut toute la place restante :
+   * sans cette ligne, le panneau s'étirerait sur tout l'écran et le voile
+   * disparaîtrait. `maxHeight` est l'autre moitié — au-delà, on défile, ce qui
+   * n'arrive qu'en paysage ou sur un très petit écran.
+   */
+  sheetScroll: {
+    flexGrow: 0,
+    maxHeight: "92%",
+    /* L'habillage reste sur le ScrollView lui-même : posé sur le conteneur de
+       contenu, l'ombre serait rognée par le découpage du défilement. */
     backgroundColor: Surface.default,
     borderTopLeftRadius: Radius.card + 4,
     borderTopRightRadius: Radius.card + 4,
     ...continuous,
+    boxShadow: Shadow.sheet,
+  },
+  sheet: {
     paddingHorizontal: GUTTER,
     paddingTop: Space.md,
     paddingBottom: Space.xxxl,
     gap: Space.md,
-    boxShadow: Shadow.sheet,
   },
   grabber: {
     alignSelf: "center",

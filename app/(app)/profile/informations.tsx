@@ -32,16 +32,40 @@
  * Ce qui n'entre pas dans la règle de complétude reste donc **facultatif** et
  * porte la mention : on demande sans exiger.
  *
- * La photographie et la pièce d'identité ne sont pas ici non plus — elles ont
- * leurs écrans (`profile/settings`, `profile/documents`), vers lesquels la
- * liste de contrôle renvoie directement.
+ * ── La photographie est REVENUE ici ────────────────────────────────────────
+ *
+ * Elle vivait dans les Paramètres, derrière un bouton qui l'envoyait **au
+ * moment du choix** : pas de prévisualisation, pas de bouton d'enregistrement,
+ * aucun moyen de se raviser, et un échec qui ne disait pas sa cause. C'était
+ * aussi le mauvais endroit — on ne modifie pas son identité dans un écran de
+ * réglages.
+ *
+ * Elle est désormais le premier champ de la fiche, et elle suit la même règle
+ * que les onze autres : on choisit, on voit, « Enregistrer » transmet. Elle
+ * part en revanche dans sa PROPRE requête (`FormData`), pour la raison
+ * expliquée dans `submit` — le JSON ne transporte pas d'image, et le multipart
+ * casserait les champs facultatifs laissés vides.
+ *
+ * La pièce d'identité, elle, garde son écran (`profile/documents`) : c'est un
+ * document à valider, avec un statut et un recto-verso, pas un champ de fiche.
  */
 import { useCallback, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Check, ChevronRight } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
+import { Check, ChevronRight, Pencil } from "lucide-react-native";
 
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -49,6 +73,8 @@ import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { CountrySheet } from "@/components/auth/CountrySheet";
 import { DialPrefix } from "@/components/auth/DialPrefix";
+import { AuthService } from "@/lib/auth.service";
+import { estPanneReseau, messageApi } from "@/lib/api";
 import {
   DEFAULT_COUNTRY,
   DIAL_COUNTRIES,
@@ -162,7 +188,27 @@ export default function InformationsScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const updateProfile = useAuthStore((state) => state.updateProfile);
+  const setUser = useAuthStore((state) => state.setUser);
   const completion = useProfileCompletion();
+
+  /**
+   * Le portrait CHOISI mais pas encore transmis.
+   *
+   * ── Pourquoi il est ici et plus dans les Paramètres ────────────────────────
+   *
+   * L'ancien bouton « Changer la photo » envoyait l'image **au moment du
+   * choix** : un appui, un envoi, aucun retour en arrière. Rien ne montrait le
+   * cadrage retenu avant qu'il ne parte, et un échec ne laissait qu'une alerte
+   * sans cause. Le geste vivait par ailleurs dans un écran de RÉGLAGES, où l'on
+   * ne vient pas modifier son état civil.
+   *
+   * Ici, la photographie se comporte comme les onze autres champs de la fiche :
+   * on la choisit, on la VOIT, et c'est « Enregistrer » qui la transmet.
+   *
+   * `null` = on garde celle du serveur. Une chaîne = un fichier local en
+   * attente d'envoi, qu'`Avatar` affiche tel quel (il prend n'importe quel URI).
+   */
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState(user?.first_name ?? "");
   const [lastName, setLastName] = useState(user?.last_name ?? "");
@@ -198,6 +244,37 @@ export default function InformationsScreen() {
     [completion],
   );
 
+  /**
+   * Choisir le portrait — sans rien envoyer.
+   *
+   * ⚠ Sur Android 13 et au-delà, `requestMediaLibraryPermissionsAsync()`
+   * accorde d'office : la galerie passe par le sélecteur système, qui ne rend
+   * que le fichier désigné et ne demande donc AUCUNE permission. On garde
+   * l'appel pour Android 12 et antérieurs, encore très présents ici, mais un
+   * refus n'est plus une impasse muette — il est dit.
+   */
+  const choisirPhoto = useCallback(async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Accès refusé",
+        "Autorisez l'accès à vos photos pour changer votre portrait.",
+      );
+      return;
+    }
+
+    const choisie = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      /* Un portrait est carré partout dans l'application — autant le cadrer ici. */
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (choisie.canceled || !choisie.assets[0]) return;
+
+    setAvatarUri(choisie.assets[0].uri);
+  }, []);
+
   const submit = useCallback(async () => {
     if (!firstName.trim() || !lastName.trim()) {
       Alert.alert("Champs requis", "Le prénom et le nom sont obligatoires.");
@@ -231,18 +308,54 @@ export default function InformationsScreen() {
         blood_type: bloodType || null,
         phone: phoneDigits ? `${phoneCountry.prefix}${phoneDigits}` : null,
       });
+
+      /*
+        ── Le portrait part en SECOND, et en deux requêtes ────────────────────
+
+        Pas par paresse : `updateMe` envoie du JSON, et une image n'y entre pas.
+        Il faudrait un `FormData`, où TOUT devient chaîne de caractères — et les
+        champs facultatifs partent ici à `null`. Un `birth_date` vide deviendrait
+        la chaîne `""`, que `DateField` refuse en 400. Fusionner les deux appels
+        casserait donc l'enregistrement d'une fiche incomplète, c'est-à-dire le
+        cas le plus courant.
+
+        L'ordre compte : les champs d'abord, la photo ensuite. Si la photo
+        échoue, le reste de la fiche est DÉJÀ enregistré et on le dit — plutôt
+        que de laisser croire que rien n'est passé.
+      */
+      if (avatarUri) {
+        try {
+          setUser(await AuthService.updateAvatar(avatarUri));
+          setAvatarUri(null);
+        } catch (erreurPhoto) {
+          Alert.alert(
+            "Photo non enregistrée",
+            `${
+              estPanneReseau(erreurPhoto)
+                ? "Votre photo n'a pas pu être transmise. Vérifiez votre connexion."
+                : messageApi(erreurPhoto, "Votre photo n'a pas pu être transmise.")
+            }\n\nLe reste de vos informations a bien été enregistré.`,
+          );
+          return;
+        }
+      }
+
       Alert.alert("Profil enregistré", "Vos informations ont été mises à jour.", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
       Alert.alert(
         "Enregistrement impossible",
-        error instanceof Error ? error.message : "Réessayez dans un instant.",
+        estPanneReseau(error)
+          ? "Vos informations n'ont pas pu être envoyées. Vérifiez votre connexion."
+          : messageApi(error, "Réessayez dans un instant."),
       );
     } finally {
       setSaving(false);
     }
   }, [
+    avatarUri,
+    setUser,
     address,
     birthDate,
     bloodType,
@@ -264,145 +377,198 @@ export default function InformationsScreen() {
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <ScreenHeader title="Mes informations" onBack={() => router.back()} />
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      {/*
+        Le clavier recouvrait les derniers champs — voir le commentaire de
+        `profile/tutelle.tsx`, même cause, même remède. Onze champs tiennent sur
+        deux écrans et demi : sans cela, « Code postal » se saisit à l'aveugle.
+      */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <Text style={styles.lead}>
-          Ces informations permettent à votre Daara de tenir son registre et de
-          valider votre inscription.
-        </Text>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <Text style={styles.lead}>
+            Ces informations permettent à votre Daara de tenir son registre et de
+            valider votre inscription.
+          </Text>
 
-        {restants.length > 0 ? (
-          <Checklist items={completion?.items ?? []} onGo={(route) => router.push(route)} />
-        ) : null}
+          {restants.length > 0 ? (
+            <Checklist items={completion?.items ?? []} onGo={(route) => router.push(route)} />
+          ) : null}
 
-        <Card style={styles.form}>
-          <View style={styles.row}>
-            <Input
-              label="Prénom"
-              value={firstName}
-              onChangeText={setFirstName}
-              autoCapitalize="words"
-              containerStyle={styles.half}
-            />
-            <Input
-              label="Nom"
-              value={lastName}
-              onChangeText={setLastName}
-              autoCapitalize="words"
-              containerStyle={styles.half}
-            />
-          </View>
-
-          <Input
-            label="Date de naissance"
-            placeholder="JJ/MM/AAAA"
-            keyboardType="number-pad"
-            value={birthDate}
-            onChangeText={(raw) => {
-              setBirthDate(formatDateInput(raw));
-              setDateError("");
-            }}
-            maxLength={10}
-            error={dateError}
-            hint={dateError ? undefined : "Par exemple 07/03/1988."}
-          />
-
-          <Select
-            label="Genre"
-            value={gender}
-            options={GENDERS}
-            onSelect={setGender}
-            placeholder="Choisir"
-          />
-
-          <Input
-            label="Pays de résidence"
-            placeholder="Sénégal, France, Italie…"
-            value={country}
-            onChangeText={setCountry}
-            autoCapitalize="words"
-          />
-          <Input
-            label="Ville"
-            placeholder="Touba, Dakar, Marseille…"
-            value={city}
-            onChangeText={setCity}
-            autoCapitalize="words"
-          />
-          <Input
-            label="Adresse"
-            placeholder="Ex. Sacré-Cœur 3, villa 12"
-            value={address}
-            onChangeText={setAddress}
-            autoCapitalize="sentences"
-          />
-
-          <Input
-            label="Téléphone"
-            placeholder={phoneCountry.iso === "SN" ? "77 000 00 00" : "Votre numéro"}
-            keyboardType="phone-pad"
-            value={phoneDigits}
-            onChangeText={(raw) =>
-              setPhoneDigits(
-                raw.replace(/[^0-9]/g, "").slice(0, subscriberBounds(phoneCountry).max),
-              )
-            }
-            maxLength={subscriberBounds(phoneCountry).max}
-            hint="C'est aussi votre identifiant de connexion."
-            prefixSlot={
-              <DialPrefix
-                country={phoneCountry}
-                onPress={() => setPhoneSheetOpen(true)}
+          {/*
+            Le portrait, en tête de fiche — c'est par lui qu'on reconnaît
+            quelqu'un. Il ne part PAS au choix : la pastille dit ce qui reste à
+            faire (« à enregistrer »), et c'est le bouton du bas qui transmet.
+          */}
+          <Pressable
+            onPress={choisirPhoto}
+            disabled={saving}
+            accessibilityRole="button"
+            accessibilityLabel="Changer ma photo de profil"
+            style={({ pressed }) => [styles.portrait, pressed && styles.pressed]}
+          >
+            <View>
+              {/*
+                ⚠ `avatarUri` D'ABORD : c'est le choix en cours, et il doit
+                l'emporter sur ce que le serveur connaît encore. Ensuite
+                `avatar_url` (adresse extérieure) puis `avatar` (fichier
+                téléversé) — le modèle porte deux champs pour une seule chose,
+                et les lire dans le désordre affichait des initiales à qui avait
+                une photo. Voir le commentaire de `(tabs)/profile.tsx`.
+              */}
+              <Avatar
+                uri={avatarUri ?? user?.avatar_url ?? user?.avatar}
+                name={`${firstName} ${lastName}`.trim()}
+                size={72}
               />
-            }
-          />
+              <View style={styles.pencil}>
+                <Pencil size={13} color={Violet[900]} strokeWidth={2} />
+              </View>
+            </View>
+            <View style={styles.portraitText}>
+              <Text style={styles.portraitTitle}>Photo de profil</Text>
+              <Text
+                style={[styles.portraitHint, avatarUri && styles.portraitHintPending]}
+              >
+                {avatarUri
+                  ? "Nouvelle photo choisie — appuyez sur Enregistrer."
+                  : "Appuyez pour en choisir une."}
+              </Text>
+            </View>
+          </Pressable>
 
-          <View style={styles.row}>
+          <Card style={styles.form}>
+            <View style={styles.row}>
+              <Input
+                label="Prénom"
+                value={firstName}
+                onChangeText={setFirstName}
+                autoCapitalize="words"
+                containerStyle={styles.half}
+              />
+              <Input
+                label="Nom"
+                value={lastName}
+                onChangeText={setLastName}
+                autoCapitalize="words"
+                containerStyle={styles.half}
+              />
+            </View>
+
             <Input
-              label="Région"
-              placeholder="Ex. Diourbel"
-              value={stateField}
-              onChangeText={setStateField}
-              autoCapitalize="words"
-              containerStyle={styles.half}
-            />
-            <Input
-              label="Code postal"
-              placeholder="Ex. 21000"
+              label="Date de naissance"
+              placeholder="JJ/MM/AAAA"
               keyboardType="number-pad"
-              value={zipCode}
-              onChangeText={setZipCode}
-              maxLength={12}
-              containerStyle={styles.half}
+              value={birthDate}
+              onChangeText={(raw) => {
+                setBirthDate(formatDateInput(raw));
+                setDateError("");
+              }}
+              maxLength={10}
+              error={dateError}
+              hint={dateError ? undefined : "Par exemple 07/03/1988."}
             />
-          </View>
-        </Card>
 
-        {/* Facultatif, et dit comme tel : rien ici n'entre dans la règle de
-            complétude, et un membre doit pouvoir s'arrêter avant. */}
-        <Text style={styles.sectionTitle}>Informations complémentaires</Text>
-        <Card style={styles.form}>
-          <Select
-            label="Statut matrimonial"
-            value={maritalStatus}
-            options={MARITAL_STATUS}
-            onSelect={setMaritalStatus}
-            placeholder="Non renseigné"
-          />
-          <Select
-            label="Groupe sanguin"
-            value={bloodType}
-            options={BLOOD_TYPES}
-            onSelect={setBloodType}
-            placeholder="Non renseigné"
-          />
-        </Card>
+            <Select
+              label="Genre"
+              value={gender}
+              options={GENDERS}
+              onSelect={setGender}
+              placeholder="Choisir"
+            />
 
-        <Button label="Enregistrer" onPress={submit} loading={saving} />
-      </ScrollView>
+            <Input
+              label="Pays de résidence"
+              placeholder="Sénégal, France, Italie…"
+              value={country}
+              onChangeText={setCountry}
+              autoCapitalize="words"
+            />
+            <Input
+              label="Ville"
+              placeholder="Touba, Dakar, Marseille…"
+              value={city}
+              onChangeText={setCity}
+              autoCapitalize="words"
+            />
+            <Input
+              label="Adresse"
+              placeholder="Ex. Sacré-Cœur 3, villa 12"
+              value={address}
+              onChangeText={setAddress}
+              autoCapitalize="sentences"
+            />
+
+            <Input
+              label="Téléphone"
+              placeholder={phoneCountry.iso === "SN" ? "77 000 00 00" : "Votre numéro"}
+              keyboardType="phone-pad"
+              value={phoneDigits}
+              onChangeText={(raw) =>
+                setPhoneDigits(
+                  raw.replace(/[^0-9]/g, "").slice(0, subscriberBounds(phoneCountry).max),
+                )
+              }
+              maxLength={subscriberBounds(phoneCountry).max}
+              hint="C'est aussi votre identifiant de connexion."
+              prefixSlot={
+                <DialPrefix
+                  country={phoneCountry}
+                  onPress={() => setPhoneSheetOpen(true)}
+                />
+              }
+            />
+
+            <View style={styles.row}>
+              <Input
+                label="Région"
+                placeholder="Ex. Diourbel"
+                value={stateField}
+                onChangeText={setStateField}
+                autoCapitalize="words"
+                containerStyle={styles.half}
+              />
+              <Input
+                label="Code postal"
+                placeholder="Ex. 21000"
+                keyboardType="number-pad"
+                value={zipCode}
+                onChangeText={setZipCode}
+                maxLength={12}
+                containerStyle={styles.half}
+              />
+            </View>
+          </Card>
+
+          {/* Facultatif, et dit comme tel : rien ici n'entre dans la règle de
+              complétude, et un membre doit pouvoir s'arrêter avant. */}
+          <Text style={styles.sectionTitle}>Informations complémentaires</Text>
+          <Card style={styles.form}>
+            <Select
+              label="Statut matrimonial"
+              value={maritalStatus}
+              options={MARITAL_STATUS}
+              onSelect={setMaritalStatus}
+              placeholder="Non renseigné"
+            />
+            <Select
+              label="Groupe sanguin"
+              value={bloodType}
+              options={BLOOD_TYPES}
+              onSelect={setBloodType}
+              placeholder="Non renseigné"
+            />
+          </Card>
+
+          <Button label="Enregistrer" onPress={submit} loading={saving} />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <CountrySheet
         visible={phoneSheetOpen}
@@ -473,6 +639,8 @@ function Checklist({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Surface.default },
+  /** Le `KeyboardAvoidingView` doit occuper la hauteur restante sous l'en-tête. */
+  flex: { flex: 1 },
   scroll: {
     paddingHorizontal: GUTTER,
     paddingTop: Space.sm,
@@ -519,4 +687,25 @@ const styles = StyleSheet.create({
   form: { gap: 0 },
   row: { flexDirection: "row", gap: Space.md },
   half: { flex: 1 },
+
+  /* ── Le portrait ─────────────────────────────────────────────────────────── */
+  portrait: { flexDirection: "row", alignItems: "center", gap: Space.lg },
+  portraitText: { flex: 1, gap: 3 },
+  portraitTitle: { ...Type.cardTitle, color: Ink[900] },
+  portraitHint: { ...Type.label, color: Ink[500] },
+  /** Une photo choisie et NON transmise : la couleur dit qu'il reste un geste. */
+  portraitHintPending: { color: Violet[700] },
+  pencil: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: Radius.avatar,
+    backgroundColor: Violet[300],
+    borderWidth: 2,
+    borderColor: Surface.default,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

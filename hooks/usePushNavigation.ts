@@ -24,10 +24,16 @@
  */
 import { useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
-import * as Notifications from "expo-notifications";
 
-import { pushDistantDisponible } from "@/lib/push.service";
+import { chargerNotifications } from "@/lib/push.service";
 import type { Href } from "expo-router";
+/*
+ * ⚠ `import type` — voir l'en-tête de `lib/push.service.ts`. Un import de
+ * valeur ici suffit à empêcher l'application de DÉMARRER sous Expo Go, et ce
+ * crochet est monté par `app/(app)/_layout.tsx`, c'est-à-dire sur tout écran
+ * authentifié. Le module se charge par `chargerNotifications()`, jamais autrement.
+ */
+import type * as NotificationsModule from "expo-notifications";
 
 /**
  * Traduit un chemin du tableau de bord en route mobile.
@@ -90,10 +96,16 @@ export function usePushNavigation() {
       Expo Go, ces API LÈVENT au lieu de rendre un résultat vide. Le test du
       seul `web` laissait passer Expo Go, et l'écran rouge y recouvrait
       l'application à chaque montage.
-    */
-    if (!pushDistantDisponible()) return;
 
-    function ouvrir(reponse: Notifications.NotificationResponse | null) {
+      `chargerNotifications()` porte maintenant les deux moitiés du garde : il
+      répond `null` quand le terrain ne s'y prête pas, ET il n'a même pas tenté
+      le `require` dans ce cas — c'est ce second point qui rend l'émulateur
+      utilisable.
+    */
+    const Notifications = chargerNotifications();
+    if (!Notifications) return;
+
+    function ouvrir(reponse: NotificationsModule.NotificationResponse | null) {
       if (!reponse) return;
       const data = reponse.notification.request.content.data as
         | Record<string, unknown>
@@ -123,7 +135,7 @@ export function usePushNavigation() {
       notification qu'on ne peut de toute façon pas recevoir ne vaut pas de
       casser l'écran d'accueil.
     */
-    let abonnement: Notifications.EventSubscription | null = null;
+    let abonnement: NotificationsModule.EventSubscription | null = null;
     try {
       abonnement = Notifications.addNotificationResponseReceivedListener(ouvrir);
     } catch {

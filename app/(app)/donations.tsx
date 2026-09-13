@@ -41,7 +41,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native
 import { Image as ExpoImage } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Bell, Settings2, Wallet } from "lucide-react-native";
+import { Settings2, Wallet } from "lucide-react-native";
 
 import { Card } from "@/components/ui/Card";
 import { Chip, ChipRow } from "@/components/ui/Chip";
@@ -220,6 +220,20 @@ export default function DonationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      {/*
+        🔴 LA CLOCHE OCCUPAIT L'EMPLACEMENT DU RETOUR.
+
+        `onBack` et `left` étaient passés tous les deux. Or `ScreenHeader` lit
+        `left ?? (onBack ? chevron : undefined)` : un `left` explicite SUPPLANTE
+        le chevron, sans rien signaler. « Mes Jëfs » s'ouvre depuis le Profil et
+        n'est pas un onglet — l'écran n'avait donc aucune sortie visible, et le
+        seul bouton en haut à gauche emmenait aux Notifications, c'est-à-dire
+        plus loin encore.
+
+        Le chevron reprend sa place. Les Notifications ne sont pas réintroduites
+        ailleurs dans cet en-tête : elles sont à l'accueil et au tiroir, et un
+        écran d'historique de dons n'est pas l'endroit où on les cherche.
+      */}
       <ScreenHeader
         title={donationsTitle(user?.role)}
         onBack={() => router.back()}
@@ -227,11 +241,6 @@ export default function DonationsScreen() {
           icon: <Settings2 size={20} color={Ink[900]} strokeWidth={1.5} />,
           accessibilityLabel: "Paramètres",
           onPress: () => router.push("/profile/settings"),
-        }}
-        left={{
-          icon: <Bell size={20} color={Ink[900]} strokeWidth={1.5} />,
-          accessibilityLabel: "Notifications",
-          onPress: () => router.push("/notifications"),
         }}
       />
 

@@ -30,7 +30,7 @@ import {
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronRight, Menu, Plus, Scroll, Search, X } from "lucide-react-native";
 
 import { Card } from "@/components/ui/Card";
@@ -142,8 +142,21 @@ export default function CampaignsScreen() {
   const failed = state.status === "failed";
   const filterLabel = FILTERS.find((f) => f.key === filter)?.label ?? "Tous";
 
+  /*
+    La racine est un `SafeAreaView edges={["top"]}`, et non un `View` nu.
+
+    Trois des quatre onglets collaient leur en-tête à la barre d'état : seul
+    `profile.tsx` était enveloppé, ce qui lui donnait la bonne marge haute et
+    faisait paraître l'accueil, les Ndiguels et les Messages « remontés » d'une
+    trentaine de points. Le gabarit est le même partout désormais —
+    `insets.top`, puis le `Space.sm` que l'en-tête porte déjà.
+
+    ⚠ Android tourne en `edge-to-edge` (`android/gradle.properties`) : sans cet
+    enveloppement, RIEN ne réserve la hauteur de la barre d'état, et le titre
+    démarre sous l'horloge. Ne pas le retirer en croyant simplifier.
+  */
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <IconButton
           icon={<Menu size={20} color={Ink[900]} strokeWidth={1.6} />}
@@ -257,7 +270,7 @@ export default function CampaignsScreen() {
           ))
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 

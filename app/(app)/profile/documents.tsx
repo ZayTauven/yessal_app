@@ -60,6 +60,7 @@ import { ErrorState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { Select, type SelectOption } from "@/components/ui/Select";
+import { ApiError, estPanneReseau, messageApi } from "@/lib/api";
 import { AuthService } from "@/lib/auth.service";
 import { invalidateDocumentCount } from "@/hooks/useProfileCompletion";
 import { useAuthStore } from "@/store/auth.store";
@@ -248,24 +249,65 @@ export default function DocumentsScreen() {
     if (versoUri) attach("image_verso", versoUri);
 
     try {
-      const updated = current
-        ? await AuthService.updateDocument(userId, current.id, form)
-        : await AuthService.uploadDocument(userId, form);
+      let updated: UserDocument;
+      try {
+        updated = current
+          ? await AuthService.updateDocument(userId, current.id, form)
+          : await AuthService.uploadDocument(userId, form);
+      } catch (erreur) {
+        /*
+          ═══════════════════════════════════════════════════════════════════
+          🔴 LE CAS QUI ENFERMAIT LE MEMBRE DANS UNE BOUCLE
+          ═══════════════════════════════════════════════════════════════════
+          `current` vient de la liste chargée au montage. Si CE chargement a
+          échoué — et sur la route Dakar ↔ VPS il échoue régulièrement — l'écran
+          croit qu'aucune pièce n'existe et POSTe au lieu de PATCHer. Le serveur
+          refuse : `unique_together('user', 'doc_type')`.
+
+          Avant, ce refus était un 500 (voir `accounts/views.py`,
+          `perform_create`) rattrapé ici par un « vérifiez votre connexion » —
+          un conseil faux, qui faisait recommencer à l'identique, indéfiniment.
+
+          Le serveur nomme désormais le conflit ET rend l'identifiant de la
+          pièce existante. On n'a donc pas besoin de recharger la liste (c'est
+          justement ce qui avait échoué) : on rejoue l'envoi en CORRECTION sur
+          cet identifiant. Le membre ne voit qu'une chose — sa pièce est passée.
+        */
+        const idExistant =
+          erreur instanceof ApiError && erreur.status === 400
+            ? Number((erreur.payload as Record<string, unknown> | undefined)?.document_id)
+            : NaN;
+
+        if (!current && Number.isFinite(idExistant) && idExistant > 0) {
+          updated = await AuthService.updateDocument(userId, idExistant, form);
+        } else {
+          throw erreur;
+        }
+      }
 
       setDocuments((previous) => [
         updated,
         ...previous.filter((item) => item.doc_type !== updated.doc_type),
       ]);
+      setFailed(false);
       setRectoUri(null);
       setVersoUri(null);
       /* Le bandeau « Profil incomplet » compte les pièces : sans cela il
          resterait affiché jusqu'au prochain démarrage. */
       invalidateDocumentCount();
       Alert.alert("Document transmis", "Votre pièce est en attente de validation.");
-    } catch {
+    } catch (erreur) {
+      /*
+        On dit CE QUI s'est passé. `estPanneReseau` sépare les deux seuls cas
+        qui appellent des conseils différents : soit `fetch` n'a jamais eu de
+        réponse — et là, parler de connexion est juste —, soit le serveur a
+        répondu et c'est SON message qu'il faut montrer. Voir `lib/api.ts`.
+      */
       Alert.alert(
         "Envoi impossible",
-        "La pièce n'a pas pu être transmise. Vérifiez votre connexion et réessayez.",
+        estPanneReseau(erreur)
+          ? "La pièce n'a pas pu être transmise. Vérifiez votre connexion et réessayez."
+          : messageApi(erreur, "La pièce n'a pas pu être transmise."),
       );
     } finally {
       setSubmitting(false);

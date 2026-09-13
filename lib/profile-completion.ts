@@ -91,7 +91,10 @@ export function profileCompletion(
       /* Deux champs pour une seule chose : `avatar` est le fichier téléversé,
          `avatar_url` une adresse extérieure. L'un ou l'autre suffit. */
       done: filled(user?.avatar) || filled(user?.avatar_url),
-      route: "/profile/settings",
+      /* La photo se choisit désormais DANS le formulaire d'état civil, avec les
+         autres champs de la fiche, et part au bouton « Enregistrer ». Cette
+         ligne menait aux Paramètres, où elle n'est plus. */
+      route: "/profile/informations",
     },
     {
       id: "residence_country",

@@ -70,6 +70,66 @@ function extractErrorMessage(payload: any, fallback: string) {
   );
 }
 
+/**
+ * Ce qu'on montre à l'utilisateur quand une écriture échoue.
+ *
+ * ── 🔴 « Vérifiez votre connexion internet » était affiché À TORT ───────────
+ *
+ * Les écrans de téléversement rattrapaient `catch { … }` sans regarder ce
+ * qu'ils rattrapaient, et affichaient tous la même phrase. Un 500 du serveur,
+ * une pièce en double, un fichier refusé : trois causes, un seul conseil — et
+ * ce conseil était FAUX. Le membre voyait « vérifiez votre connexion » avec
+ * quatre barres de réseau, recommençait à l'identique, et retombait dessus.
+ *
+ * La distinction qui manquait tient en une ligne : **si c'est une `ApiError`,
+ * le serveur a répondu**. Le réseau a donc fonctionné, et parler de connexion
+ * n'a aucun sens. Une vraie coupure fait lever `fetch` lui-même — un
+ * `TypeError: Network request failed`, qui n'est pas une `ApiError` : c'est le
+ * seul cas où le repli sur la connexion est honnête, et l'appelant le
+ * reconnaît avec `estPanneReseau()`.
+ *
+ * ⚠ On ne parcourt les clés inconnues QUE pour y trouver un tableau de chaînes
+ * — la forme des erreurs de champ de DRF (`{"doc_type": ["…"]}`). Une valeur
+ * scalaire sous une clé inconnue n'est pas un message : le 400 des pièces en
+ * double porte par exemple `document_id: "6"`, qu'il ne faut surtout pas
+ * afficher comme une phrase.
+ */
+export function messageApi(erreur: unknown, repli: string): string {
+  if (!(erreur instanceof ApiError)) return repli;
+
+  const payload = erreur.payload as Record<string, unknown> | undefined;
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    for (const cle of ["detail", "non_field_errors", "message", "error"]) {
+      const valeur = payload[cle];
+      if (typeof valeur === "string" && valeur.trim()) return valeur;
+      if (Array.isArray(valeur) && typeof valeur[0] === "string") return valeur[0];
+    }
+    for (const valeur of Object.values(payload)) {
+      if (Array.isArray(valeur) && typeof valeur[0] === "string") return valeur[0];
+    }
+  }
+
+  /*
+    Aucun message exploitable — typiquement un 500, dont DRF renvoie une page
+    HTML. On dit ce qu'on sait : le serveur a répondu, et il a refusé. Mieux
+    vaut un code à recopier qu'un diagnostic inventé.
+  */
+  if (erreur.status >= 500) {
+    return `Le serveur a refusé l'envoi (erreur ${erreur.status}). Réessayez dans un instant.`;
+  }
+  return erreur.message || repli;
+}
+
+/**
+ * Le réseau a-t-il RÉELLEMENT fait défaut ?
+ *
+ * Vrai seulement quand `fetch` n'a jamais obtenu de réponse. Toute `ApiError`
+ * prouve le contraire — voir `messageApi`.
+ */
+export function estPanneReseau(erreur: unknown): boolean {
+  return !(erreur instanceof ApiError);
+}
+
 async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
