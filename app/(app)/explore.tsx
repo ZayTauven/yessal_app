@@ -57,6 +57,9 @@ import { RemotePhoto } from "@/components/ui/RemotePhoto";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
+/* Directement depuis `lib/html` : cet écran déshabille du texte, il ne rend
+   rien de riche — inutile de lui faire tirer le rendeur. */
+import { toPlainText } from "@/lib/html";
 import { ContentService } from "@/lib/content.service";
 import type { NewsPost } from "@/types/content.types";
 import {
@@ -89,8 +92,13 @@ function articleDate(post: NewsPost) {
 
 function summary(post: NewsPost) {
   if (post.excerpt) return post.excerpt;
-  if (!post.content) return "";
-  return post.content.length > 140 ? `${post.content.slice(0, 140)}…` : post.content;
+  /* `toPlainText` et non `content` brut : depuis l'éditeur riche, le corps
+     d'un article est du HTML. Sans résumé, la carte affichait « <p>Le
+     <strong>Magal</strong> de T… » — le balisage mangeait la moitié des 140
+     caractères d'aperçu. */
+  const text = toPlainText(post.content);
+  if (!text) return "";
+  return text.length > 140 ? `${text.slice(0, 140)}…` : text;
 }
 
 interface State {

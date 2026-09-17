@@ -49,6 +49,7 @@ import {
 
 import { Card } from "@/components/ui/Card";
 import { RemotePhoto } from "@/components/ui/RemotePhoto";
+import { RichText, toPlainText } from "@/components/ui/RichText";
 import { ApiError } from "@/lib/api";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
@@ -121,7 +122,10 @@ export default function NewsDetailScreen() {
 
   const share = useCallback(() => {
     if (!post) return;
-    const body = post.excerpt ?? post.content?.slice(0, 200) ?? "";
+    /* `toPlainText` : depuis l'éditeur riche, `content` est du HTML. Découpé
+       brut, le partage envoyait « <p>Le <strong>Magal</str… » par WhatsApp. */
+    const raw = post.excerpt ?? toPlainText(post.content);
+    const body = raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
     Share.share({ message: body ? `${post.title}\n\n${body}` : post.title });
   }, [post]);
 
@@ -211,7 +215,11 @@ function Article({ post }: { post: NewsPost }) {
         </View>
       ) : null}
 
-      <Text style={styles.body}>{post.content}</Text>
+      {/* Le corps était un `<Text>` unique : correct tant que `content` était
+          du texte, illisible depuis qu'il porte du balisage. <RichText> rend
+          les deux — il reconnaît un article d'avant l'éditeur et le laisse
+          tel quel. */}
+      <RichText content={post.content} />
 
       {post.youtube_url ? (
         <Card
@@ -291,7 +299,6 @@ const styles = StyleSheet.create({
     padding: Space.lg,
   },
   excerptText: { ...Type.body, color: Violet[900] },
-  body: { ...Type.body, fontSize: 15, lineHeight: 24, color: Ink[900] },
 
   video: { flexDirection: "row", alignItems: "center", gap: Space.md },
   videoIcon: {
