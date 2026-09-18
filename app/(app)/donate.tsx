@@ -39,6 +39,13 @@
  * défaut le numéro du don. Fabriquer une référence que le back ne connaît pas,
  * c'est donner à l'utilisateur un numéro à citer que personne ne saura lire.
  */
+import type { DirectoryUser } from "@/types/auth.types";
+import {
+  homonymIds,
+  identityLine,
+  matchesQuery,
+  memberFullName,
+} from "@/lib/member-identity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -121,18 +128,21 @@ const TABULAR: TextStyle["fontVariant"] = ["tabular-nums"];
 
 type Step = "amount" | "method" | "wire" | "done";
 
-interface DirectoryUser {
-  id: number;
-  name?: string;
-  first_name?: string;
-  last_name?: string;
-  avatar_url?: string | null;
-}
-
-function memberName(m: DirectoryUser): string {
-  const full = `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim();
-  return m.name?.trim() || full || "Membre";
-}
+/*
+ * 🔴 CE FICHIER DÉCLARAIT SON PROPRE `DirectoryUser`, À CINQ CHAMPS, SANS LE
+ * DAARA NI LE TÉLÉPHONE.
+ *
+ * Il masquait celui de `types/auth.types.ts`, que
+ * `ContentService.getDirectory()` remplit pourtant avec le Daara, le téléphone
+ * et le titre. Les champs arrivaient bien du serveur et traversaient la
+ * normalisation intacts — ils devenaient invisibles à la dernière frontière,
+ * celle du typage local.
+ *
+ * C'est la raison de fond pour laquelle deux homonymes s'affichaient ici comme
+ * deux lignes rigoureusement identiques. Le type local est supprimé : il ne
+ * décrivait pas une vue plus étroite, il perdait de l'information.
+ */
+const memberName = memberFullName;
 
 function parseId(value?: string | string[]): number | null {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -240,7 +250,7 @@ export default function DonateScreen() {
     let active = true;
     ContentService.getDirectory()
       .then((rows) => {
-        if (active) setDirectory(rows as DirectoryUser[]);
+        if (active) setDirectory(rows);
       })
       .catch(() => {
         if (active) setDirectory([]);
@@ -273,11 +283,16 @@ export default function DonateScreen() {
 
   const members = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
-    const rows = q
-      ? directory.filter((m) => memberName(m).toLowerCase().includes(q))
-      : directory;
+    /* La recherche portait sur le SEUL nom : impossible de lever une
+       ambiguïté en tapant le Daara, qui est pourtant la seule chose dont le
+       collecteur soit certain. Elle couvre désormais le Daara et le numéro. */
+    const rows = q ? directory.filter((m) => matchesQuery(m, q)) : directory;
     return rows.slice(0, MEMBER_LIMIT);
   }, [directory, memberQuery]);
+
+  /* Les homonymes PARMI LES LIGNES AFFICHÉES. Deux « Souleymane Sy » y étaient
+     jusqu'ici deux lignes rigoureusement identiques. */
+  const ambigus = useMemo(() => homonymIds(members), [members]);
 
   /**
    * Le pavé propose plus de chiffres que le plafond n'en autorise : c'est ici
@@ -484,6 +499,7 @@ export default function DonateScreen() {
           collector={collector}
           collectMode={collectMode}
           members={members}
+          ambigus={ambigus}
           memberId={memberId}
           memberQuery={memberQuery}
           email={user?.email ?? null}
@@ -727,6 +743,8 @@ interface MethodStepProps {
   collector: boolean;
   collectMode: boolean;
   members: DirectoryUser[];
+  /** Identifiants dont le nom est porté par un autre membre de la liste. */
+  ambigus: Set<number>;
   memberId: number | null;
   memberQuery: string;
   email: string | null;
@@ -746,6 +764,7 @@ function MethodStep({
   collector,
   collectMode,
   members,
+  ambigus,
   memberId,
   memberQuery,
   email,
@@ -816,9 +835,25 @@ function MethodStep({
                     style={[styles.member, selected && styles.memberOn]}
                   >
                     <Avatar uri={m.avatar_url} name={memberName(m)} size={36} />
-                    <Text style={styles.memberName} numberOfLines={1}>
-                      {memberName(m)}
-                    </Text>
+                    {/* Le nom NE SUFFIT PAS : deux homonymes donnaient ici deux
+                        lignes identiques, et le collecteur tapait au hasard. Le
+                        Daara et les derniers chiffres du numéro sont dessous,
+                        et le nom partagé est annoncé. */}
+                    <View style={styles.memberBody}>
+                      <View style={styles.memberTop}>
+                        <Text style={styles.memberName} numberOfLines={1}>
+                          {memberName(m)}
+                        </Text>
+                        {ambigus.has(m.id) ? (
+                          <Text style={styles.memberFlag}>Homonyme</Text>
+                        ) : null}
+                      </View>
+                      {identityLine(m) ? (
+                        <Text style={styles.memberMeta} numberOfLines={1}>
+                          {identityLine(m)}
+                        </Text>
+                      ) : null}
+                    </View>
                     {selected ? (
                       <Check size={18} color={Violet[700]} strokeWidth={2} />
                     ) : null}
@@ -1205,7 +1240,23 @@ const styles = StyleSheet.create({
     ...continuous,
   },
   memberOn: { borderColor: Violet[500], backgroundColor: Violet[100] },
-  memberName: { ...UIType.personName, color: Ink[900], flex: 1 },
+  memberBody: { flex: 1, gap: 2 },
+  memberTop: { flexDirection: "row", alignItems: "center", gap: Space.xs },
+  memberName: { ...UIType.personName, color: Ink[900], flexShrink: 1 },
+  memberMeta: { ...Type.label, color: Ink[500] },
+  /* Capsule cerclée plutôt que pleine : `Status.warning` est un ocre foncé
+     (5,6:1 sur blanc), lisible en texte mais trop sombre pour servir de fond.
+     Il n'existe pas de teinte claire correspondante dans les jetons. */
+  memberFlag: {
+    ...UIType.badgeLabel,
+    color: Status.warning,
+    borderWidth: 1,
+    borderColor: Status.warning,
+    borderRadius: Radius.chip,
+    paddingHorizontal: Space.xs,
+    paddingVertical: 1,
+    overflow: "hidden",
+  },
 
   footer: { gap: Space.md, paddingTop: Space.sm },
 
