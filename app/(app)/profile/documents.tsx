@@ -62,6 +62,7 @@ import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { ApiError, estPanneReseau, messageApi } from "@/lib/api";
 import { AuthService } from "@/lib/auth.service";
+import { fichierPourEnvoi } from "@/lib/upload";
 import { invalidateDocumentCount } from "@/hooks/useProfileCompletion";
 import { useAuthStore } from "@/store/auth.store";
 import type { DocumentStatus, UserDocument } from "@/types";
@@ -227,28 +228,35 @@ export default function DocumentsScreen() {
     }
 
     setSubmitting(true);
-    const form = new FormData();
-    form.append("doc_type", docType);
-    /**
-     * Le champ est envoyé même vide : c'est ainsi qu'un numéro mal saisi peut
-     * être effacé côté serveur. Ne l'omettre que s'il n'a jamais été rempli.
-     */
-    if (docNumber.trim() || current?.doc_number) {
-      form.append("doc_number", docNumber.trim());
-    }
 
-    const attach = (field: string, uri: string) => {
-      form.append(field, {
-        uri,
-        name: uri.split("/").pop() ?? `${field}.jpg`,
-        type: "image/jpeg",
-      } as unknown as Blob);
-    };
-
-    if (rectoUri) attach("image", rectoUri);
-    if (versoUri) attach("image_verso", versoUri);
-
+    /*
+      ⚠ TOUT ceci doit rester DANS le `try`.
+      Lire la pièce jointe peut échouer — photo supprimée entre le choix et
+      l'envoi, cache vidé par Android (voir `lib/upload.ts`). Construit dehors,
+      cet échec sautait par-dessus le `catch` ET par-dessus le `finally` : le
+      bouton restait bloqué sur « Envoi… », sans rien afficher, jusqu'au
+      redémarrage de l'application.
+    */
     try {
+      const form = new FormData();
+      form.append("doc_type", docType);
+      /**
+       * Le champ est envoyé même vide : c'est ainsi qu'un numéro mal saisi peut
+       * être effacé côté serveur. Ne l'omettre que s'il n'a jamais été rempli.
+       */
+      if (docNumber.trim() || current?.doc_number) {
+        form.append("doc_number", docNumber.trim());
+      }
+
+      /* La forme d'une pièce jointe est décidée à UN seul endroit — voir
+         `lib/upload.ts`, qui explique pourquoi elle a changé au SDK 56. */
+      const attach = (field: string, uri: string) => {
+        form.append(field, fichierPourEnvoi(uri) as unknown as Blob);
+      };
+
+      if (rectoUri) attach("image", rectoUri);
+      if (versoUri) attach("image_verso", versoUri);
+
       let updated: UserDocument;
       try {
         updated = current

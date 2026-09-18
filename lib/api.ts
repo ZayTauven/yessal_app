@@ -16,6 +16,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Une erreur dont le message est DÉJÀ écrit pour l'utilisateur.
+ *
+ * Tout ce qui n'est pas une `ApiError` retombait sur le message de repli de
+ * l'écran, si bien qu'une explication juste, écrite au plus près de la panne,
+ * n'atteignait jamais personne. `messageApi` laisse désormais passer celle-ci
+ * telle quelle. À n'utiliser que pour une phrase qu'un membre peut lire et
+ * suivre — jamais pour un détail technique.
+ */
+export class ErreurLisible extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "ErreurLisible";
+  }
+}
+
 type ApiOptions = {
   auth?: boolean;
   retryOn401?: boolean;
@@ -95,7 +111,21 @@ function extractErrorMessage(payload: any, fallback: string) {
  * afficher comme une phrase.
  */
 export function messageApi(erreur: unknown, repli: string): string {
-  if (!(erreur instanceof ApiError)) return repli;
+  /* Une phrase déjà écrite pour le membre, au plus près de la panne. */
+  if (erreur instanceof ErreurLisible) return erreur.message;
+
+  if (!(erreur instanceof ApiError)) {
+    /*
+      Ni réponse du serveur, ni panne réseau, ni message rédigé : il reste une
+      erreur de NOTRE code. Le membre n'a que faire du détail, mais nous, si —
+      c'est exactement ce qui a rendu la panne des téléversements introuvable
+      pendant des jours (voir `lib/upload.ts`). En développement, on le nomme.
+    */
+    if (__DEV__ && erreur instanceof Error && erreur.message) {
+      return `${repli}\n\n[dev] ${erreur.message}`;
+    }
+    return repli;
+  }
 
   const payload = erreur.payload as Record<string, unknown> | undefined;
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
@@ -123,11 +153,37 @@ export function messageApi(erreur: unknown, repli: string): string {
 /**
  * Le réseau a-t-il RÉELLEMENT fait défaut ?
  *
- * Vrai seulement quand `fetch` n'a jamais obtenu de réponse. Toute `ApiError`
- * prouve le contraire — voir `messageApi`.
+ * ── 🔴 CETTE FONCTION A MENTI, ET CE MENSONGE A COÛTÉ DES JOURS ─────────────
+ *
+ * Elle répondait `!(erreur instanceof ApiError)` : TOUT ce qui n'était pas une
+ * réponse du serveur devenait une panne de réseau — y compris une erreur de
+ * notre propre code. C'est ainsi que le refus du fetch d'Expo de sérialiser nos
+ * pièces jointes (`lib/upload.ts`) s'est déguisé en « Vérifiez votre
+ * connexion », affiché à des membres qui avaient quatre barres de réseau.
+ *
+ * On ne nomme donc plus le réseau que lorsqu'il est vraiment en cause, c'est-
+ * à-dire quand le transport lui-même a échoué :
+ *
+ *   • `ApiError`      → le serveur a répondu. Le réseau a fonctionné.
+ *   • `FetchError`    → expo/fetch n'a pas pu joindre l'hôte. Son constructeur
+ *                       préfixe toujours le message par « fetch failed: »
+ *                       (`expo/src/winter/fetch/FetchErrors.ts`). La classe
+ *                       n'étant pas exportée publiquement, on reconnaît le
+ *                       préfixe plutôt que le type — une identité qui, elle,
+ *                       ne dépend pas des chemins internes d'Expo.
+ *   • `TypeError`     → « Network request failed », la forme qu'aurait le fetch
+ *                       de React Native si on y revenait un jour.
+ *   • tout le reste   → un bug chez nous. Se taire sur le réseau, et laisser
+ *                       `messageApi` en dire ce qu'il peut.
  */
 export function estPanneReseau(erreur: unknown): boolean {
-  return !(erreur instanceof ApiError);
+  if (erreur instanceof ApiError) return false;
+  if (erreur instanceof ErreurLisible) return false;
+  if (!(erreur instanceof Error)) return false;
+
+  return /^fetch failed|network request failed|network error|timed? ?out/i.test(
+    erreur.message,
+  );
 }
 
 async function refreshAccessToken() {

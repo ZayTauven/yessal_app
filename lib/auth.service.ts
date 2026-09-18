@@ -1,5 +1,6 @@
 import { Storage } from "./storage";
 import api from "./api";
+import { fichierPourEnvoi } from "./upload";
 import { Config } from "@/constants/configs";
 import type {
   AuthTokens,
@@ -116,17 +117,14 @@ export const AuthService = {
    * vit ici désormais, une fois, et il est nommé.
    */
   async updateAvatar(uri: string): Promise<ProfileResponse> {
-    const filename = uri.split("/").pop() || "avatar.jpg";
-    const extension = filename.split(".").pop()?.toLowerCase();
-    const type = extension === "png" ? "image/png" : "image/jpeg";
-
     const form = new FormData();
     /*
-      React Native accepte cet objet à trois clés là où le DOM voudrait un
-      `Blob` — c'est son extension propre, et c'est ce qui rend le cast
-      inévitable ici. Il ne franchit pas cette fonction.
+      `fichierPourEnvoi` porte le nom du fichier et son type MIME, lus sur le
+      disque — il n'y a plus à les deviner depuis l'URI. L'ancien code déduisait
+      `image/jpeg` dès que l'extension n'était pas `.png`, ce qui étiquetait un
+      HEIC d'iPhone comme un JPEG.
     */
-    form.append("avatar", { uri, name: filename, type } as unknown as Blob);
+    form.append("avatar", fichierPourEnvoi(uri) as unknown as Blob);
     return api.patch<ProfileResponse>("profile/", form);
   },
 
