@@ -147,7 +147,7 @@ export default function FeteDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScreenHeader title={etat?.name ?? "Fête"} onBack={() => router.back()} />
+      <ScreenHeader title={etat?.name ?? "Événement"} onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {state.status === "loading" ? (
@@ -160,7 +160,7 @@ export default function FeteDetailScreen() {
 
         {state.status === "failed" ? (
           <ErrorState
-            body="Le tableau de cette fête n'a pas pu être chargé."
+            body="Le tableau de cet événement n'a pas pu être chargé."
             onRetry={feteId ? retry : undefined}
           />
         ) : null}
@@ -171,7 +171,7 @@ export default function FeteDetailScreen() {
               <View style={styles.introHead}>
                 <Text style={styles.feteName}>{etat.name}</Text>
                 <Badge
-                  label={etat.is_active ? "Active" : "Retirée"}
+                  label={etat.is_active ? "Actif" : "Retiré"}
                   tone={etat.is_active ? "active" : "closed"}
                 />
               </View>
@@ -262,7 +262,7 @@ export default function FeteDetailScreen() {
                 <EmptyState
                   picto={<Users size={56} color={Violet[900]} strokeWidth={1.25} />}
                   title="Aucune contribution confirmée"
-                  body="Les Jëfs confirmés pour cette fête apparaîtront ici."
+                  body="Les Jëfs confirmés pour cet événement apparaîtront ici."
                 />
               ) : (
                 <Card padded={false} style={styles.listCard}>

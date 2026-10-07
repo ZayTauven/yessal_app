@@ -339,8 +339,8 @@ function Collecte({
         <ProgressBar hidden />
         <Text style={styles.collecteNote}>
           {closing
-            ? `La collecte est suivie par le chef de votre Daara. Clôture le ${closing}.`
-            : "La collecte est suivie par le chef de votre Daara."}
+            ? `La collecte est suivie par le coordinateur de votre Daara. Clôture le ${closing}.`
+            : "La collecte est suivie par le coordinateur de votre Daara."}
         </Text>
       </View>
     );

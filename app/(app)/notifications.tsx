@@ -233,7 +233,7 @@ export default function NotificationsScreen() {
           </View>
           <View style={styles.linkText}>
             <Text style={styles.linkTitle}>Annonces du Daara</Text>
-            <Text style={styles.linkBody}>Les messages publiés par votre chef de Daara</Text>
+            <Text style={styles.linkBody}>Les messages publiés par le coordinateur de votre Daara</Text>
           </View>
           <ChevronRight size={18} color={Ink[300]} strokeWidth={1.5} />
         </Pressable>

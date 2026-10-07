@@ -98,10 +98,14 @@ import {
   continuous,
 } from "@/theme";
 
+/**
+ * Deux valeurs seulement (retour de la réunion client) : `OTHER` a quitté
+ * `User.Gender` côté Django, et les comptes qui le portaient sont repassés à
+ * « non renseigné ».
+ */
 const GENDERS: SelectOption[] = [
   { value: "male", label: "Homme" },
   { value: "female", label: "Femme" },
-  { value: "other", label: "Autre" },
 ];
 
 /**

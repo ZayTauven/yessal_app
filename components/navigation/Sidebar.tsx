@@ -36,7 +36,8 @@ import { useRouter, type Href } from "expo-router";
 import { X } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
-import { donationsTitle } from "@/lib/roles";
+import { TitledName } from "@/components/ui/TitleBadge";
+import { ROLE_LABEL, donationsTitle } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
 import type { UserRole } from "@/types/auth.types";
@@ -100,14 +101,6 @@ const ITEMS: DrawerItem[] = [
   { label: "Aide & contact", route: "/contact" },
 ];
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Administrateur",
-  chef_daara: "Chef de Daara",
-  collector: "Collecteur",
-  member: "Talibé",
-  tutelle: "Tutelle",
-};
-
 interface SidebarProps {
   /** Route active, pour marquer la ligne courante. Ex. « /home ». */
   activeRoute?: string;
@@ -152,7 +145,7 @@ export function Sidebar({ activeRoute }: SidebarProps) {
 
   const fullName = user ? `${user.first_name} ${user.last_name}`.trim() : "Membre Yessal";
   const daaraName = user?.daara_name ?? user?.daara?.name;
-  const subtitle = [role ? ROLE_LABELS[role] : null, daaraName]
+  const subtitle = [role ? ROLE_LABEL[role] : null, daaraName]
     .filter(Boolean)
     .join(" · ");
 
@@ -192,9 +185,12 @@ export function Sidebar({ activeRoute }: SidebarProps) {
             size={52}
           />
           <View style={styles.identityText}>
-            <Text style={styles.name} numberOfLines={1}>
-              {fullName}
-            </Text>
+            {/*
+              Le titre honorifique passe AVANT le nom (retour de la réunion
+              client) ; un nom long se replie sous la pastille au lieu d'être
+              tronqué.
+            */}
+            <TitledName title={user?.title_name} name={fullName} nameStyle={styles.name} />
             {subtitle ? (
               <Text style={styles.role} numberOfLines={1}>
                 {subtitle}
@@ -285,7 +281,7 @@ const styles = StyleSheet.create({
   },
 
   identity: { flexDirection: "row", alignItems: "center", gap: Space.md },
-  identityText: { flex: 1, gap: 2 },
+  identityText: { flex: 1, minWidth: 0, gap: 2 },
   name: { ...UIType.rowTitle, color: Violet[900] },
   role: { ...Type.label, color: Ink[500] },
   close: {

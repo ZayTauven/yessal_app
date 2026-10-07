@@ -52,15 +52,16 @@ import { IconButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { TitledName } from "@/components/ui/TitleBadge";
 import { ContentService } from "@/lib/content.service";
 import { ProfileCompletionBanner } from "@/components/profile/ProfileCompletionBanner";
 import { useProfileCompletion } from "@/hooks/useProfileCompletion";
 import { formatFCFA, formatNumber } from "@/lib/format";
 import { ProfileService, type JefSummary } from "@/lib/profile.service";
+import { ROLE_LABEL } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
 import type { Tutelle } from "@/types/content.types";
-import type { UserRole } from "@/types/auth.types";
 import {
   Border,
   GUTTER,
@@ -74,14 +75,6 @@ import {
   continuous,
   montant,
 } from "@/theme";
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Administrateur",
-  chef_daara: "Chef de Daara",
-  collector: "Collecteur",
-  member: "Talibé",
-  tutelle: "Tutelle",
-};
 
 interface State {
   status: "loading" | "ready" | "failed";
@@ -131,7 +124,7 @@ export default function ProfileScreen() {
   const openTutelles = useCallback(() => router.push("/profile/tutelle"), [router]);
 
   const fullName = `${user?.first_name ?? ""} ${user?.last_name ?? ""}`.trim();
-  const role = user?.role ? ROLE_LABELS[user.role] : null;
+  const role = user?.role ? ROLE_LABEL[user.role] : null;
   const daara = user?.daara_name ?? user?.daara?.name ?? null;
   const { status, summary, tutelles } = state;
 
@@ -183,9 +176,12 @@ export default function ProfileScreen() {
             size={68}
           />
           <View style={styles.identityText}>
-            <Text style={styles.name} numberOfLines={1}>
-              {fullName || "Mon compte"}
-            </Text>
+            {/* Le titre honorifique d'abord, puis le nom — comme au tiroir. */}
+            <TitledName
+              title={user?.title_name}
+              name={fullName || "Mon compte"}
+              nameStyle={styles.name}
+            />
             <Text style={styles.meta} numberOfLines={1}>
               {[role, daara].filter(Boolean).join(" · ")}
             </Text>
@@ -347,7 +343,7 @@ const styles = StyleSheet.create({
   scroll: { paddingTop: Space.lg, paddingBottom: 110, gap: Space.xl },
 
   identity: { flexDirection: "row", alignItems: "center", gap: Space.lg },
-  identityText: { flex: 1, gap: 3 },
+  identityText: { flex: 1, minWidth: 0, gap: 3 },
   name: { ...Type.amountCard, fontSize: 20, color: Violet[900] },
   meta: { ...Type.label, color: Ink[500] },
   phone: { fontVariant: ["tabular-nums"] },

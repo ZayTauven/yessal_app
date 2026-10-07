@@ -85,7 +85,7 @@ const GROUP_MODES: { value: GroupInviteMode; label: string }[] = [
   { value: "daara_all", label: "Tout mon Daara" },
   { value: "daara_members", label: "Les talibés de mon Daara" },
   { value: "daara_collectors", label: "Les collecteurs de mon Daara" },
-  { value: "daara_chefs", label: "Les chefs de Daara" },
+  { value: "daara_chefs", label: "Les coordinateurs de mon Daara" },
 ];
 
 /**

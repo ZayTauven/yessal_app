@@ -205,7 +205,7 @@ export default function SettingsScreen() {
         Alert.alert(
           forbidden ? "Réglage verrouillé" : "Le réglage n'a pas été enregistré",
           forbidden
-            ? "Le chef de votre Daara a fixé ce réglage pour tous les membres."
+            ? "Le coordinateur de votre Daara a fixé ce réglage pour tous les membres."
             : "Vérifiez votre connexion et réessayez.",
         );
       } finally {

@@ -50,12 +50,14 @@ export function canCollect(role: UserRole | string | null | undefined): boolean 
  * Les libellés des rôles — repris du web, qui les avait déjà unifiés
  * ═══════════════════════════════════════════════════════════════════════════
  * `front-web/src/lib/roles.ts` porte cette table depuis qu'elle avait divergé
- * dans huit fichiers. Côté mobile elle est encore recopiée dans `profile.tsx`
- * et `daara.tsx` — deux `ROLE_LABELS` locaux. On pose la source ici pour les
- * écrans neufs ; les deux anciennes tables les rejoindront, mais pas dans ce
- * lot : `daara.tsx` mêle rôle et TITRE dans le même emplacement (« Amir » sur
- * une ligne d'annuaire, « Chef du Daara » sur la carte juste au-dessus), et
- * c'est une question d'affichage à trancher, pas un doublon à supprimer.
+ * dans huit fichiers. Côté mobile, le tiroir, le Profil et Mon Daara en
+ * gardaient chacun une copie locale ; elles lisent toutes ici depuis le
+ * renommage « Coordinateur du Daara » (retour de la réunion client) — trois
+ * copies, c'était trois chances d'en oublier une. La question d'affichage qui
+ * retenait `daara.tsx` est tranchée : le titre honorifique passe en pastille
+ * devant le nom (`components/ui/TitleBadge.tsx`), le rôle garde sa ligne.
+ *
+ * ⚠ Seul le LIBELLÉ change : la clé reste `chef_daara`, celle de Django.
  *
  * Les clés suivent `User.Role` côté Django (`accounts/models.py`), et les
  * libellés sont ceux du web au mot près : un membre qui passe du tableau de
@@ -64,7 +66,7 @@ export function canCollect(role: UserRole | string | null | undefined): boolean 
 export const ROLE_LABEL: Record<string, string> = {
   member: "Talibé",
   collector: "Collecteur",
-  chef_daara: "Chef de Daara",
+  chef_daara: "Coordinateur du Daara",
   tutelle: "Tutelle",
   admin: "Administrateur",
 };

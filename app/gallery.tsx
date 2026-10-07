@@ -254,7 +254,7 @@ export default function Gallery() {
             goal={2_000_000}
             onPress={noop}
           />
-          <Caption>montants visibles — chef de Daara</Caption>
+          <Caption>montants visibles — coordinateur du Daara</Caption>
 
           <CampaignCard
             title="Ndiguel Magal 2026"
@@ -350,7 +350,7 @@ export default function Gallery() {
           <EmptyState
             picto={<UserPlus size={56} color={Violet[900]} strokeWidth={1.5} />}
             title="Aucun Ndiguel en cours"
-            body="Le chef de votre Daara n'a pas encore ouvert de collecte."
+            body="Le coordinateur de votre Daara n'a pas encore ouvert de collecte."
             actionLabel="Actualiser"
             onAction={noop}
           />

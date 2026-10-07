@@ -183,7 +183,8 @@ export interface User {
 
   // Additional Profile Fields
   birth_date?: string | null;
-  gender?: "male" | "female" | "other" | null;
+  /** Homme ou Femme seulement — `other` a été retiré côté Django. */
+  gender?: "male" | "female" | null;
   residence_country?: string | null;
   city?: string | null;
   address?: string | null;

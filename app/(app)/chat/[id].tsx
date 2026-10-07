@@ -94,7 +94,7 @@ const HEADER_FACE = 34;
  */
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrateur",
-  chef_daara: "Chef du Daara",
+  chef_daara: "Coordinateur du Daara",
   collector: "Collecteur",
   member: "Talibé",
   tutelle: "Sous tutelle",

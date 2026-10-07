@@ -87,13 +87,14 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonListRow } from "@/components/ui/Skeleton";
+import { TitledName } from "@/components/ui/TitleBadge";
 import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA, formatNumber } from "@/lib/format";
-import { canSeeAmounts } from "@/lib/roles";
+import { ROLE_LABEL, canSeeAmounts } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
-import type { Daara, DirectoryUser, UserRole } from "@/types/auth.types";
+import type { Daara, DirectoryUser } from "@/types/auth.types";
 import type { Campaign, CampaignStatus } from "@/types/campaign.types";
 import {
   Font,
@@ -127,14 +128,6 @@ const FACES = 5;
 const DIRECTORY_PAGE = 20;
 /** Chantiers listés avant le renvoi vers la liste complète. */
 const CHANTIERS = 5;
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Administrateur",
-  chef_daara: "Chef de Daara",
-  collector: "Collecteur",
-  member: "Talibé",
-  tutelle: "Tutelle",
-};
 
 /**
  * Un Ndiguel est un chantier du Daara : ce sont les mots de la planche, pas
@@ -252,7 +245,7 @@ export default function DaaraScreen() {
           <EmptyState
             picto={<Building2 size={56} color={Violet[900]} strokeWidth={1.5} />}
             title="Aucun Daara rattaché"
-            body="Votre compte n'est rattaché à aucune communauté. Le chef de votre Daara peut vous y ajouter."
+            body="Votre compte n'est rattaché à aucune communauté. Le coordinateur de votre Daara peut vous y ajouter."
             actionLabel="Actualiser"
             onAction={reload}
             card={false}
@@ -411,7 +404,7 @@ function ChefCard({
   if (!name) {
     return (
       <Card>
-        <Text style={styles.note}>Aucun chef n&apos;est désigné pour ce Daara.</Text>
+        <Text style={styles.note}>Aucun coordinateur n&apos;est désigné pour ce Daara.</Text>
       </Card>
     );
   }
@@ -424,20 +417,15 @@ function ChefCard({
     <Card padded={false} style={styles.chef}>
       <Avatar uri={row?.avatar_url ?? row?.avatar} name={name} size={44} />
       <View style={styles.chefText}>
-        <Text style={styles.chefName} numberOfLines={1}>
-          {name}
-        </Text>
         {/*
-          L'annuaire, trois lignes plus bas, nomme cette même personne par son
-          titre honorifique — « Amir ». Deux libellés pour un seul homme dans un
-          seul écran se lisent comme deux personnes. Le titre passe donc devant
-          ici aussi, et la fonction reste : c'est ce que cette carte est venue
-          dire, et elle est la seule à le dire.
+          Même dessin que la ligne d'annuaire trois blocs plus bas : la
+          pastille du titre honorifique AVANT le nom, la fonction en
+          sous-titre. Deux présentations pour un seul homme dans un seul écran
+          se liraient comme deux personnes.
         */}
+        <TitledName title={row?.title_name} name={name} nameStyle={styles.chefName} />
         <Text style={styles.chefRole} numberOfLines={1}>
-          {row?.title_name?.trim()
-            ? `${row.title_name.trim()} · Chef du Daara`
-            : "Chef du Daara"}
+          Coordinateur du Daara
         </Text>
       </View>
       {/*
@@ -646,11 +634,14 @@ function MemberRow({ member }: { member: DirectoryUser }) {
     <View style={styles.member}>
       <Avatar uri={member.avatar_url ?? member.avatar} name={name} size={40} />
       <View style={styles.memberText}>
-        <Text style={styles.memberName} numberOfLines={1}>
-          {name}
-        </Text>
+        {/*
+          Le titre honorifique ne REMPLACE plus le rôle (retour de la réunion
+          client) : il passe en pastille devant le nom, et le rôle garde sa
+          ligne — un collecteur titré reste lu comme collecteur.
+        */}
+        <TitledName title={member.title_name} name={name} nameStyle={styles.memberName} />
         <Text style={styles.memberRole} numberOfLines={1}>
-          {member.title_name?.trim() || ROLE_LABELS[member.role] || member.role}
+          {ROLE_LABEL[member.role] ?? member.role}
         </Text>
       </View>
       {phone ? (

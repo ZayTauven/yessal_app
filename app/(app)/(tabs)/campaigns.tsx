@@ -72,6 +72,14 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 /**
+ * Les rôles pour qui la puce « Clôturés » disparaît (retour de la réunion
+ * client). Le serveur ne leur sert déjà plus les Ndiguels terminés dans la
+ * liste — `CampaignViewSet.get_queryset`, action `list` seulement : le détail
+ * reste joignable par lien. La puce n'aurait donc jamais rien montré.
+ */
+const HIDES_COMPLETED: readonly string[] = ["member", "tutelle"];
+
+/**
  * Libellé et ton de chaque statut. Le ton est sémantique, pas décoratif :
  * violet pour ce qui appelle une action, ambre pour ce qui attend, gris pour
  * ce qui est derrière nous.
@@ -103,6 +111,9 @@ export default function CampaignsScreen() {
   const { user } = useAuthStore();
   const showsAmounts = canSeeAmounts(user?.role);
   const role = user?.role;
+  const filters = HIDES_COMPLETED.includes(role ?? "")
+    ? FILTERS.filter((item) => item.key !== "completed")
+    : FILTERS;
 
   const [state, setState] = useState<ListState>({ status: "loading", campaigns: [] });
   const [refreshing, setRefreshing] = useState(false);
@@ -140,7 +151,7 @@ export default function CampaignsScreen() {
 
   const loading = state.status === "loading";
   const failed = state.status === "failed";
-  const filterLabel = FILTERS.find((f) => f.key === filter)?.label ?? "Tous";
+  const filterLabel = filters.find((f) => f.key === filter)?.label ?? "Tous";
 
   /*
     La racine est un `SafeAreaView edges={["top"]}`, et non un `View` nu.
@@ -216,7 +227,7 @@ export default function CampaignsScreen() {
       ) : null}
 
       <View style={styles.filters}>
-        {FILTERS.map((item) => (
+        {filters.map((item) => (
           <Chip
             key={item.key}
             label={item.label}

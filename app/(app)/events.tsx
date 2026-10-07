@@ -147,7 +147,7 @@ export default function FetesScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScreenHeader
-        title="Fêtes"
+        title="Événements"
         onBack={() => router.back()}
         right={{
           icon: <Bell size={20} color={Ink[900]} strokeWidth={1.5} />,
@@ -168,7 +168,7 @@ export default function FetesScreen() {
         }
       >
         <Text style={styles.lead}>
-          Les fêtes portent les Ndiguels. Quand une date est arrêtée, une
+          Les événements portent les Ndiguels. Quand une date est arrêtée, une
           notification vous parvient.
         </Text>
 
@@ -182,7 +182,7 @@ export default function FetesScreen() {
 
         {state.status === "failed" ? (
           <ErrorState
-            body="Le calendrier des fêtes n'a pas pu être chargé."
+            body="Le calendrier des événements n'a pas pu être chargé."
             onRetry={reload}
           />
         ) : null}
@@ -190,8 +190,8 @@ export default function FetesScreen() {
         {state.status === "ready" && state.fetes.length === 0 ? (
           <EmptyState
             picto={<CalendarDays size={56} color={Violet[900]} strokeWidth={1.25} />}
-            title="Aucune fête au calendrier"
-            body="Les fêtes sont créées par l'administration. Celles de votre Daara apparaîtront ici."
+            title="Aucun événement au calendrier"
+            body="Les événements sont créés par l'administration. Ceux de votre Daara apparaîtront ici."
           />
         ) : null}
 
@@ -237,7 +237,7 @@ function FeteRow({
             <Text style={styles.recurrenceText}>{RECURRENCE_LABELS[fete.recurrence]}</Text>
           </View>
           {upcoming ? <Badge label="Bientôt" tone="active" /> : null}
-          {!fete.is_active ? <Badge label="Retirée" tone="closed" /> : null}
+          {!fete.is_active ? <Badge label="Retiré" tone="closed" /> : null}
         </View>
 
         <Text style={styles.name}>{fete.name}</Text>
