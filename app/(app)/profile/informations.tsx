@@ -76,6 +76,12 @@ import { DialPrefix } from "@/components/auth/DialPrefix";
 import { AuthService } from "@/lib/auth.service";
 import { estPanneReseau, messageApi } from "@/lib/api";
 import {
+  erreurDateNaissance,
+  formatDateInput,
+  fromIso,
+  jjmmaaaaVersIso,
+} from "@/lib/date-saisie";
+import {
   DEFAULT_COUNTRY,
   DIAL_COUNTRIES,
   subscriberBounds,
@@ -129,33 +135,17 @@ const BLOOD_TYPES: SelectOption[] = [
   "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-",
 ].map((value) => ({ value, label: value }));
 
-/**
+/*
  * La date part en `YYYY-MM-DD` — ce que `DateField` attend. Le membre la saisit
  * en `JJ/MM/AAAA`, la seule forme qu'on écrive et qu'on dicte au Sénégal.
  *
- * Pas de sélecteur de calendrier : atteindre 1974 depuis 2026 y demande une
- * cinquantaine de gestes. Un champ de huit chiffres se remplit en huit frappes.
+ * Pas de sélecteur de calendrier ni de trois listes jour/mois/année :
+ * atteindre 1974 depuis 2026 y demande une cinquantaine de gestes, quand un
+ * champ de huit chiffres se remplit en huit frappes. Le champ est en revanche
+ * CONTRÔLÉ à chaque frappe — voir `lib/date-saisie.ts`, qui dit aussi pourquoi
+ * la validation ne passe plus par un `Date` (un 13/06/1983 était refusé à
+ * toute la diaspora d'Europe).
  */
-function toIso(saisie: string): string | null {
-  const m = saisie.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!m) return null;
-  const [, jour, mois, annee] = m;
-  const date = new Date(`${annee}-${mois}-${jour}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  /* `new Date("2026-02-31")` ne lève pas, il déborde sur mars : on vérifie que
-     la date rendue est bien celle qu'on a demandée. */
-  if (date.getUTCDate() !== Number(jour) || date.getUTCMonth() + 1 !== Number(mois)) {
-    return null;
-  }
-  if (date > new Date()) return null;
-  return `${annee}-${mois}-${jour}`;
-}
-
-function fromIso(iso?: string | null): string {
-  if (!iso) return "";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
-}
 
 /**
  * Sépare un numéro E.164 stocké en (pays, chiffres d'abonné).
@@ -178,14 +168,6 @@ function splitPhone(e164?: string | null): { country: DialCountry; digits: strin
     }
   }
   return { country: DEFAULT_COUNTRY, digits: "" };
-}
-
-/** Groupe les chiffres en JJ/MM/AAAA pendant la frappe. */
-function formatDateInput(raw: string): string {
-  const d = raw.replace(/[^0-9]/g, "").slice(0, 8);
-  if (d.length <= 2) return d;
-  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
-  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
 }
 
 export default function InformationsScreen() {
@@ -288,9 +270,10 @@ export default function InformationsScreen() {
     /* La date est facultative, mais si elle est saisie elle doit être vraie. */
     let iso: string | null = null;
     if (birthDate.trim()) {
-      iso = toIso(birthDate);
+      const erreur = erreurDateNaissance(birthDate, { complete: true });
+      iso = erreur ? null : jjmmaaaaVersIso(birthDate);
       if (!iso) {
-        setDateError("Date invalide. Attendu : JJ/MM/AAAA, dans le passé.");
+        setDateError(erreur || "Écrivez la date en JJ/MM/AAAA, par exemple 07/03/1988.");
         return;
       }
     }
@@ -471,8 +454,11 @@ export default function InformationsScreen() {
               keyboardType="number-pad"
               value={birthDate}
               onChangeText={(raw) => {
-                setBirthDate(formatDateInput(raw));
-                setDateError("");
+                const saisie = formatDateInput(raw);
+                setBirthDate(saisie);
+                /* Contrôlée à chaque frappe : un « 43 » est signalé au second
+                   chiffre, pas au moment d'enregistrer. */
+                setDateError(erreurDateNaissance(saisie));
               }}
               maxLength={10}
               error={dateError}

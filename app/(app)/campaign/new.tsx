@@ -64,6 +64,8 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ApiError } from "@/lib/api";
+/* Comparaison de chaînes AAAA-MM-JJ, sans `Date` : voir `lib/date-saisie.ts`. */
+import { isoAujourdhui, jjmmaaaaVersIso } from "@/lib/date-saisie";
 import { ContentService } from "@/lib/content.service";
 import { useAuthStore } from "@/store/auth.store";
 import { formatFCFA } from "@/lib/format";
@@ -71,39 +73,6 @@ import { GUTTER, Ink, Space, Surface, Type, Violet } from "@/theme";
 
 /** Le plancher d'un objectif, quand il y en a un. Aligné sur le Jëf minimal. */
 const MIN_GOAL = 500;
-
-/**
- * « 07/03/2027 » → « 2027-03-07 », ou `null` si la date n'est pas écrite.
- *
- * On valide le CALENDRIER, pas seulement la forme : `new Date(2027, 1, 31)`
- * bascule au 3 mars sans se plaindre. On relit donc les trois composantes
- * après construction — sinon un 31 février partirait au serveur en 3 mars, et
- * le membre découvrirait la substitution sur la fiche.
- */
-function toIsoDate(saisie: string): string | null {
-  const m = saisie.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const [, j, mo, a] = m;
-  const jour = Number(j);
-  const mois = Number(mo);
-  const annee = Number(a);
-  const d = new Date(annee, mois - 1, jour);
-  if (
-    d.getFullYear() !== annee ||
-    d.getMonth() !== mois - 1 ||
-    d.getDate() !== jour
-  ) {
-    return null;
-  }
-  return `${annee}-${String(mois).padStart(2, "0")}-${String(jour).padStart(2, "0")}`;
-}
-
-/** Aujourd'hui à minuit — la borne basse d'une échéance. */
-function aujourdhui(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
 
 export default function NewCampaignScreen() {
   const router = useRouter();
@@ -130,12 +99,12 @@ export default function NewCampaignScreen() {
     const nom = name.trim();
     if (!nom) suivants.name = "Donnez un nom à votre Ndiguel.";
 
-    const iso = toIsoDate(deadline);
+    const iso = jjmmaaaaVersIso(deadline);
     if (!deadline.trim()) {
       suivants.deadline = "L'échéance est obligatoire.";
     } else if (!iso) {
       suivants.deadline = "Écrivez la date en JJ/MM/AAAA, par exemple 31/12/2026.";
-    } else if (new Date(iso) < aujourdhui()) {
+    } else if (iso < isoAujourdhui()) {
       /*
         Django accepte une date passée sans broncher. Un Ndiguel déjà échu à sa
         création s'afficherait « J−12 » et n'appellerait plus rien : on le

@@ -179,24 +179,37 @@ export function Sidebar({ activeRoute }: SidebarProps) {
         ]}
       >
         <View style={styles.identity}>
-          <Avatar
-            uri={user?.avatar_url ?? user?.avatar}
-            name={fullName}
-            size={52}
-          />
-          <View style={styles.identityText}>
-            {/*
-              Le titre honorifique passe AVANT le nom (retour de la réunion
-              client) ; un nom long se replie sous la pastille au lieu d'être
-              tronqué.
-            */}
-            <TitledName title={user?.title_name} name={fullName} nameStyle={styles.name} />
-            {subtitle ? (
-              <Text style={styles.role} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
+          {/*
+            La photo ET le nom mènent au Profil : c'est là qu'on touche d'instinct
+            pour se retrouver. Une seule zone, pas deux cibles côte à côte — la
+            photo seule (52 px) serait la plus petite cible du tiroir. La croix
+            reste HORS de la zone, sinon fermer le menu ouvrirait le profil.
+          */}
+          <Pressable
+            onPress={() => go("/profile")}
+            accessibilityRole="link"
+            accessibilityLabel={`${fullName} — voir mon profil`}
+            style={({ pressed }) => [styles.identityLink, pressed && styles.itemPressed]}
+          >
+            <Avatar
+              uri={user?.avatar_url ?? user?.avatar}
+              name={fullName}
+              size={52}
+            />
+            <View style={styles.identityText}>
+              {/*
+                Le titre honorifique passe AVANT le nom (retour de la réunion
+                client) ; un nom long se replie sous la pastille au lieu d'être
+                tronqué.
+              */}
+              <TitledName title={user?.title_name} name={fullName} nameStyle={styles.name} />
+              {subtitle ? (
+                <Text style={styles.role} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
+          </Pressable>
           <Pressable
             onPress={closeDrawer}
             style={styles.close}
@@ -281,6 +294,13 @@ const styles = StyleSheet.create({
   },
 
   identity: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  identityLink: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.md,
+  },
   identityText: { flex: 1, minWidth: 0, gap: 2 },
   name: { ...UIType.rowTitle, color: Violet[900] },
   role: { ...Type.label, color: Ink[500] },
