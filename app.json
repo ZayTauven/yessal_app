@@ -13,11 +13,13 @@
     "icon": "./assets/images/icon.png",
     "scheme": "yessalgui",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yessalgui.app",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.yessalgui.app",
@@ -59,6 +61,13 @@
           "icon": "./assets/images/android-icon-monochrome.png",
           "color": "#7954D4",
           "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Yessal accède à vos photos pour que vous puissiez envoyer vos justificatifs et votre photo de profil.",
+          "cameraPermission": "Yessal accède à votre appareil photo pour que vous puissiez photographier vos justificatifs."
         }
       ]
     ],
