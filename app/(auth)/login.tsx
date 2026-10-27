@@ -205,7 +205,7 @@ export default function Login() {
 
         <View style={styles.heading}>
           <Text style={styles.title}>Connexion</Text>
-          <Text style={styles.subtitle}>Réservé aux membres de la confrérie.</Text>
+          <Text style={styles.subtitle}>Réservé aux membres du Kourel.</Text>
         </View>
 
         {banner ? (

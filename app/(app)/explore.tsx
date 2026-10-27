@@ -176,7 +176,7 @@ export default function ActualitesScreen() {
 
         {state.status === "failed" ? (
           <ErrorState
-            body="Le journal de la confrérie n'a pas pu être chargé."
+            body="Le journal du Kourel n'a pas pu être chargé."
             onRetry={reload}
           />
         ) : null}
@@ -185,7 +185,7 @@ export default function ActualitesScreen() {
           <EmptyState
             picto={<Newspaper size={56} color={Violet[900]} strokeWidth={1.25} />}
             title="Aucune actualité pour l'instant"
-            body="Les publications de la confrérie apparaîtront ici dès leur parution."
+            body="Les publications du Kourel apparaîtront ici dès leur parution."
           />
         ) : null}
 

@@ -174,7 +174,7 @@ export default function NewCampaignScreen() {
         <EmptyState
           picto={<ShieldAlert size={56} color={Violet[900]} strokeWidth={1.5} />}
           title="Réservé à l'administration"
-          body="Un Ndiguel engage la confrérie entière : il est lancé par l'administration. Proposez le vôtre au responsable de votre Daara, qui le fera remonter."
+          body="Un Ndiguel engage le Kourel entier : il est lancé par l'administration. Proposez le vôtre au responsable de votre Daara, qui le fera remonter."
           actionLabel="Revenir aux Ndiguels"
           onAction={() => (router.canGoBack() ? router.back() : router.replace("/campaigns"))}
           card={false}

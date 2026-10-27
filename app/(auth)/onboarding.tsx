@@ -180,7 +180,7 @@ export default function Onboarding() {
             roll={ROLL_FACES}
             direction={1}
             startDelay={0}
-            accessibilityLabel="La guide et les figures de la confrérie"
+            accessibilityLabel="La guide et les figures du Kourel"
             style={{ width: cell, height: photoHeight }}
           />
           <MarqueeTile
