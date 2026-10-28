@@ -101,8 +101,13 @@ import {
   montant,
 } from "@/theme";
 
-/** Le plancher du produit — la planche le dit, le bouton s'y tient. */
-const MIN_JEF = 500;
+/**
+ * Le plancher, volontairement bas : sur une plateforme confrérique, refuser
+ * une offrande parce qu'elle est modeste serait mal reçu. La planche disait
+ * 500 ; le porteur a tranché pour 100 FCFA le 2026-10-28. Même valeur sur le
+ * web (`front-web/src/lib/jef.ts`) et au serveur (`Donation.MIN_AMOUNT`).
+ */
+const MIN_JEF = 100;
 /** Le plafond. Au-delà, la frappe est REFUSÉE, pas tronquée en silence. */
 const MAX_JEF = 2_000_000;
 /** 2 000 000 tient sur sept chiffres. */
