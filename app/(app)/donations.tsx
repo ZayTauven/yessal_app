@@ -229,9 +229,14 @@ export default function DonationsScreen() {
         confirmedAmount += donation.amount;
         confirmedCount += 1;
       } else if (
-        donation.payment_status === "pending" ||
-        donation.payment_status === "pending_wire" ||
-        donation.payment_status === "collected"
+        /* Côté collectes, la ligne dit « encaissé, à remettre » : elle ne
+           compte que l'argent EN MAIN. Elle additionnait aussi les `pending`,
+           et affichait 19 000 quand la caisse en contenait 4 000. */
+        onCollected
+          ? donation.payment_status === "collected"
+          : donation.payment_status === "pending" ||
+            donation.payment_status === "pending_wire" ||
+            donation.payment_status === "collected"
       ) {
         pendingAmount += donation.amount;
         pendingCount += 1;
@@ -239,7 +244,7 @@ export default function DonationsScreen() {
     }
 
     return { confirmedAmount, pendingAmount, confirmedCount, pendingCount };
-  }, [scoped]);
+  }, [scoped, onCollected]);
 
   const counts = useMemo(() => {
     const map: Record<Filter, number> = {
