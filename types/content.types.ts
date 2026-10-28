@@ -1,6 +1,6 @@
 import type { UserRole } from "./auth.types";
 
-export type EventRecurrence = "annual" | "quarterly" | "weekly" | "none";
+export type EventRecurrence = "annual" | "quarterly" | "weekly" | "none" | "annual_hijri";
 export type MessageTarget = "global" | "daara_only";
 export type Urgency = "info" | "warning" | "critical";
 export type AnnouncementTargetRole =
@@ -36,8 +36,14 @@ export interface EventItem {
   id: number;
   name: string;
   description?: string | null;
-  /** `date` côté serveur. `null` : la date de l'année n'est pas encore arrêtée. */
+  /**
+   * La PROCHAINE occurrence calculée par le serveur (`prochaine_date`), à
+   * défaut la date de référence (`date`). Pour un hebdomadaire, la référence
+   * reste figée sur le premier vendredi saisi : c'est la prochaine qui compte.
+   */
   event_date?: string | null;
+  /** Jours d'ici `event_date`, comptés par le serveur (jour de Dakar). */
+  days_until?: number | null;
   recurrence: EventRecurrence;
   is_active: boolean;
   created_by?: number | null;

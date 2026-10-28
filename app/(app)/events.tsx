@@ -73,7 +73,8 @@ import {
 
 function formatDate(date?: string | null) {
   if (!date) return "Date à confirmer";
-  const parsed = new Date(date);
+  /* À midi : « 2026-10-30 » lu à minuit UTC tombait la veille dans les Amériques. */
+  const parsed = new Date(date.length === 10 ? `${date}T12:00:00` : date);
   if (Number.isNaN(parsed.getTime())) return date;
   return parsed.toLocaleDateString("fr-FR", {
     day: "numeric",
@@ -82,8 +83,12 @@ function formatDate(date?: string | null) {
   });
 }
 
-/** Dans les trente jours. Au-delà, « bientôt » ne veut plus rien dire. */
-function isUpcoming(date?: string | null): boolean {
+/**
+ * Dans les trente jours. Au-delà, « bientôt » ne veut plus rien dire.
+ * Les jours viennent du serveur ; l'horloge du téléphone ne sert qu'en secours.
+ */
+function isUpcoming(date?: string | null, daysUntil?: number | null): boolean {
+  if (typeof daysUntil === "number") return daysUntil >= 0 && daysUntil < 30;
   if (!date) return false;
   const parsed = new Date(date).getTime();
   if (Number.isNaN(parsed)) return false;
@@ -93,6 +98,7 @@ function isUpcoming(date?: string | null): boolean {
 
 const RECURRENCE_LABELS: Record<EventItem["recurrence"], string> = {
   annual: "Annuelle",
+  annual_hijri: "Annuelle (hégirienne)",
   quarterly: "Trimestrielle",
   weekly: "Hebdomadaire",
   none: "Ponctuelle",
@@ -100,7 +106,7 @@ const RECURRENCE_LABELS: Record<EventItem["recurrence"], string> = {
 
 function RecurrenceIcon({ value }: { value: EventItem["recurrence"] }) {
   if (value === "weekly") return <Repeat size={12} color={Violet[700]} strokeWidth={1.5} />;
-  if (value === "annual") return <RefreshCw size={12} color={Violet[700]} strokeWidth={1.5} />;
+  if (value === "annual" || value === "annual_hijri") return <RefreshCw size={12} color={Violet[700]} strokeWidth={1.5} />;
   return <Star size={12} color={Violet[700]} strokeWidth={1.5} />;
 }
 
@@ -221,7 +227,7 @@ function FeteRow({
   last: boolean;
   onPress: () => void;
 }) {
-  const upcoming = isUpcoming(fete.event_date);
+  const upcoming = isUpcoming(fete.event_date, fete.days_until);
 
   return (
     <View style={styles.timelineItem}>

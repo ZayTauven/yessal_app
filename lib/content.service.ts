@@ -130,7 +130,8 @@ function normalizeEvent(item: any): EventItem {
     id: item.id,
     name: item.name,
     description: item.description ?? null,
-    event_date: item.event_date ?? item.date ?? null,
+    event_date: item.prochaine_date ?? item.event_date ?? item.date ?? null,
+    days_until: item.days_until ?? null,
     recurrence: item.recurrence ?? "none",
     is_active: item.is_active ?? true,
     created_by: item.created_by ?? null,
@@ -413,7 +414,8 @@ function normalizeFeteEtat(item: any): FeteEtat {
     name: item.name,
     is_active: Boolean(item.is_active),
     description: item.description ?? null,
-    date: item.date ?? null,
+    /* La prochaine occurrence d'une série, à défaut la date de référence. */
+    date: item.prochaine_date ?? item.date ?? null,
     /**
      * ⚠ Ce n'est PAS le code de récurrence des autres réponses : la vue rend
      * `get_recurrence_display()`, donc « Annuelle », « Hebdomadaire ». À
