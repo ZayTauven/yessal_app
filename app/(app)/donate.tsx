@@ -332,7 +332,9 @@ export default function DonateScreen() {
   const submit = useCallback(async () => {
     if (!campaign || !valid || submitting) return;
 
-    if (campaign.status !== "active") {
+    /* Un membre ne donne plus à un Ndiguel clôturé. Un collecteur, si : il
+       saisit des espèces reçues AVANT la clôture (décision du 2026-10-28). */
+    if (campaign.status !== "active" && !collectMode) {
       Alert.alert(
         "Ndiguel clôturé",
         "Ce Ndiguel n'accepte plus de Jëf. Choisissez-en un autre.",
