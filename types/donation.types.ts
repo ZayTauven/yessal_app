@@ -36,7 +36,18 @@ export type LegacyPaymentMethod =
 
 /** Ce qu'un don peut porter en lecture : le canonique ou un héritage. */
 export type AnyPaymentMethod = PaymentMethod | LegacyPaymentMethod;
-export type PaymentStatus = "pending" | "confirmed" | "failed" | "pending_wire";
+/**
+ * Aligné sur `contributions.Donation.PaymentStatus`. `collected` : un
+ * collecteur a l'argent en main, l'administration ne l'a pas encore reçu.
+ * `cancelled` : annulé par un administrateur, avec un motif.
+ */
+export type PaymentStatus =
+  | "pending"
+  | "pending_wire"
+  | "collected"
+  | "confirmed"
+  | "failed"
+  | "cancelled";
 
 export interface Donation {
   id: number;
@@ -83,4 +94,6 @@ export interface CreateDonationPayload {
   payment_method: PaymentMethod;
   beneficiary?: number | null;
   external_ref?: string | null;
+  /** Le membre au nom duquel un collecteur enregistre. Absent : soi-même. */
+  donor?: number;
 }

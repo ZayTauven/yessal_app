@@ -101,6 +101,8 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
   confirmed: "Confirmé",
   failed: "Échoué",
   pending_wire: "Virement en attente",
+  collected: "Encaissé, à remettre",
+  cancelled: "Annulé",
 };
 
 const STATUS_COLORS: Record<PaymentStatus, string> = {
@@ -108,6 +110,8 @@ const STATUS_COLORS: Record<PaymentStatus, string> = {
   confirmed: Status.success,
   failed: Status.error,
   pending_wire: Status.info,
+  collected: Status.info,
+  cancelled: Ink[500],
 };
 
 type Filter = "all" | PaymentStatus;
@@ -196,7 +200,8 @@ export default function DonationsScreen() {
         confirmedCount += 1;
       } else if (
         donation.payment_status === "pending" ||
-        donation.payment_status === "pending_wire"
+        donation.payment_status === "pending_wire" ||
+        donation.payment_status === "collected"
       ) {
         pendingAmount += donation.amount;
         pendingCount += 1;
@@ -213,6 +218,8 @@ export default function DonationsScreen() {
       confirmed: 0,
       failed: 0,
       pending_wire: 0,
+      collected: 0,
+      cancelled: 0,
     };
     for (const donation of state.donations) map[donation.payment_status] += 1;
     return map;

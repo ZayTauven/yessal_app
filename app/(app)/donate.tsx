@@ -353,8 +353,11 @@ export default function DonateScreen() {
         payment_method: effective,
         beneficiary: collectMode ? null : beneficiaryId,
         external_ref: effective === "virement" ? wireRef.trim() : null,
-        ...(collectMode && memberId ? { member_id: memberId } : {}),
-      } as Parameters<typeof ContentService.createDonation>[0]);
+        /* `donor`, le seul nom que le serveur connaît. Le champ s'appelait
+           `member_id` : ignoré sans erreur, il imputait chaque collecte au
+           collecteur lui-même. */
+        ...(collectMode && memberId ? { donor: memberId } : {}),
+      });
 
       /*
         Les espèces ne passent pas par l'endpoint de paiement : il n'y a rien à
@@ -365,7 +368,7 @@ export default function DonateScreen() {
           donation,
           title: collectMode ? "Collecte enregistrée" : "Jëf enregistré",
           body: collectMode
-            ? `La contribution de ${formatFCFA(amount)}${member ? ` au nom de ${memberName(member)}` : ""} est enregistrée. Elle sera validée par un responsable.`
+            ? `La contribution de ${formatFCFA(amount)}${member ? ` au nom de ${memberName(member)}` : ""} est encaissée et le membre a reçu son reçu. Elle sera confirmée à votre remise à l'administration.`
             : "Un collecteur de votre Daara viendra récupérer votre contribution.",
         });
         setStep("done");
