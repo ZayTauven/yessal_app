@@ -82,7 +82,7 @@ import { canCollect } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import type { Campaign } from "@/types/campaign.types";
 import type { Tutelle } from "@/types/content.types";
-import type { BankAccount, Donation, PaymentMethod } from "@/types/donation.types";
+import type { BankAccount, CollecteStatus, Donation, PaymentMethod } from "@/types/donation.types";
 import {
   Border,
   Font,
@@ -161,10 +161,12 @@ interface LoadState {
   status: "loading" | "ready" | "failed";
   campaigns: Campaign[];
   tutelles: Tutelle[];
+  /** `null` : le serveur n'a pas répondu, on ne masque rien. */
+  collecte: CollecteStatus | null;
 }
 
 /** ⚠ Pas de `as const` : il figerait les tableaux en `readonly`. */
-const EMPTY: Omit<LoadState, "status"> = { campaigns: [], tutelles: [] };
+const EMPTY: Omit<LoadState, "status"> = { campaigns: [], tutelles: [], collecte: null };
 
 /**
  * Les deux appels partent ensemble. L'échec des TUTELLES n'est pas fatal —
@@ -172,12 +174,13 @@ const EMPTY: Omit<LoadState, "status"> = { campaigns: [], tutelles: [] };
  * rien à financer.
  */
 async function fetchDonate(): Promise<LoadState> {
-  const [campaigns, tutelles] = await Promise.all([
+  const [campaigns, tutelles, collecte] = await Promise.all([
     ContentService.getCampaigns().catch(() => null),
     ContentService.getTutelles().catch(() => [] as Tutelle[]),
+    ContentService.getCollecteStatus(),
   ]);
   if (!campaigns) return { status: "failed", ...EMPTY };
-  return { status: "ready", campaigns, tutelles };
+  return { status: "ready", campaigns, tutelles, collecte };
 }
 
 /** Ce qui reste à faire après la création du don, par moyen de paiement. */
@@ -527,12 +530,14 @@ export default function DonateScreen() {
           onToggleCollect={() => {
             const next = !collectMode;
             setCollectMode(next);
-            /* Sur le terrain, le cas courant est l'espèce en main : présélectionnée. */
-            setMethod(next ? "manual" : "orange_money");
+            /* Sur le terrain, le cas courant est l'espèce en main : présélectionnée
+               — sauf si la collecte en espèces est suspendue. */
+            setMethod(next && data.collecte?.active !== false ? "manual" : "orange_money");
             setMemberId(null);
           }}
           selectedMember={member}
           onClearMember={() => setMemberId(null)}
+          collecte={data.collecte}
           onMemberQuery={setMemberQuery}
           onMember={setMemberId}
           onSubmit={submit}
@@ -777,6 +782,7 @@ interface MethodStepProps {
   /** Le membre choisi : la liste se replie sur lui pour laisser voir les moyens. */
   selectedMember: DirectoryUser | null;
   onClearMember: () => void;
+  collecte: CollecteStatus | null;
   onSubmit: () => void;
 }
 
@@ -799,9 +805,22 @@ function MethodStep({
   onMember,
   selectedMember,
   onClearMember,
+  collecte,
   onSubmit,
 }: MethodStepProps) {
-  const methodRows = PAYMENT_METHODS.map((option) => (
+  /*
+   * « Collecteur » (les espèces) n'est proposé que si quelqu'un peut passer.
+   * Pour SOI : un collecteur doit couvrir sa zone, et la collecte être
+   * ouverte. Pour AUTRUI (mode collecte) : il suffit qu'elle soit ouverte —
+   * le collecteur est déjà là. Sans réponse du serveur, rien n'est masqué.
+   */
+  const cashAllowed = collectMode ? collecte?.active !== false : collecte?.disponible !== false;
+  const cashHint = cashAllowed
+    ? null
+    : collecte?.raison === "suspendue"
+      ? "La collecte en espèces est suspendue. Ne confiez votre argent à personne qui se présenterait comme collecteur."
+      : "Aucun collecteur ne couvre encore votre zone. Réglez en ligne, ou contactez le coordinateur de votre Daara.";
+  const methodRows = PAYMENT_METHODS.filter((o) => cashAllowed || o.value !== "manual").map((option) => (
     <PaymentMethodRow
       key={option.value}
       method={option}
@@ -916,7 +935,10 @@ function MethodStep({
             )}
           </>
         ) : (
-          methodRows
+          <>
+            {methodRows}
+            {cashHint ? <Text style={styles.hint}>{cashHint}</Text> : null}
+          </>
         )}
       </ScrollView>
 

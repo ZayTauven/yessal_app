@@ -11,6 +11,10 @@
  *     C'est la somme dont il répond ; elle ne redescend qu'à la remise, que
  *     seul un administrateur valide.
  *
+ * « Je m'en charge » marque la demande aux yeux des autres collecteurs de la
+ * zone : elle reste dans leur liste, prise, sans action possible pour eux.
+ * Le collecteur ne voit que les demandes de SES zones.
+ *
  * ── Pourquoi une confirmation DANS la ligne, et pas `Alert.alert` ──────────
  *
  * « Encaisser » envoie le reçu au membre à l'instant et ne se défait pas : il
@@ -22,7 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { HandCoins, Inbox, Phone } from "lucide-react-native";
+import { HandCoins, Inbox, Phone, ShieldAlert } from "lucide-react-native";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -31,7 +35,8 @@ import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
 import { formatFCFA } from "@/lib/format";
-import type { Donation } from "@/types/donation.types";
+import { useAuthStore } from "@/store/auth.store";
+import type { CollecteStatus, Donation } from "@/types/donation.types";
 import {
   GUTTER,
   HIT,
@@ -51,18 +56,20 @@ interface State {
   status: "loading" | "ready" | "failed";
   requests: Donation[];
   cash: Donation[];
+  collecte: CollecteStatus | null;
 }
 
-const EMPTY: Omit<State, "status"> = { requests: [], cash: [] };
+const EMPTY: Omit<State, "status"> = { requests: [], cash: [], collecte: null };
 
 /** L'état COMPLET, rendu après l'await : un seul `setState` (React Compiler). */
 async function fetchQueues(): Promise<State> {
   try {
-    const [requests, cash] = await Promise.all([
+    const [requests, cash, collecte] = await Promise.all([
       ContentService.getCollectRequests(),
       ContentService.getMyCash(),
+      ContentService.getCollecteStatus(),
     ]);
-    return { status: "ready", requests, cash };
+    return { status: "ready", requests, cash, collecte };
   } catch {
     return { status: "failed", ...EMPTY };
   }
@@ -77,6 +84,7 @@ function formatDate(value?: string | null) {
 
 export default function CollectScreen() {
   const router = useRouter();
+  const me = useAuthStore((s) => s.user?.id);
   const [state, setState] = useState<State>({ status: "loading", ...EMPTY });
   const [refreshing, setRefreshing] = useState(false);
   /** La ligne dont la confirmation est ouverte. Une seule à la fois. */
@@ -101,19 +109,29 @@ export default function CollectScreen() {
       .finally(() => setRefreshing(false));
   }, []);
 
-  const encaisser = useCallback(async (donation: Donation) => {
-    setBusy(donation.id);
+  /** Un geste serveur, puis tout l'état rechargé d'un bloc. */
+  const act = useCallback(async (id: number, call: () => Promise<unknown>, fallback: string) => {
+    setBusy(id);
     setError(null);
     try {
-      await ContentService.collectDonation(donation.id);
+      await call();
       setAsking(null);
       setState(await fetchQueues());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "L'encaissement a échoué. Réessayez.");
+      setError(e instanceof Error ? e.message : fallback);
     } finally {
       setBusy(null);
     }
   }, []);
+
+  const encaisser = (d: Donation) =>
+    act(d.id, () => ContentService.collectDonation(d.id), "L'encaissement a échoué. Réessayez.");
+  const prendre = (d: Donation) =>
+    act(d.id, () => ContentService.claimDonation(d.id), "La prise en charge a échoué.");
+  const relacher = (d: Donation) =>
+    act(d.id, () => ContentService.releaseDonation(d.id), "La demande n'a pas pu être relâchée.");
+
+  const suspendue = state.collecte?.active === false;
 
   const cashTotal = state.cash.reduce((sum, d) => sum + d.amount, 0);
 
@@ -128,6 +146,18 @@ export default function CollectScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Violet[500]} />
         }
       >
+        {suspendue ? (
+          <View style={styles.gutter}>
+            <View style={styles.banner}>
+              <ShieldAlert size={18} color={Status.error} strokeWidth={2} />
+              <Text style={styles.bannerText}>
+                Collecte en espèces suspendue par l’administration : plus aucun encaissement.
+                L’argent de votre caisse reste à remettre.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {/* ── Ma caisse ── */}
         <View style={styles.gutter}>
           <Card style={styles.cashCard}>
@@ -193,6 +223,9 @@ export default function CollectScreen() {
         <View style={styles.list}>
           {state.requests.map((d) => {
             const open = asking === d.id;
+            const mine = d.collector === me;
+            /* Prise par un collègue : il est en route, aucune action ici. */
+            const taken = d.collector != null && !mine;
             return (
               <Card key={d.id} style={styles.card}>
                 <View style={styles.cardTop}>
@@ -221,7 +254,15 @@ export default function CollectScreen() {
                   </Pressable>
                 ) : null}
 
-                {open ? (
+                {d.collector != null ? (
+                  <Text style={[styles.claim, mine && styles.claimMine]}>
+                    {mine
+                      ? "Vous vous en chargez"
+                      : `Pris en charge par ${d.collector_name || "un collègue"}`}
+                  </Text>
+                ) : null}
+
+                {taken || suspendue ? null : open ? (
                   <View style={styles.confirm}>
                     <Text style={styles.confirmText}>
                       Avez-vous reçu {formatFCFA(d.amount)} de {d.donor_name || "ce membre"} ? Il
@@ -248,16 +289,30 @@ export default function CollectScreen() {
                     </View>
                   </View>
                 ) : (
-                  <Button
-                    label="Encaisser"
-                    variant="outline"
-                    size="md"
-                    icon={<HandCoins size={16} color={Violet[900]} strokeWidth={2} />}
-                    onPress={() => {
-                      setError(null);
-                      setAsking(d.id);
-                    }}
-                  />
+                  <View style={styles.confirmActions}>
+                    <Button
+                      label={mine ? "Je ne peux plus" : "Je m'en charge"}
+                      variant="secondary"
+                      size="md"
+                      fullWidth={false}
+                      style={styles.flex}
+                      loading={busy === d.id}
+                      disabled={busy !== null}
+                      onPress={() => (mine ? relacher(d) : prendre(d))}
+                    />
+                    <Button
+                      label="Encaisser"
+                      variant="outline"
+                      size="md"
+                      fullWidth={false}
+                      style={styles.flex}
+                      icon={<HandCoins size={16} color={Violet[900]} strokeWidth={2} />}
+                      onPress={() => {
+                        setError(null);
+                        setAsking(d.id);
+                      }}
+                    />
+                  </View>
                 )}
               </Card>
             );
@@ -314,4 +369,16 @@ const styles = StyleSheet.create({
   },
   confirmText: { ...Type.label, color: Ink[900] },
   confirmActions: { flexDirection: "row", gap: Space.sm },
+  claim: { ...UIType.badgeLabel, color: Ink[500] },
+  claimMine: { color: Status.success },
+  banner: {
+    flexDirection: "row",
+    gap: Space.sm,
+    alignItems: "flex-start",
+    backgroundColor: Surface.alt,
+    borderRadius: Radius.input,
+    ...continuous,
+    padding: Space.md,
+  },
+  bannerText: { ...Type.label, color: Ink[900], flex: 1 },
 });

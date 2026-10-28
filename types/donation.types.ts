@@ -94,6 +94,15 @@ export interface BankAccount {
   reference_format: string;
 }
 
+/** `GET /contributions/collecte/` — ce que l'utilisateur peut faire en espèces. */
+export interface CollecteStatus {
+  /** L'administration n'a pas suspendu la collecte en espèces. */
+  active: boolean;
+  /** Il peut DEMANDER une collecte : un collecteur couvre sa zone. */
+  disponible: boolean;
+  raison: "suspendue" | "hors_zone" | null;
+}
+
 export interface CreateDonationPayload {
   campaign: number;
   amount: number;

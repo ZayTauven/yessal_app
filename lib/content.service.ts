@@ -29,7 +29,12 @@ import type {
   FeteCampaign,
   FeteEtat,
 } from "@/types/campaign.types";
-import type { BankAccount, CreateDonationPayload, Donation } from "@/types/donation.types";
+import type {
+  BankAccount,
+  CollecteStatus,
+  CreateDonationPayload,
+  Donation,
+} from "@/types/donation.types";
 import { Config } from "@/constants/configs";
 
 type PaginatedResponse<T> = { results?: T[] } | T[];
@@ -490,6 +495,31 @@ export const ContentService = {
   /** « J'ai reçu l'argent » : la demande passe à `collected`, le membre a son reçu. */
   async collectDonation(id: number): Promise<Donation> {
     return normalizeDonation(await api.post<any>(`contributions/${id}/collect/`, {}));
+  },
+
+  /** « Je m'en charge » : les collègues de la zone la voient prise. */
+  async claimDonation(id: number): Promise<Donation> {
+    return normalizeDonation(await api.post<any>(`contributions/${id}/claim/`, {}));
+  },
+
+  /** « Je ne peux plus » : la demande redevient ouverte à la zone. */
+  async releaseDonation(id: number): Promise<Donation> {
+    return normalizeDonation(await api.post<any>(`contributions/${id}/release/`, {}));
+  },
+
+  /**
+   * Ce que l'utilisateur peut faire en espèces. `disponible` : il peut
+   * DEMANDER une collecte (un collecteur couvre sa zone). `active` : la
+   * collecte n'est pas suspendue — c'est ce qui ouvre l'encaissement pour
+   * autrui. `null` si le serveur ne répond pas : on ne masque alors rien,
+   * le serveur tranchera avec un message lisible.
+   */
+  async getCollecteStatus(): Promise<CollecteStatus | null> {
+    try {
+      return await api.get<CollecteStatus>("contributions/collecte/");
+    } catch {
+      return null;
+    }
   },
 
   async createDonation(payload: CreateDonationPayload): Promise<Donation> {
