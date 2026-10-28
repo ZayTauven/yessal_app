@@ -332,9 +332,9 @@ export default function DonateScreen() {
   const submit = useCallback(async () => {
     if (!campaign || !valid || submitting) return;
 
-    /* Un membre ne donne plus à un Ndiguel clôturé. Un collecteur, si : il
-       saisit des espèces reçues AVANT la clôture (décision du 2026-10-28). */
-    if (campaign.status !== "active" && !collectMode) {
+    /* Un Ndiguel clôturé ne reçoit plus de Jëf, collecteur compris (Z4,
+       décision du porteur du 2026-10-28). Le serveur refuse de même. */
+    if (campaign.status !== "active") {
       Alert.alert(
         "Ndiguel clôturé",
         "Ce Ndiguel n'accepte plus de Jëf. Choisissez-en un autre.",
@@ -487,6 +487,22 @@ export default function DonateScreen() {
         <EmptyState
           title="Aucun Ndiguel ouvert"
           body="Il n'y a pas d'appel en cours pour l'instant. Revenez bientôt."
+        />
+      </View>
+    );
+  }
+
+  /* Dès l'ouverture, et pas seulement à l'envoi : le garde de `submit` passe
+     par `Alert.alert`, muet sur Expo Web, et laissait saisir tout un Jëf que
+     le serveur refuserait (Z4). */
+  if (campaign.status !== "active") {
+    return (
+      <View style={[styles.sheet, styles.centered, padding]}>
+        <EmptyState
+          title="Ndiguel clôturé"
+          body={`« ${campaign.name} » n'accepte plus de Jëf. Choisissez un Ndiguel en cours.`}
+          actionLabel="Revenir"
+          onAction={() => router.dismiss()}
         />
       </View>
     );

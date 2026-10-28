@@ -268,23 +268,22 @@ export default function CollectScreen() {
                       Avez-vous reçu {formatFCFA(d.amount)} de {d.donor_name || "ce membre"} ? Il
                       reçoit son reçu immédiatement.
                     </Text>
-                    <View style={styles.confirmActions}>
+                    {/* Empilés : côte à côte dans l'encadré, à 390 px, il
+                        restait ~130 px par bouton et « Oui, encaissé » était
+                        tronqué. La réponse attendue vient en premier. */}
+                    <View style={styles.confirmStack}>
+                      <Button
+                        label="Oui, encaissé"
+                        size="md"
+                        loading={busy === d.id}
+                        disabled={busy !== null}
+                        onPress={() => encaisser(d)}
+                      />
                       <Button
                         label="Retour"
                         variant="secondary"
                         size="md"
-                        fullWidth={false}
-                        style={styles.flex}
                         onPress={() => setAsking(null)}
-                      />
-                      <Button
-                        label="Oui, encaissé"
-                        size="md"
-                        fullWidth={false}
-                        style={styles.flex}
-                        loading={busy === d.id}
-                        disabled={busy !== null}
-                        onPress={() => encaisser(d)}
                       />
                     </View>
                   </View>
@@ -369,6 +368,7 @@ const styles = StyleSheet.create({
   },
   confirmText: { ...Type.label, color: Ink[900] },
   confirmActions: { flexDirection: "row", gap: Space.sm },
+  confirmStack: { gap: Space.sm },
   claim: { ...UIType.badgeLabel, color: Ink[500] },
   claimMine: { color: Status.success },
   banner: {

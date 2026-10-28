@@ -75,7 +75,9 @@ function normalizeCampaign(item: any): Campaign {
     goal_amount: toNumber(item.goal_amount),
     collected_amount: toNumber(item.collected_amount),
     deadline: item.deadline,
-    status: item.status,
+    /* Le statut EFFECTIF quand Django le sert : un Ndiguel « active » dont
+       l'échéance est passée est clos, et le serveur y refuse tout Jëf. */
+    status: item.effective_status ?? item.status,
     event: item.event ?? item.fete ?? null,
     event_name: item.event_name ?? item.fete_name ?? null,
     daara: item.daara ?? null,
