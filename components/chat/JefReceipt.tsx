@@ -18,7 +18,7 @@
  *
  * ── Le montant, et la règle des rôles ──────────────────────────────────────
  *
- * Aucun masquage ici, et c'est voulu. `canSeeAmounts` cache à un talibé les
+ * Aucun masquage ici, et c'est voulu. `canSeeAmounts` cache à un talubé les
  * sommes COLLECTÉES par le Daara ; son propre Jëf lui appartient. La carte
  * n'est d'ailleurs rendue que pour les dons dont il est le donateur.
  *

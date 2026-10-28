@@ -263,7 +263,7 @@ export interface AnalyticsResponse {
  * ═══════════════════════════════════════════════════════════════════════════
  * Le mobile lisait les fils sans jamais pouvoir en ouvrir un : l'état vide des
  * Messages disait « le chef de votre Daara vous écrira ici », et il fallait
- * passer par le tableau de bord pour qu'un talibé ait le moindre message.
+ * passer par le tableau de bord pour qu'un talubé ait le moindre message.
  *
  * ⚠ Un tête-à-tête ne se CRÉE pas. `POST /comms/` ne fait que des GROUPES —
  * `ChatViewSet.create` force `chat_type = GROUP`. Un fil direct naît d'une

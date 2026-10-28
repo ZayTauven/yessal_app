@@ -24,7 +24,7 @@
  * enregistre un Jëf AU NOM d'un membre, sur le terrain — en espèces (encaissé,
  * confirmé à la remise) ou réglé depuis son propre Wave, Orange Money, carte ou
  * virement. Le membre est prévenu à chaque étape. La planche
- * ne dessine que le parcours du talibé ; retirer la collecte aurait supprimé
+ * ne dessine que le parcours du talubé ; retirer la collecte aurait supprimé
  * une fonction du produit sous couvert de refonte. Elle vit sur l'étape du
  * moyen de paiement, là où elle a du sens : c'est un moyen de paiement.
  *

@@ -4,7 +4,7 @@
  * ── Qui a le droit : l'ADMINISTRATEUR, et lui seul ──────────────────────────
  *
  * 🔴 Cet en-tête affirmait le contraire au 2026-09-05 : « pas seulement les
- * responsables… un talibé peut donc lancer un appel, c'est déjà vrai au
+ * responsables… un talubé peut donc lancer un appel, c'est déjà vrai au
  * tableau de bord depuis toujours ». **Les deux moitiés étaient fausses.**
  *
  * J'avais pris `CAMPAIGN_CREATOR_ROLES` côté Django pour l'énoncé de la règle.

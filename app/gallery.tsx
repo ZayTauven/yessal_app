@@ -247,7 +247,7 @@ export default function Gallery() {
         <Section title="CampaignCard" note="200 px · voile vertical · quatre états">
           <CampaignCard
             title="Ndiguel Magal 2026"
-            subtitle="Daara de Ndiassane · 412 talibés"
+            subtitle="Daara de Ndiassane · 412 talubés"
             image={DEMO_PHOTO}
             badge="J-10"
             raised={1_250_000}
@@ -258,15 +258,15 @@ export default function Gallery() {
 
           <CampaignCard
             title="Ndiguel Magal 2026"
-            subtitle="Daara de Ndiassane · 412 talibés"
+            subtitle="Daara de Ndiassane · 412 talubés"
             image={DEMO_PHOTO}
             badge="J-10"
             amountsHidden
             participants={DEMO_PEOPLE}
-            participationLabel="Vous et 411 talibés y participez"
+            participationLabel="Vous et 411 talubés y participez"
             onPress={noop}
           />
-          <Caption>montants masqués — talibé</Caption>
+          <Caption>montants masqués — talubé</Caption>
 
           <SkeletonCampaignCard />
           <Caption>chargement — aux formes du contenu réel</Caption>

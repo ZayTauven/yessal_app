@@ -11,7 +11,7 @@
  * `GET /events/campaigns/{id}/etat/` est ouvert à tout utilisateur authentifié
  * — `IsCampaignOrganizer.has_object_permission` laisse passer toutes les
  * méthodes sûres (`events/views.py:37-41`) — et il renvoie la somme collectée
- * ET la liste nominative des contributeurs avec leurs montants. Un talibé qui
+ * ET la liste nominative des contributeurs avec leurs montants. Un talubé qui
  * appelle l'API directement voit donc ce que cet écran lui cache.
  * Porté au registre de dette ; la correction est côté Django.
  */
@@ -20,7 +20,7 @@ import type { UserRole } from "@/types/auth.types";
 /**
  * Les rôles qui voient les sommes collectées.
  *
- * Le talibé en est exclu : la planche remplace, pour lui, le montant par les
+ * Le talubé en est exclu : la planche remplace, pour lui, le montant par les
  * visages et le nombre de participants. La carte ne rétrécit pas — elle dit
  * autre chose.
  */
@@ -64,7 +64,7 @@ export function canCollect(role: UserRole | string | null | undefined): boolean 
  * bord au téléphone doit lire la même chose sur la même personne.
  */
 export const ROLE_LABEL: Record<string, string> = {
-  member: "Talibé",
+  member: "Talubé",
   collector: "Collecteur",
   chef_daara: "Coordinateur du Daara",
   tutelle: "Tutelle",
@@ -73,7 +73,7 @@ export const ROLE_LABEL: Record<string, string> = {
 
 const ROLE_LABEL_LONG: Record<string, string> = {
   ...ROLE_LABEL,
-  collector: "Talibé · Collecteur",
+  collector: "Talubé · Collecteur",
 };
 
 /**
@@ -87,7 +87,7 @@ export function roleLabel(role?: string | null): string {
 
 /**
  * Forme qui rappelle le rattachement, là où l'on désigne une PERSONNE dans sa
- * communauté. Un collecteur reste un talibé ; le taire donnerait à croire
+ * communauté. Un collecteur reste un talubé ; le taire donnerait à croire
  * qu'il s'agit d'un autre statut.
  */
 export function roleLabelLong(role?: string | null): string {
@@ -101,7 +101,7 @@ export function roleLabelLong(role?: string | null): string {
  *
  * ⚠ `DonationViewSet.get_queryset` (`contributions/views.py:70`) sert des
  * ensembles DIFFÉRENTS : un admin voit tout, un chef de Daara les dons de son
- * Daara, un talibé les siens — et un **collecteur voit ce qu'il a ENCAISSÉ**
+ * Daara, un talubé les siens — et un **collecteur voit ce qu'il a ENCAISSÉ**
  * (`filter(collector=user)`), pas ce qu'il a donné. Intituler cet écran « Mes
  * Jëfs » pour un collecteur, c'est lui présenter les dons des autres comme les
  * siens.

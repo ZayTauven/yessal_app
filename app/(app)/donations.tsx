@@ -29,7 +29,7 @@
  * — L'icône `Filter` en bout de rangée de filtres n'était pas pressable :
  *   décor en forme de commande. Retirée.
  * — « Les contributions apparaîtront ici après synchronisation avec le
- *   backend » : le mot « backend » n'a rien à faire devant un talibé.
+ *   backend » : le mot « backend » n'a rien à faire devant un talubé.
  * — L'engrenage de l'en-tête menait à `/profile`. Depuis la phase E, les
  *   réglages ont leur route : `/profile/settings`.
  * — Le chiffre FCFA passe au vert `montant` — la seule exception verte du
@@ -150,7 +150,7 @@ async function fetchDonations(): Promise<State> {
 }
 
 /**
- * Le collecteur est un talibé AVANT d'être collecteur : ses Jëfs à lui et ceux
+ * Le collecteur est un talubé AVANT d'être collecteur : ses Jëfs à lui et ceux
  * qu'il a encaissés pour d'autres ne se mélangent pas. Mêlés, son « Total
  * confirmé » additionnait l'argent des autres au sien. Sa portée serveur
  * contient en outre les demandes de collecte ouvertes, qui ne sont ni l'un ni

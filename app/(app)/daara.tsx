@@ -20,16 +20,16 @@
  *    sur l'identité du Daara, exactement comme les portraits de Sokhna Aïda le
  *    sont pour un Ndiguel sans image (`lib/campaign-visuals.ts`). Elle cédera
  *    la place le jour où le modèle gagnera un champ image.
- * 2. **Le compteur de gauche ET la section disent « Membres », pas « Talibés ».**
+ * 2. **Le compteur de gauche ET la section disent « Membres », pas « Talubés ».**
  *
  *    ⚠ La phase E n'avait renommé QUE le compteur : la section qui liste les
- *    mêmes personnes est restée « Les talibés » jusqu'à la capture du
+ *    mêmes personnes est restée « Les talubés » jusqu'à la capture du
  *    2026-09-05, où l'on voit « Membres 4 », « Collecteurs 1 » et quatre
- *    visages sous « Les talibés » — le chef et le collecteur y compris. Le
+ *    visages sous « Les talubés » — le chef et le collecteur y compris. Le
  *    texte d'état vide juste en dessous disait déjà « Aucun membre », les deux
  *    mots se contredisaient dans le même bloc.
  *    `get_members_count` compte TOUS les rattachés — chef et collecteurs
- *    compris. Écrire « 412 talibés » là où le serveur dit « 412 rattachés »
+ *    compris. Écrire « 412 talubés » là où le serveur dit « 412 rattachés »
  *    donnerait un chiffre faux de quelques unités, et personne ne saurait
  *    lesquelles.
  * 3. **Il n'y a ni description, ni code, ni adresse de Daara.** L'ancien écran
@@ -51,7 +51,7 @@
  * a répondu vide. La distinction n'est pas décorative : un compteur à « 0 »
  * après une coupure réseau est un mensonge, alors qu'un tiret ne prétend rien.
  *
- * ⚠ LES MONTANTS SONT SOUMIS AU RÔLE (`lib/roles.ts`). Un talibé ne voit pas la
+ * ⚠ LES MONTANTS SONT SOUMIS AU RÔLE (`lib/roles.ts`). Un talubé ne voit pas la
  * somme collectée d'un chantier ; il en voit l'état et l'échéance. L'écran ne
  * rétrécit pas — la colonne de droite change de contenu, pas de largeur.
  * Ce masquage est une règle d'AFFICHAGE, pas une frontière de sécurité :
@@ -453,7 +453,7 @@ function ChefCard({
  *
  * ⚠ Le compteur des Ndiguels affiche un TIRET, pas un zéro, quand la liste n'a
  * pas répondu. « 0 Ndiguel actif » sur une coupure réseau est un mensonge, et
- * c'est celui qui ferait renoncer un talibé à contribuer.
+ * c'est celui qui ferait renoncer un talubé à contribuer.
  */
 function Counters({ daara, campaigns }: { daara: Daara; campaigns: Campaign[] | null }) {
   const active = campaigns?.filter((c) => c.status === "active").length ?? null;
@@ -538,7 +538,7 @@ function Talibes({
   /*
     Le filtre. Local, et c'est le bon choix ici : l'annuaire est déjà chargé
     entièrement (`getDirectory`), et `DirectoryUserViewSet` le borne déjà au
-    Daara pour un talibé. Un aller-retour serveur par frappe coûterait la 3G
+    Daara pour un talubé. Un aller-retour serveur par frappe coûterait la 3G
     sans rien apprendre de plus.
 
     Il porte sur le nom ET le numéro : on cherche un membre par son nom, mais
@@ -771,7 +771,7 @@ function ChantierRow({
       </View>
       {/*
         La somme collectée ne se montre qu'aux rôles qui y ont droit
-        (`lib/roles.ts`). Pour un talibé la colonne disparaît, sans texte de
+        (`lib/roles.ts`). Pour un talubé la colonne disparaît, sans texte de
         remplacement : l'état et l'échéance, à gauche, disent déjà où en est le
         chantier.
       */}

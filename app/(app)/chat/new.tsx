@@ -3,7 +3,7 @@
  *
  * L'écran qui manquait. Jusqu'ici la liste des Messages disait « le chef de
  * votre Daara vous écrira ici » : le mobile savait LIRE les fils, jamais en
- * ouvrir un. Pour qu'un talibé ait un message, il fallait passer par le
+ * ouvrir un. Pour qu'un talubé ait un message, il fallait passer par le
  * tableau de bord — la capture de vérification s'appelle littéralement
  * « Message-message ajouter depuis le web ».
  *
@@ -83,7 +83,7 @@ const DEBOUNCE_MS = 350;
 /** Les modes de peuplement, dans l'ordre où on les emploie réellement. */
 const GROUP_MODES: { value: GroupInviteMode; label: string }[] = [
   { value: "daara_all", label: "Tout mon Daara" },
-  { value: "daara_members", label: "Les talibés de mon Daara" },
+  { value: "daara_members", label: "Les talubés de mon Daara" },
   { value: "daara_collectors", label: "Les collecteurs de mon Daara" },
   { value: "daara_chefs", label: "Les coordinateurs de mon Daara" },
 ];

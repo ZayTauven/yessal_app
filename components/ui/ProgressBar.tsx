@@ -7,7 +7,7 @@
  *   atteint   remplissage violet-700, plein — et le libellé de gauche passe
  *             au violet-700 : « Objectif atteint »
  *   masqué    LA PISTE RESTE DESSINÉE, VIDE. Elle n'est pas remplacée par un
- *             blanc. Un talibé doit voir qu'une progression existe et qu'elle
+ *             blanc. Un talubé doit voir qu'une progression existe et qu'elle
  *             ne lui est pas montrée — pas croire qu'il n'y en a pas.
  *
  * `onPhoto` est la variante posée sur une photographie : piste de 6, blanc à

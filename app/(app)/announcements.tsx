@@ -80,7 +80,7 @@ const URGENCY: Record<Urgency, { label: string; tone: BadgeTone }> = {
 
 const AUDIENCE: Record<Announcement["target_role"], string> = {
   all: "Tous les membres",
-  member: "Talibés",
+  member: "Talubés",
   chef_daara: "Coordinateurs du Daara",
   collector: "Collecteurs",
   admin: "Administrateurs",

@@ -92,9 +92,9 @@ export interface DaaraCollector {
  *   — aucun compteur de Ndiguels. Il se dérive côté client de
  *     `GET /api/events/campaigns/`, filtré sur `campaign.daara`.
  *
- * `members_count` compte TOUS les utilisateurs rattachés — talibés, chef et
+ * `members_count` compte TOUS les utilisateurs rattachés — talubés, chef et
  * collecteurs confondus (`get_members_count` ne filtre pas sur le rôle).
- * L'appeler « talibés » le surestimerait de quelques unités.
+ * L'appeler « talubés » le surestimerait de quelques unités.
  */
 export interface Daara {
   id: number;

@@ -10,7 +10,7 @@
  *
  * ── La règle des rôles, et sa nuance ────────────────────────────────────────
  *
- * Un talibé ne voit pas la somme collectée. À sa place, la planche met les
+ * Un talubé ne voit pas la somme collectée. À sa place, la planche met les
  * visages et le nombre de participants : **l'écran ne rétrécit pas, il dit
  * autre chose.** La piste de progression reste dessinée, vide — une barre
  * absente se lirait comme un défaut de chargement.
@@ -314,8 +314,8 @@ function Participants({ etat }: { etat: CampaignEtat | null }) {
       ) : null}
       <Text style={styles.participantsLabel}>
         {count === 1
-          ? "1 talibé y participe"
-          : `${formatNumber(count)} talibés y participent`}
+          ? "1 talubé y participe"
+          : `${formatNumber(count)} talubés y participent`}
       </Text>
     </View>
   );

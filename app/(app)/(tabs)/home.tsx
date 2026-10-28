@@ -12,10 +12,10 @@
  * CE QUI A DISPARU de l'ancien accueil : les trois KPI chiffrés, la rangée de
  * raccourcis colorés et le héros à arabesques. Aucun n'est sur la planche.
  * Le mot d'ordre du brief est « à arbitrage égal entre ajouter et retirer,
- * retirer » — et un talibé qui ouvre l'application veut voir les appels en
+ * retirer » — et un talubé qui ouvre l'application veut voir les appels en
  * cours, pas un tableau de bord.
  *
- * ⚠ LES MONTANTS SONT MASQUÉS POUR LES TALIBÉS. La carte du rail ne montre ni
+ * ⚠ LES MONTANTS SONT MASQUÉS POUR LES TALUBÉS. La carte du rail ne montre ni
  * somme ni pourcentage à un membre : elle montre qui participe. C'est la règle
  * de rôle du brief, portée par `CampaignCard`.
  *

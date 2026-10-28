@@ -70,7 +70,7 @@ export interface Campaign {
    *
    * ⚠ Ce n'est pas « en être l'auteur ». La règle est : `admin` et
    * `chef_daara` toujours ; le responsable désigné tant que la gestion est
-   * ouverte. Un talibé qui LANCE un Ndiguel n'en devient pas le responsable —
+   * ouverte. Un talubé qui LANCE un Ndiguel n'en devient pas le responsable —
    * `perform_create` ne pose `organizer` que s'il a été transmis. Il ne peut
    * donc pas en gérer les tâches ensuite.
    */
@@ -137,7 +137,7 @@ export interface CampaignEtat {
  * ⚠ QUI PEUT ? Pas seulement les responsables : `IsCampaignOrganizer` ouvre la
  * création à `admin`, `chef_daara`, `collector` ET `member`
  * (`events/views.py:19`, `CAMPAIGN_CREATOR_ROLES`). Seule la tutelle en est
- * exclue. Un talibé peut donc lancer un appel — c'est déjà vrai au tableau de
+ * exclue. Un talubé peut donc lancer un appel — c'est déjà vrai au tableau de
  * bord, et le mobile ne le savait pas faire.
  *
  * `deadline` au format `AAAA-MM-JJ` : c'est un `DateField`, pas un

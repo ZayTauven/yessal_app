@@ -9,8 +9,8 @@
  *   montants visibles (chef de Daara) — le montant collecté, le pourcentage,
  *   la barre de progression ;
  *
- *   montants masqués (talibé) — une pile d'avatars et « Vous et 411 talibés y
- *   participez ». Le talibé voit que la communauté avance sans voir la somme.
+ *   montants masqués (talubé) — une pile d'avatars et « Vous et 411 talubés y
+ *   participez ». Le talubé voit que la communauté avance sans voir la somme.
  *
  * ⚠ Sur une photographie, le montant est BLANC, jamais vert. Le token
  * `montant` ne vaut que sur fond clair — c'est écrit dans `theme/tokens.ts`.
@@ -34,7 +34,7 @@ const INSET = 14;
 
 interface CampaignCardProps {
   title: string;
-  /** « Daara de Ndiassane · 412 talibés » */
+  /** « Daara de Ndiassane · 412 talubés » */
   subtitle?: string;
   /**
    * L'URL renvoyée par l'API, ou un `require()` local. Les deux, parce que
@@ -47,11 +47,11 @@ interface CampaignCardProps {
   raised?: number;
   goal?: number;
 
-  /** Rôle sans droit de regard sur les montants — talibé. */
+  /** Rôle sans droit de regard sur les montants — talubé. */
   amountsHidden?: boolean;
   /** Visages de la pile, variante masquée. Trois suffisent. */
   participants?: StackedPerson[];
-  /** « Vous et 411 talibés y participez ». */
+  /** « Vous et 411 talubés y participez ». */
   participationLabel?: string;
 
   onPress?: () => void;

@@ -45,7 +45,7 @@ export const ProfileService = {
    * de Ndiguels distincts.
    *
    * **Pourquoi `?user_id=` et non un filtre côté client.** `DonationViewSet`
-   * borne d'abord par le RÔLE (`contributions/views.py:51-67`) : un talibé ne
+   * borne d'abord par le RÔLE (`contributions/views.py:51-67`) : un talubé ne
    * voit que ses dons, mais un chef de Daara voit ceux de tout son Daara et un
    * administrateur ceux du réseau. Réduire cette liste dans l'application
    * donnerait le bon chiffre — au prix du transfert de tous les dons du réseau

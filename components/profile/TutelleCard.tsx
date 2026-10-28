@@ -1,7 +1,7 @@
 /**
  * TutelleCard — remplace les « Milestones » de Fundio.
  *
- * Un talibé peut porter un proche : contribuer aux Ndiguels en son nom. La
+ * Un talubé peut porter un proche : contribuer aux Ndiguels en son nom. La
  * carte montre qui, à quel titre, et ce qui a été versé.
  *
  * Planche « Composants ». Deux points tenus du contrat :

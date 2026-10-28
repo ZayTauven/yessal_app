@@ -25,7 +25,7 @@
  *   tableau de bord web. Un bouton dont la seule action est de dire qu'il ne
  *   fait rien ;
  * — **la recherche.** La planche des Ndiguels dessine une loupe, celle des
- *   Messages n'en dessine pas : un talibé a le salon de son Daara et quelques
+ *   Messages n'en dessine pas : un talubé a le salon de son Daara et quelques
  *   échanges, filtrer une liste qu'on voit entière n'a pas d'objet.
  */
 import { useCallback, useEffect, useState } from "react";

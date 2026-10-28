@@ -191,7 +191,7 @@ export default function CampaignsScreen() {
         />
         {/*
           🔴 CE BOUTON S'OUVRAIT À TOUS LES RÔLES SAUF LA TUTELLE, et le
-          commentaire qui l'accompagnait affirmait qu'un talibé « pouvait déjà
+          commentaire qui l'accompagnait affirmait qu'un talubé « pouvait déjà
           le faire au tableau de bord ». C'ÉTAIT FAUX, et vérifiable en une
           ligne : `CampaignsClient.tsx` n'affiche « Lancer un Ndiguel » que
           derrière `isAdmin`.

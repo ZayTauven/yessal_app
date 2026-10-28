@@ -32,7 +32,7 @@
  * ── Le reçu de Jëf ─────────────────────────────────────────────────────────
  *
  * Il n'est pas un message : voir `components/chat/JefReceipt.tsx` pour d'où il
- * vient. Rappel de la règle des rôles : `canSeeAmounts` masque à un talibé les
+ * vient. Rappel de la règle des rôles : `canSeeAmounts` masque à un talubé les
  * sommes COLLECTÉES, jamais son propre Jëf. Les reçus affichés ici sont les
  * siens et rien que les siens — le filtre est sur `donor`.
  *
@@ -90,13 +90,13 @@ const HEADER_FACE = 34;
 
 /**
  * Le rôle, en clair. `UserBriefSerializer` renvoie la valeur brute de
- * `User.Role` ; « member » n'est pas un mot que l'on montre à un talibé.
+ * `User.Role` ; « member » n'est pas un mot que l'on montre à un talubé.
  */
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrateur",
   chef_daara: "Coordinateur du Daara",
   collector: "Collecteur",
-  member: "Talibé",
+  member: "Talubé",
   tutelle: "Sous tutelle",
 };
 
@@ -531,10 +531,10 @@ function dayLabel(date: Date): string {
   });
 }
 
-/** « 412 talibés ». Le singulier compte : un salon peut n'avoir que son chef. */
+/** « 412 talubés ». Le singulier compte : un salon peut n'avoir que son chef. */
 function memberCountLabel(count: number): string {
   if (count <= 0) return "";
-  return count === 1 ? "1 talibé" : `${formatNumber(count)} talibés`;
+  return count === 1 ? "1 talubé" : `${formatNumber(count)} talubés`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
