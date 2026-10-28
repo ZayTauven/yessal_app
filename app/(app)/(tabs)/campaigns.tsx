@@ -304,7 +304,7 @@ function CampaignRow({
   */
   const countdown =
     campaign.status === "active" || campaign.status === "pending"
-      ? formatCountdown(campaign.deadline)
+      ? formatCountdown(campaign)
       : null;
   /*
     🔴 La méta portait `campaign.daara_name` — « KANDE · J-55 » — ce qui se

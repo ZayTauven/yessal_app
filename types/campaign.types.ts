@@ -8,6 +8,11 @@ export interface Campaign {
   collected_amount: number;
   deadline: string;
   status: CampaignStatus;
+  /** Premier jour de collecte (heure de Dakar), `null` sans date d'ouverture. */
+  opens_on?: string | null;
+  /** Comptés par le serveur sur le jour de Dakar — jamais par le téléphone. */
+  days_remaining?: number | null;
+  days_until_open?: number | null;
   event?: number | null;
   /**
    * Le nom de la fête. **Réparé le 2026-09-04 côté Django** : `fete_name` a été

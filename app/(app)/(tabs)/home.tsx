@@ -414,7 +414,7 @@ function RailCard({
 }) {
   const goal = campaign.goal_amount ?? 0;
   const ratio = goal > 0 ? Math.min(campaign.collected_amount / goal, 1) : 0;
-  const countdown = formatCountdown(campaign.deadline);
+  const countdown = formatCountdown(campaign);
 
   /*
     ⚠ LA CARTE N'EST PAS UN BOUTON, ET NE PEUT PAS L'ÊTRE.

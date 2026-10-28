@@ -743,7 +743,7 @@ function ChantierRow({
   showsAmounts: boolean;
   onPress: () => void;
 }) {
-  const countdown = campaign.status === "active" ? formatCountdown(campaign.deadline) : null;
+  const countdown = campaign.status === "active" ? formatCountdown(campaign) : null;
   const meta = [CHANTIER_LABELS[campaign.status], countdown === "Clôturé" ? null : countdown]
     .filter(Boolean)
     .join(" · ");

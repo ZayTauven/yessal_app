@@ -245,7 +245,7 @@ export default function CampaignDetail() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Hero({ campaign }: { campaign: Campaign | null }) {
-  const countdown = campaign ? formatCountdown(campaign.deadline) : null;
+  const countdown = campaign ? formatCountdown(campaign) : null;
   /** Le décompte n'a de sens que devant : « Clôturé » est déjà dit par le statut. */
   const showCountdown = Boolean(countdown) && countdown !== "Clôturé";
 

@@ -42,18 +42,38 @@ export function formatPercent(ratio: number): string {
 }
 
 /**
- * Jours restants avant une échéance → « J-10 », « Aujourd'hui », « Clôturé ».
- * `deadline` est la chaîne ISO renvoyée par l'API.
+ * Compte à rebours d'un Ndiguel → « J-10 », « Aujourd'hui », « Ouvre dans 3 j »,
+ * « Clôturé ».
+ *
+ * Les jours viennent du SERVEUR (`days_remaining`, `days_until_open`), comptés
+ * sur le jour de Dakar. L'horloge du téléphone peut être fausse, et la
+ * diaspora vit sur d'autres fuseaux : elle ne décide pas qu'un Ndiguel est
+ * clôturé. Le calcul local ne sert qu'en secours, si une ancienne API ne
+ * renvoie pas ces champs — et il lit « 2026-10-09 » comme une date, pas comme
+ * minuit UTC, qui tombait la veille dans les Amériques.
  */
-export function formatCountdown(deadline: string | null | undefined): string | null {
-  if (!deadline) return null;
-  const end = new Date(deadline);
-  if (Number.isNaN(end.getTime())) return null;
+export function formatCountdown(campaign: {
+  deadline?: string | null;
+  status?: string | null;
+  days_remaining?: number | null;
+  days_until_open?: number | null;
+} | null | undefined): string | null {
+  if (!campaign?.deadline) return null;
+  if (campaign.status === "completed") return "Clôturé";
+  if (campaign.status === "pending" && (campaign.days_until_open ?? 0) > 0) {
+    return `Ouvre dans ${campaign.days_until_open} j`;
+  }
 
-  const startOfDay = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = Math.round((startOfDay(end) - startOfDay(new Date())) / 86_400_000);
-
-  if (days < 0) return "Clôturé";
+  let days = campaign.days_remaining;
+  if (days == null) {
+    const [y, m, d] = campaign.deadline.slice(0, 10).split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const now = new Date();
+    days = Math.round(
+      (Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000,
+    );
+    if (days < 0) return "Clôturé";
+  }
   if (days === 0) return "Aujourd'hui";
   return `J-${days}`;
 }
