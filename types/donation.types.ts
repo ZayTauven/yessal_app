@@ -62,9 +62,15 @@ export interface Donation {
   payment_method: AnyPaymentMethod;
   payment_status: PaymentStatus;
   collector?: number | null;
+  collector_name?: string | null;
   validated_by?: number | null;
   validated_at?: string | null;
   external_ref?: string | null;
+  /** Le collecteur appelle avant de se déplacer. */
+  donor_phone?: string | null;
+  donor_daara_name?: string | null;
+  collected_at?: string | null;
+  cancellation_reason?: string | null;
   created_at: string;
   updated_at?: string;
 }

@@ -95,6 +95,14 @@ const ITEMS: DrawerItem[] = [
   { label: "Messages", route: "/chat" },
   /* Le libellé dépend du rôle — voir `donationsTitle`. Résolu au rendu. */
   { label: "", route: "/donations", label_role: "donations" },
+  /* L'écran existe désormais : la « Vue collecteur » retirée au lot 4 menait
+     à un écran qui n'existait pas. */
+  {
+    label: "À collecter",
+    route: "/collect",
+    roles: ["collector", "chef_daara", "admin"],
+    badge: "role",
+  },
   { label: "Mes tutelles", route: "/profile/tutelle" },
   { label: "Actualités", route: "/explore" },
   { label: "Événements", route: "/events", roles: ["admin"] },

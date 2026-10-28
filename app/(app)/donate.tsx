@@ -21,7 +21,9 @@
  * ── Ce que la planche ne montre pas, et qui ne pouvait pas disparaître ──────
  *
  * **Le mode collecte.** Un collecteur, un chef de Daara ou un administrateur
- * enregistre un Jëf en espèces AU NOM d'un membre, sur le terrain. La planche
+ * enregistre un Jëf AU NOM d'un membre, sur le terrain — en espèces (encaissé,
+ * confirmé à la remise) ou réglé depuis son propre Wave, Orange Money, carte ou
+ * virement. Le membre est prévenu à chaque étape. La planche
  * ne dessine que le parcours du talibé ; retirer la collecte aurait supprimé
  * une fonction du produit sous couvert de refonte. Elle vit sur l'étape du
  * moyen de paiement, là où elle a du sens : c'est un moyen de paiement.
@@ -344,7 +346,12 @@ export default function DonateScreen() {
       return;
     }
 
-    const effective: PaymentMethod = collectMode ? "manual" : method;
+    /* Le mode collecte ne force plus les espèces. Il veut dire « pour un autre
+       membre », par N'IMPORTE QUEL moyen : un collecteur peut régler au nom du
+       membre depuis son propre Wave ou Orange Money — la demande de validation
+       arrive alors sur le téléphone du collecteur, pas sur celui du membre. */
+    const effective: PaymentMethod = method;
+    const forWhom = collectMode && member ? ` au nom de ${memberName(member)}` : "";
     setSubmitting(true);
     try {
       const donation = await ContentService.createDonation({
@@ -385,7 +392,7 @@ export default function DonateScreen() {
         setReceipt({
           donation,
           title: "Virement déclaré",
-          body: "Votre déclaration est reçue. Le Jëf sera validé dès réception des fonds.",
+          body: `La déclaration${forWhom} est reçue. Le Jëf sera validé dès réception des fonds.`,
         });
         setStep("done");
         return;
@@ -411,7 +418,7 @@ export default function DonateScreen() {
       setReceipt({
         donation,
         title: "Jëf initié",
-        body: `Une demande ${effective === "wave" ? "Wave" : "Orange Money"} vient de partir. Validez-la sur votre téléphone.`,
+        body: `Une demande ${effective === "wave" ? "Wave" : "Orange Money"}${forWhom} vient de partir. Validez-la sur votre téléphone.`,
       });
       setStep("done");
     } catch (error) {
@@ -513,9 +520,14 @@ export default function DonateScreen() {
             next === "virement" ? (setMethod(next), setStep("wire")) : setMethod(next)
           }
           onToggleCollect={() => {
-            setCollectMode((on) => !on);
+            const next = !collectMode;
+            setCollectMode(next);
+            /* Sur le terrain, le cas courant est l'espèce en main : présélectionnée. */
+            setMethod(next ? "manual" : "orange_money");
             setMemberId(null);
           }}
+          selectedMember={member}
+          onClearMember={() => setMemberId(null)}
           onMemberQuery={setMemberQuery}
           onMember={setMemberId}
           onSubmit={submit}
@@ -545,8 +557,7 @@ export default function DonateScreen() {
                 : "Vous-même"
           }
           methodLabel={
-            PAYMENT_METHODS.find((m) => m.value === (collectMode ? "manual" : method))
-              ?.label ?? "—"
+            PAYMENT_METHODS.find((m) => m.value === method)?.label ?? "—"
           }
           onCampaigns={() => router.dismissTo("/campaigns")}
           onDonations={() => router.dismissTo("/donations")}
@@ -758,6 +769,9 @@ interface MethodStepProps {
   onToggleCollect: () => void;
   onMemberQuery: (next: string) => void;
   onMember: (id: number) => void;
+  /** Le membre choisi : la liste se replie sur lui pour laisser voir les moyens. */
+  selectedMember: DirectoryUser | null;
+  onClearMember: () => void;
   onSubmit: () => void;
 }
 
@@ -778,8 +792,18 @@ function MethodStep({
   onToggleCollect,
   onMemberQuery,
   onMember,
+  selectedMember,
+  onClearMember,
   onSubmit,
 }: MethodStepProps) {
+  const methodRows = PAYMENT_METHODS.map((option) => (
+    <PaymentMethodRow
+      key={option.value}
+      method={option}
+      selected={option.value === method}
+      onPress={() => onMethod(option.value)}
+    />
+  ));
   return (
     <>
       <Header title="Moyen de paiement" onBack={onBack} />
@@ -802,7 +826,7 @@ function MethodStep({
           style={[styles.collect, collectMode && styles.collectOn]}
         >
           <UserCheck size={18} color={Violet[900]} strokeWidth={1.5} />
-          <Text style={styles.collectLabel}>Enregistrer une collecte en espèces</Text>
+          <Text style={styles.collectLabel}>Enregistrer pour un autre membre</Text>
           <View style={[styles.mark, collectMode && styles.markOn]}>
             {collectMode ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
           </View>
@@ -815,7 +839,28 @@ function MethodStep({
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {collectMode ? (
+        {collectMode && selectedMember ? (
+          <>
+            <View style={[styles.member, styles.memberOn]}>
+              <Avatar uri={selectedMember.avatar_url} name={memberName(selectedMember)} size={36} />
+              <View style={styles.memberBody}>
+                <Text style={styles.memberName} numberOfLines={1}>
+                  {memberName(selectedMember)}
+                </Text>
+                {identityLine(selectedMember) ? (
+                  <Text style={styles.memberMeta} numberOfLines={1}>
+                    {identityLine(selectedMember)}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable onPress={onClearMember} accessibilityRole="button" style={styles.edit}>
+                <Text style={styles.editLabel}>Changer</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.beneficiaryTitle}>Comment ce Jëf est-il réglé ?</Text>
+            {methodRows}
+          </>
+        ) : collectMode ? (
           <>
             <Input
               placeholder="Chercher un membre"
@@ -866,14 +911,7 @@ function MethodStep({
             )}
           </>
         ) : (
-          PAYMENT_METHODS.map((option) => (
-            <PaymentMethodRow
-              key={option.value}
-              method={option}
-              selected={option.value === method}
-              onPress={() => onMethod(option.value)}
-            />
-          ))
+          methodRows
         )}
       </ScrollView>
 
@@ -898,7 +936,13 @@ function MethodStep({
           </Text>
         ) : null}
         <Button
-          label={collectMode ? "Enregistrer la collecte" : `Payer ${formatFCFA(amount)}`}
+          label={
+            collectMode && method === "manual"
+              ? "Enregistrer la collecte"
+              : collectMode
+                ? `Payer ${formatFCFA(amount)} pour ce membre`
+                : `Payer ${formatFCFA(amount)}`
+          }
           onPress={onSubmit}
           loading={submitting}
           disabled={submitting}

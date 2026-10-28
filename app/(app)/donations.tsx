@@ -120,6 +120,8 @@ const FILTERS: { label: string; value: Filter }[] = [
   { label: "Tous", value: "all" },
   { label: "Confirmés", value: "confirmed" },
   { label: "En attente", value: "pending" },
+  /* Affiché seulement s'il y en a : un filtre toujours vide est du bruit. */
+  { label: "Encaissés", value: "collected" },
   { label: "Échoués", value: "failed" },
 ];
 
@@ -147,12 +149,26 @@ async function fetchDonations(): Promise<State> {
   }
 }
 
+/**
+ * Le collecteur est un talibé AVANT d'être collecteur : ses Jëfs à lui et ceux
+ * qu'il a encaissés pour d'autres ne se mélangent pas. Mêlés, son « Total
+ * confirmé » additionnait l'argent des autres au sien. Sa portée serveur
+ * contient en outre les demandes de collecte ouvertes, qui ne sont ni l'un ni
+ * l'autre (elles vivent sur l'écran « À collecter »).
+ *
+ * Le coordinateur et l'administrateur gardent leur registre entier : il
+ * contient déjà leurs encaissements.
+ */
+type Scope = "mine" | "collected";
+
 export default function DonationsScreen() {
   const user = useAuthStore((s) => s.user);
   const router = useRouter();
   const [state, setState] = useState<State>({ status: "loading", donations: [] });
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [scope, setScope] = useState<Scope>("mine");
+  const segmented = user?.role === "collector";
 
   useEffect(() => {
     let active = true;
@@ -176,12 +192,26 @@ export default function DonationsScreen() {
       .finally(() => setRefreshing(false));
   }, []);
 
+  const mine = useMemo(
+    () => (segmented ? state.donations.filter((d) => d.donor === user?.id) : state.donations),
+    [segmented, state.donations, user?.id],
+  );
+  const collected = useMemo(
+    () =>
+      segmented
+        ? state.donations.filter((d) => d.collector === user?.id && d.donor !== user?.id)
+        : [],
+    [segmented, state.donations, user?.id],
+  );
+  const scoped = scope === "collected" ? collected : mine;
+  const onCollected = segmented && scope === "collected";
+
   const visible = useMemo(
     () =>
       filter === "all"
-        ? state.donations
-        : state.donations.filter((donation) => donation.payment_status === filter),
-    [filter, state.donations],
+        ? scoped
+        : scoped.filter((donation) => donation.payment_status === filter),
+    [filter, scoped],
   );
 
   /**
@@ -194,7 +224,7 @@ export default function DonationsScreen() {
     let confirmedCount = 0;
     let pendingCount = 0;
 
-    for (const donation of state.donations) {
+    for (const donation of scoped) {
       if (donation.payment_status === "confirmed") {
         confirmedAmount += donation.amount;
         confirmedCount += 1;
@@ -209,11 +239,11 @@ export default function DonationsScreen() {
     }
 
     return { confirmedAmount, pendingAmount, confirmedCount, pendingCount };
-  }, [state.donations]);
+  }, [scoped]);
 
   const counts = useMemo(() => {
     const map: Record<Filter, number> = {
-      all: state.donations.length,
+      all: scoped.length,
       pending: 0,
       confirmed: 0,
       failed: 0,
@@ -221,9 +251,9 @@ export default function DonationsScreen() {
       collected: 0,
       cancelled: 0,
     };
-    for (const donation of state.donations) map[donation.payment_status] += 1;
+    for (const donation of scoped) map[donation.payment_status] += 1;
     return map;
-  }, [state.donations]);
+  }, [scoped]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -242,7 +272,7 @@ export default function DonationsScreen() {
         écran d'historique de dons n'est pas l'endroit où on les cherche.
       */}
       <ScreenHeader
-        title={donationsTitle(user?.role)}
+        title={segmented ? (onCollected ? "Jëfs collectés" : "Mes Jëfs") : donationsTitle(user?.role)}
         onBack={() => router.back()}
         right={{
           icon: <Settings2 size={20} color={Ink[900]} strokeWidth={1.5} />,
@@ -262,9 +292,34 @@ export default function DonationsScreen() {
           />
         }
       >
+        {segmented ? (
+          <ChipRow style={styles.filters}>
+            <Chip
+              label="Mes Jëfs"
+              active={scope === "mine"}
+              count={mine.length}
+              onPress={() => {
+                setScope("mine");
+                setFilter("all");
+              }}
+            />
+            <Chip
+              label="Jëfs collectés"
+              active={scope === "collected"}
+              count={collected.length}
+              onPress={() => {
+                setScope("collected");
+                setFilter("all");
+              }}
+            />
+          </ChipRow>
+        ) : null}
+
         <View style={styles.gutter}>
           <Card style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Total confirmé</Text>
+            <Text style={styles.totalLabel}>
+              {onCollected ? "Collectes confirmées" : "Total confirmé"}
+            </Text>
             <Text style={styles.totalValue}>{formatFCFA(totals.confirmedAmount)}</Text>
             <Text style={styles.totalMeta}>
               {totals.confirmedCount === 1
@@ -272,11 +327,13 @@ export default function DonationsScreen() {
                 : `${totals.confirmedCount} Jëfs confirmés`}
             </Text>
 
-            {/* Le montant engagé mais pas encore versé, dit séparément. */}
+            {/* Le montant engagé mais pas encore versé, dit séparément. Côté
+                collectes, c'est l'argent que le collecteur détient encore. */}
             {totals.pendingCount > 0 ? (
               <View style={styles.pending}>
                 <Text style={styles.pendingText}>
-                  {formatFCFA(totals.pendingAmount)} en attente de confirmation
+                  {formatFCFA(totals.pendingAmount)}{" "}
+                  {onCollected ? "encaissé, à remettre" : "en attente de confirmation"}
                   {totals.pendingCount > 1 ? ` · ${totals.pendingCount} Jëfs` : ""}
                 </Text>
               </View>
@@ -285,7 +342,7 @@ export default function DonationsScreen() {
         </View>
 
         <ChipRow style={styles.filters}>
-          {FILTERS.map((item) => (
+          {FILTERS.filter((item) => item.value !== "collected" || counts.collected > 0).map((item) => (
             <Chip
               key={item.value}
               label={item.label}
@@ -314,15 +371,29 @@ export default function DonationsScreen() {
           <View style={styles.gutter}>
             <EmptyState
               picto={<Wallet size={56} color={Violet[900]} strokeWidth={1.25} />}
-              title={filter === "all" ? "Aucun Jëf pour l'instant" : "Aucun Jëf dans ce filtre"}
-              body={
-                filter === "all"
-                  ? "Vos contributions apparaîtront ici dès votre premier Jëf."
-                  : "Essayez « Tous » pour voir l'ensemble de vos Jëfs."
+              title={
+                filter !== "all"
+                  ? "Aucun Jëf dans ce filtre"
+                  : onCollected
+                    ? "Aucune collecte pour l'instant"
+                    : "Aucun Jëf pour l'instant"
               }
-              actionLabel={filter === "all" ? "Voir les Ndiguels" : "Tout afficher"}
+              body={
+                filter !== "all"
+                  ? "Essayez « Tous » pour voir l'ensemble de vos Jëfs."
+                  : onCollected
+                    ? "Les Jëfs que vous encaissez pour d'autres membres apparaîtront ici."
+                    : "Vos contributions apparaîtront ici dès votre premier Jëf."
+              }
+              actionLabel={
+                filter !== "all" ? "Tout afficher" : onCollected ? "Voir les demandes" : "Voir les Ndiguels"
+              }
               onAction={
-                filter === "all" ? () => router.push("/campaigns") : () => setFilter("all")
+                filter !== "all"
+                  ? () => setFilter("all")
+                  : onCollected
+                    ? () => router.push("/collect")
+                    : () => router.push("/campaigns")
               }
             />
           </View>
@@ -334,6 +405,7 @@ export default function DonationsScreen() {
               <DonationCard
                 key={donation.id}
                 donation={donation}
+                showDonor={onCollected}
                 onPress={
                   donation.campaign
                     ? () => router.push(`/campaign/${donation.campaign}`)
@@ -351,9 +423,12 @@ export default function DonationsScreen() {
 function DonationCard({
   donation,
   onPress,
+  showDonor = false,
 }: {
   donation: Donation;
   onPress?: () => void;
+  /** Côté collectes : de qui vient l'argent, pas « En mon nom ». */
+  showDonor?: boolean;
 }) {
   const logo = PAYMENT_LOGOS[donation.payment_method];
   const statusColor = STATUS_COLORS[donation.payment_status];
@@ -401,9 +476,11 @@ function DonationCard({
           {formatFCFA(donation.amount)}
         </Text>
         <Text style={styles.beneficiary}>
-          {donation.beneficiary_name
-            ? `Pour ${donation.beneficiary_name}`
-            : "En mon nom"}
+          {showDonor
+            ? `De ${donation.donor_name || "—"}`
+            : donation.beneficiary_name
+              ? `Pour ${donation.beneficiary_name}`
+              : "En mon nom"}
         </Text>
       </View>
     </Card>

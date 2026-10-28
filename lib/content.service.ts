@@ -141,9 +141,14 @@ function normalizeDonation(item: any): Donation {
     payment_method: item.payment_method,
     payment_status: item.payment_status,
     collector: item.collector ?? null,
+    collector_name: item.collector_name || null,
     validated_by: item.validated_by ?? null,
     validated_at: item.validated_at ?? null,
     external_ref: item.external_ref ?? null,
+    donor_phone: item.donor_phone ?? null,
+    donor_daara_name: item.donor_daara_name ?? null,
+    collected_at: item.collected_at ?? null,
+    cancellation_reason: item.cancellation_reason || null,
     created_at: item.created_at,
     updated_at: item.updated_at,
   };
@@ -468,6 +473,23 @@ export const ContentService = {
   async getDonations(): Promise<Donation[]> {
     const data = await api.get<PaginatedResponse<any>>("contributions/");
     return unwrapList(data).map(normalizeDonation);
+  },
+
+  /** Demandes de collecte ouvertes, dans la portée du rôle. */
+  async getCollectRequests(): Promise<Donation[]> {
+    const data = await api.get<PaginatedResponse<any>>("contributions/?a_collecter=1");
+    return unwrapList(data).map(normalizeDonation);
+  },
+
+  /** Ce que j'ai encaissé et pas encore remis à l'administration. */
+  async getMyCash(): Promise<Donation[]> {
+    const data = await api.get<PaginatedResponse<any>>("contributions/?ma_caisse=1");
+    return unwrapList(data).map(normalizeDonation);
+  },
+
+  /** « J'ai reçu l'argent » : la demande passe à `collected`, le membre a son reçu. */
+  async collectDonation(id: number): Promise<Donation> {
+    return normalizeDonation(await api.post<any>(`contributions/${id}/collect/`, {}));
   },
 
   async createDonation(payload: CreateDonationPayload): Promise<Donation> {
