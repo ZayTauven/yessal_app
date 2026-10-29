@@ -34,7 +34,6 @@
  */
 import { Platform } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
-import * as Device from "expo-device";
 
 import api from "./api";
 
@@ -169,8 +168,15 @@ export function chargerNotifications(): typeof NotificationsModule | null {
 function terrainViable(): boolean {
   // Web et Expo Go : les API n'existent pas ou lèvent.
   if (!pushDistantDisponible()) return false;
-  // Un émulateur n'a pas de service Google Play : le jeton n'arrive jamais.
-  if (!Device.isDevice) return false;
+  /*
+    PAS de garde sur `Device.isDevice`. Il y en avait une, au motif qu'« un
+    émulateur n'a pas de service Google Play » : faux pour les images
+    `google_apis_playstore`, qui reçoivent FCM comme un téléphone. La garde
+    rendait le push intestable hors appareil physique — la permission n'était
+    même pas demandée (constaté le 2026-10-29, Pixel 9 API 36). Un émulateur
+    SANS Play échoue à `getDevicePushTokenAsync()`, dans le `catch` de
+    `register()` : sans bruit, comme voulu.
+  */
   // Voir l'en-tête : un jeton APNs n'est pas adressable par firebase-admin.
   if (Platform.OS === "ios") return false;
   return true;
