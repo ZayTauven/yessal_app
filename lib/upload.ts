@@ -37,7 +37,10 @@ import { ErreurLisible } from "./api";
  * ligne le montre : la quasi-totalité des exemples de téléversement React Native
  * datent d'avant ce changement.
  */
-export function fichierPourEnvoi(uri: string): File {
+export function fichierPourEnvoi(uri: string, nature: "image" | "fichier" = "image"): File {
+  /* Une note vocale ou un PDF n'est pas « une image » : le message le dit. */
+  const ce = nature === "image" ? "Cette image" : "Ce fichier";
+  const accord = nature === "image" ? "e" : "";
   let fichier: File;
   try {
     fichier = new File(uri);
@@ -45,7 +48,7 @@ export function fichierPourEnvoi(uri: string): File {
     /* URI qu'`expo-file-system` ne sait pas ouvrir — un `content://` d'une
        application tierce, par exemple. Inutile de parler de réseau. */
     throw new ErreurLisible(
-      "Cette image n'a pas pu être lue. Reprenez-la ou choisissez-en une autre.",
+      `${ce} n'a pas pu être lu${accord}. Reprenez-l${nature === "image" ? "a" : "e"} ou choisissez-en un${accord} autre.`,
       { cause },
     );
   }
@@ -58,7 +61,7 @@ export function fichierPourEnvoi(uri: string): File {
   */
   if (!fichier.exists) {
     throw new ErreurLisible(
-      "Cette image n'est plus disponible sur le téléphone. Reprenez-la.",
+      `${ce} n'est plus disponible sur le téléphone. Reprenez-l${nature === "image" ? "a" : "e"}.`,
     );
   }
 

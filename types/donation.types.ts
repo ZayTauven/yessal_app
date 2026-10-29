@@ -111,4 +111,6 @@ export interface CreateDonationPayload {
   external_ref?: string | null;
   /** Le membre au nom duquel un collecteur enregistre. Absent : soi-même. */
   donor?: number;
+  /** Nom affiché dans « Les Jëfs du Kourel » — sur consentement, jamais le montant. */
+  public_in_channel?: boolean;
 }

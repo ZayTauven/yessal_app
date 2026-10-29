@@ -60,7 +60,8 @@
           "color": "#7954D4",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      ["expo-audio", {"microphonePermission": "Yessal Gui utilise le micro pour enregistrer vos notes vocales dans la messagerie."}]
     ],
     "experiments": {
       "typedRoutes": true,

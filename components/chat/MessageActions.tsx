@@ -11,7 +11,7 @@
  * touche du pouce, et ne masque pas la bulle visée.
  */
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { Copy, Reply, Trash2 } from "lucide-react-native";
+import { Copy, Pencil, Reply, Trash2 } from "lucide-react-native";
 
 import type { Message } from "@/types/content.types";
 import { Border, Font, GUTTER, HIT, Ink, Radius, Space, Status, Surface, Type, Violet } from "@/theme";
@@ -21,23 +21,31 @@ export const QUICK_REACTIONS = ["👍", "❤️", "🙏", "😂", "😮", "😢"
 interface MessageActionsProps {
   message: Message | null;
   canDelete: boolean;
+  /** Son propre message texte : on peut le corriger. */
+  canEdit?: boolean;
+  /** Faux dans un canal : on n'y répond pas. */
+  canReply?: boolean;
   bottomInset: number;
   onClose: () => void;
   onReact: (message: Message, emoji: string) => void;
   onReply: (message: Message) => void;
   onCopy: (message: Message) => void;
   onDelete: (message: Message) => void;
+  onEdit?: (message: Message) => void;
 }
 
 export function MessageActions({
   message,
   canDelete,
+  canEdit = false,
+  canReply = true,
   bottomInset,
   onClose,
   onReact,
   onReply,
   onCopy,
   onDelete,
+  onEdit,
 }: MessageActionsProps) {
   const visible = !!message;
   const mineEmojis = new Set(message?.reactions.filter((r) => r.reacted_by_me).map((r) => r.emoji));
@@ -79,7 +87,12 @@ export function MessageActions({
           ))}
         </View>
 
-        <Action icon={<Reply size={20} color={Ink[900]} strokeWidth={1.7} />} label="Répondre" onPress={run(onReply)} />
+        {canReply ? (
+          <Action icon={<Reply size={20} color={Ink[900]} strokeWidth={1.7} />} label="Répondre" onPress={run(onReply)} />
+        ) : null}
+        {canEdit && onEdit ? (
+          <Action icon={<Pencil size={20} color={Ink[900]} strokeWidth={1.7} />} label="Modifier" onPress={run(onEdit)} />
+        ) : null}
         {message?.message_type === "text" ? (
           <Action icon={<Copy size={20} color={Ink[900]} strokeWidth={1.7} />} label="Copier le texte" onPress={run(onCopy)} />
         ) : null}

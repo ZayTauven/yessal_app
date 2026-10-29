@@ -56,9 +56,10 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { Bell, BellOff, ChevronLeft, X } from "lucide-react-native";
+import { Bell, BellOff, ChevronLeft, HandHeart, Megaphone, SmilePlus, X } from "lucide-react-native";
 
 import { Composer } from "@/components/chat/Composer";
+import { AudioBubble, JefCardView } from "@/components/chat/JefCard";
 import { JefReceipt } from "@/components/chat/JefReceipt";
 import { MessageActions } from "@/components/chat/MessageActions";
 import { DayDivider, MessageBubble, SystemNote } from "@/components/chat/MessageBubble";
@@ -70,9 +71,10 @@ import { IconButton } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ContentService, normalizeIncomingMessage } from "@/lib/content.service";
 import { formatNumber } from "@/lib/format";
+import { setChatOuvert } from "@/lib/push.service";
 import { listen, whisper } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
-import type { Announcement, Chat, ChatMember, Message, MessageReaction } from "@/types/content.types";
+import type { Announcement, Attachment, Chat, ChatMember, Message, MessageReaction } from "@/types/content.types";
 import type { Donation } from "@/types/donation.types";
 import {
   Border,
@@ -233,7 +235,8 @@ export default function ConversationScreen() {
     chatId ? { ...EMPTY, status: "loading" } : EMPTY,
   );
   const [draft, setDraft] = useState("");
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [acting, setActing] = useState<Message | null>(null);
   const [viewing, setViewing] = useState<Message | null>(null);
@@ -256,6 +259,17 @@ export default function ConversationScreen() {
     if (!chatId) return;
     setState(await fetchConversation(chatId, userId));
   }, [chatId, userId]);
+
+  /* Tant que ce fil est à l'écran, ses pushes ne s'affichent pas en bannière. */
+  useEffect(() => {
+    if (!chatId) return;
+    setChatOuvert(chatId);
+    const sub = AppState.addEventListener("change", (next) => setChatOuvert(next === "active" ? chatId : null));
+    return () => {
+      sub.remove();
+      setChatOuvert(null);
+    };
+  }, [chatId]);
 
   // ─── Temps réel ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -296,6 +310,15 @@ export default function ConversationScreen() {
             m.id === data.message_id
               ? { ...m, reactions: applyReaction(m.reactions, data.emoji, data.action === "add", false) }
               : m,
+          ),
+        }));
+      }) as never,
+      "message-edited": ((raw: unknown) => {
+        const edited = normalizeIncomingMessage(raw);
+        setState((previous) => ({
+          ...previous,
+          messages: previous.messages.map((m) =>
+            m.id === edited.id ? { ...m, content: edited.content, edited_at: edited.edited_at } : m,
           ),
         }));
       }) as never,
@@ -364,6 +387,7 @@ export default function ConversationScreen() {
 
   const { status, chat, messages, members, pinned, receipts, hasMore } = state;
   const isGroup = chat?.chat_type === "group";
+  const isChannel = chat?.chat_type === "channel";
 
   /** Le dernier de MES messages que l'autre a lu — la double coche se pose dessus. */
   const peerReadAt = chat?.peer_last_read_at ?? null;
@@ -423,7 +447,7 @@ export default function ConversationScreen() {
         chat: chatId,
         content: local.content,
         reply_to: local.reply_to ?? null,
-        imageUri: local.local?.imageUri ?? null,
+        attachment: local.local?.attachment ?? null,
       });
       setState((previous) => ({
         ...previous,
@@ -442,9 +466,28 @@ export default function ConversationScreen() {
     }
   }
 
-  function handleSend() {
+  async function saveEdit() {
+    const target = editing;
     const body = draft.trim();
-    if (!chatId || !userId || (!body && !imageUri)) return;
+    if (!target || !body) return;
+    setEditing(null);
+    setDraft("");
+    if (body === target.content) return;
+    try {
+      const saved = await ContentService.editMessage(target.id, body);
+      setState((previous) => ({
+        ...previous,
+        messages: previous.messages.map((m) =>
+          m.id === target.id ? { ...m, content: saved.content, edited_at: saved.edited_at } : m,
+        ),
+      }));
+    } catch {
+      Alert.alert("Modification non enregistrée", "Vérifiez votre connexion, puis réessayez.");
+    }
+  }
+
+  function sendWith(body: string, file: Attachment | null) {
+    if (!chatId || !userId || (!body && !file)) return;
     lastTypingSent.current = 0;
     whisper(`presence-chat.${chatId}`, "client-typing", { user_id: userId, name: "", typing: false });
 
@@ -457,10 +500,13 @@ export default function ConversationScreen() {
       id: -Date.now(),
       chat: chatId,
       sender: { id: userId, name: userName, avatar: user?.avatar ?? null },
-      message_type: imageUri ? "file" : "text",
+      message_type: file ? "file" : "text",
       content: body,
       file_url: null,
-      file_is_image: !!imageUri,
+      file_name: file?.name ?? null,
+      file_size: file?.size ?? null,
+      file_is_image: file?.kind === "image",
+      file_kind: file?.kind ?? null,
       reply_to: replyingTo?.id ?? null,
       reply_preview: replyingTo
         ? {
@@ -474,13 +520,23 @@ export default function ConversationScreen() {
       is_deleted: false,
       reactions: [],
       sent_at: new Date().toISOString(),
-      local: { status: "sending", imageUri },
+      local: { status: "sending", imageUri: file?.kind === "image" ? file.uri : null, attachment: file },
     };
     setState((previous) => ({ ...previous, messages: [...previous.messages, local] }));
-    setDraft("");
-    setImageUri(null);
     setReplyingTo(null);
     deliver(local);
+  }
+
+  function handleSend() {
+    if (editing) {
+      saveEdit();
+      return;
+    }
+    const body = draft.trim();
+    if (!body && !attachment) return;
+    sendWith(body, attachment);
+    setDraft("");
+    setAttachment(null);
   }
 
   function handleRetry(message: Message) {
@@ -592,6 +648,10 @@ export default function ConversationScreen() {
         <PinnedAnnouncement announcement={pinned} onPress={() => router.push("/announcements")} />
       ) : null}
 
+      {isChannel && chat?.description ? (
+        <Text style={styles.channelIntro}>{chat.description}</Text>
+      ) : null}
+
       {status === "failed" ? (
         <View style={[styles.centered, styles.failed]}>
           <ErrorState body="Cette conversation n'a pas pu être chargée." onRetry={reload} />
@@ -638,6 +698,20 @@ export default function ConversationScreen() {
               case "receipt":
                 return <JefReceipt donation={entry.donation} campaignName={entry.donation.campaign_name} />;
               case "message":
+                if (isChannel) {
+                  const m = entry.message;
+                  const chips = (
+                    <ReactionChips message={m} light={m.payload?.variant === "palier"} onToggle={handleReact} onMore={openActions} />
+                  );
+                  if (m.message_type === "card" && m.payload) {
+                    return (
+                      <Pressable onLongPress={() => openActions(m)} delayLongPress={280}>
+                        <JefCardView message={m} footer={chips} />
+                      </Pressable>
+                    );
+                  }
+                  return <ChannelPost message={m} chat={chat} footer={chips} onLongPress={openActions} onOpenImage={setViewing} />;
+                }
                 return (
                   <MessageBubble
                     message={entry.message}
@@ -660,17 +734,39 @@ export default function ConversationScreen() {
         value={draft}
         onChangeText={onDraftChange}
         onSend={handleSend}
-        placeholder={isGroup ? "Message au Daara…" : "Écrire un message…"}
+        placeholder={isChannel ? "Publier une annonce…" : isGroup ? "Message au Daara…" : "Écrire un message…"}
         bottomInset={insets.bottom}
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}
-        imageUri={imageUri}
-        onPickImage={setImageUri}
+        editing={editing}
+        onCancelEdit={() => {
+          setEditing(null);
+          setDraft("");
+        }}
+        attachment={attachment}
+        onAttach={setAttachment}
+        onSendVoice={(voice) => sendWith("", voice)}
+        members={isGroup ? members : []}
+        currentUserId={userId}
+        readOnlyNote={
+          isChannel && chat && !chat.can_post
+            ? chat.channel_kind === "jefs"
+              ? "Dans ce canal, on réagit — on ne répond pas."
+              : "Seul Sangue Bi publie ici. Appui long pour réagir."
+            : null
+        }
       />
 
       <MessageActions
         message={acting}
-        canDelete={!!acting && (acting.sender?.id === userId || user?.role === "admin")}
+        canDelete={!!acting && acting.message_type !== "card" && (acting.sender?.id === userId || user?.role === "admin")}
+        canEdit={!!acting && acting.sender?.id === userId && acting.message_type === "text"}
+        canReply={!isChannel}
+        onEdit={(m) => {
+          setReplyingTo(null);
+          setEditing(m);
+          setDraft(m.content);
+        }}
         bottomInset={insets.bottom}
         onClose={() => setActing(null)}
         onReact={handleReact}
@@ -746,7 +842,9 @@ function ConversationHeader({
 
   const subtitle =
     typingLabel ??
-    (isGroup
+    (chat?.chat_type === "channel"
+      ? "Canal du Kourel"
+      : isGroup
       ? memberCountLabel(chat?.members_count ?? members.length)
       : [other?.role ? ROLE_LABEL[other.role] : null, other?.daara_name].filter(Boolean).join(" · "));
 
@@ -768,7 +866,15 @@ function ConversationHeader({
         </>
       ) : (
         <>
-          {isGroup && faces.length > 0 ? (
+          {chat.chat_type === "channel" ? (
+            <View style={[styles.channelIcon, chat.channel_kind === "guide" && styles.channelIconGuide]}>
+              {chat.channel_kind === "guide" ? (
+                <Megaphone size={20} color={Surface.default} strokeWidth={1.7} />
+              ) : (
+                <HandHeart size={20} color={Violet[700]} strokeWidth={1.7} />
+              )}
+            </View>
+          ) : isGroup && faces.length > 0 ? (
             <AvatarStack people={faces} size={HEADER_FACE} max={HEADER_FACES} />
           ) : (
             <Avatar uri={chat.avatar} name={chat.display_name} size={40} />
@@ -805,6 +911,93 @@ function ConversationHeader({
         </>
       )}
     </View>
+  );
+}
+
+/** Les réactions d'une publication de canal, et le « + » qui en ajoute une. */
+function ReactionChips({
+  message,
+  light = false,
+  onToggle,
+  onMore,
+}: {
+  message: Message;
+  light?: boolean;
+  onToggle: (message: Message, emoji: string) => void;
+  onMore: (message: Message) => void;
+}) {
+  return (
+    <View style={styles.chips}>
+      {message.reactions.map((r) => (
+        <Pressable
+          key={r.emoji}
+          onPress={() => onToggle(message, r.emoji)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: r.reacted_by_me }}
+          accessibilityLabel={`${r.emoji} ${r.count}`}
+          style={[styles.chip, light && styles.chipLight, r.reacted_by_me && styles.chipMine]}
+        >
+          <Text style={styles.chipEmoji}>{r.emoji}</Text>
+          <Text style={[styles.chipCount, light && !r.reacted_by_me && styles.chipCountLight]}>{r.count}</Text>
+        </Pressable>
+      ))}
+      <Pressable
+        onPress={() => onMore(message)}
+        accessibilityRole="button"
+        accessibilityLabel="Ajouter une réaction"
+        hitSlop={Space.sm}
+        style={[styles.chip, styles.chipAdd, light && styles.chipLight]}
+      >
+        <SmilePlus size={14} color={light ? Surface.default : Ink[500]} strokeWidth={1.7} />
+      </Pressable>
+    </View>
+  );
+}
+
+/** Une annonce du canal du guide : un article signé « Sangue Bi ». */
+function ChannelPost({
+  message,
+  chat,
+  footer,
+  onLongPress,
+  onOpenImage,
+}: {
+  message: Message;
+  chat: Chat | null;
+  footer: React.ReactNode;
+  onLongPress: (message: Message) => void;
+  onOpenImage: (message: Message) => void;
+}) {
+  const image = message.file_kind === "image" && message.file_url && !message.is_deleted;
+  const author = chat?.channel_kind === "guide" ? "Sangue Bi" : message.sender?.name;
+  return (
+    <Pressable onLongPress={() => onLongPress(message)} delayLongPress={280} style={styles.post}>
+      {image ? (
+        <Pressable onPress={() => onOpenImage(message)} accessibilityRole="imagebutton" accessibilityLabel="Agrandir l'image">
+          <Image source={{ uri: message.file_url! }} style={styles.postImage} resizeMode="cover" />
+        </Pressable>
+      ) : null}
+      <View style={styles.postBody}>
+        <View style={styles.postHead}>
+          <Avatar uri={message.sender?.avatar} name={author} size={30} />
+          <Text style={styles.postAuthor}>{author}</Text>
+          <Text style={styles.postTime}>
+            {new Date(message.sent_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+          </Text>
+        </View>
+        {message.is_deleted ? (
+          <Text style={styles.postDeleted}>Publication retirée</Text>
+        ) : (
+          <>
+            {message.file_kind === "audio" && message.file_url ? <AudioBubble url={message.file_url} /> : null}
+            {message.content && message.content !== message.file_name ? (
+              <Text style={styles.postText}>{message.content}</Text>
+            ) : null}
+          </>
+        )}
+        <View style={styles.postFooter}>{footer}</View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -953,6 +1146,53 @@ const styles = StyleSheet.create({
 
   skeleton: { gap: Space.md, padding: GUTTER },
   skeletonMine: { alignSelf: "flex-end" },
+
+  channelIntro: {
+    ...Type.micro,
+    color: Ink[500],
+    textAlign: "center",
+    paddingHorizontal: GUTTER,
+    paddingVertical: Space.sm,
+    backgroundColor: Surface.default,
+  },
+  channelIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Violet[100],
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  channelIconGuide: { backgroundColor: Violet[900] },
+
+  chips: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, flexShrink: 1 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.chip,
+    backgroundColor: Surface.default,
+    borderWidth: 1,
+    borderColor: Border.hairline,
+  },
+  chipLight: { backgroundColor: "rgba(255,255,255,0.16)", borderColor: "rgba(255,255,255,0.2)" },
+  chipMine: { backgroundColor: Violet[100], borderColor: Violet[300] },
+  chipAdd: { borderStyle: "dashed", borderColor: Violet[200] },
+  chipEmoji: { fontSize: 13 },
+  chipCount: { ...Type.micro, color: Violet[900] },
+  chipCountLight: { color: Surface.default },
+
+  post: { backgroundColor: Surface.default, borderRadius: Radius.card, borderWidth: 1, borderColor: Border.hairline, overflow: "hidden" },
+  postImage: { width: "100%", height: 170 },
+  postBody: { padding: Space.lg, gap: Space.sm },
+  postHead: { flexDirection: "row", alignItems: "center", gap: Space.sm },
+  postAuthor: { ...UIType.rowTitle, color: Violet[900] },
+  postTime: { ...Type.micro, color: Ink[500] },
+  postText: { ...Type.body, color: Ink[900] },
+  postDeleted: { ...Type.label, fontStyle: "italic", color: Ink[300] },
+  postFooter: { marginTop: Space.xs },
 
   viewer: { flex: 1, backgroundColor: "rgba(0,0,0,0.94)", justifyContent: "center" },
   viewerImage: { width: "100%", height: "80%" },

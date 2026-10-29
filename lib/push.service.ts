@@ -148,12 +148,19 @@ export function chargerNotifications(): typeof NotificationsModule | null {
       l'on sait que le module a réellement été obtenu.
     */
     charge.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: false,
-        shouldSetBadge: true,
-      }),
+      handleNotification: async (notification) => {
+        /* Le message d'une conversation déjà ouverte à l'écran s'affiche dans
+           le fil : une bannière par-dessus ferait doublon. */
+        const data = notification.request.content.data as { type?: string; chat_id?: string | number } | undefined;
+        const dejaSousLesYeux =
+          data?.type === "chat_message" && chatOuvert !== null && Number(data.chat_id) === chatOuvert;
+        return {
+          shouldShowBanner: !dejaSousLesYeux,
+          shouldShowList: !dejaSousLesYeux,
+          shouldPlaySound: false,
+          shouldSetBadge: !dejaSousLesYeux,
+        };
+      },
     });
 
     moduleNotifications = charge;
@@ -180,6 +187,13 @@ function terrainViable(): boolean {
   // Voir l'en-tête : un jeton APNs n'est pas adressable par firebase-admin.
   if (Platform.OS === "ios") return false;
   return true;
+}
+
+/** La conversation affichée à l'écran — ses pushes ne s'affichent pas. */
+let chatOuvert: number | null = null;
+
+export function setChatOuvert(chatId: number | null) {
+  chatOuvert = chatId;
 }
 
 export const PushService = {

@@ -13,7 +13,9 @@
  * En tête-à-tête, ni l'un ni l'autre — on sait à qui l'on parle.
  */
 import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
-import { AlertCircle, Ban, Check, CheckCheck, Paperclip } from "lucide-react-native";
+import { AlertCircle, Ban, Check, CheckCheck, FileText } from "lucide-react-native";
+
+import { AudioBubble } from "@/components/chat/JefCard";
 
 import { Avatar } from "@/components/ui/Avatar";
 import type { Message } from "@/types/content.types";
@@ -76,11 +78,13 @@ export function MessageBubble({
   /* Le nom n'a de sens que sur ce que l'on REÇOIT, et seulement en groupe. */
   const showsAuthor = group && !mine && leading;
   const showsAvatar = group && !mine;
-  const isImage = message.message_type === "file" && message.file_is_image && !message.is_deleted;
+  const isImage =
+    message.message_type === "file" && (message.file_kind === "image" || message.file_is_image) && !message.is_deleted;
+  const isAudio = message.file_kind === "audio" && !message.is_deleted;
   const imageUri = message.local?.imageUri ?? message.file_url;
   /* Une pièce jointe sans légende porte son nom de fichier en `content` : on ne le répète pas. */
   const caption =
-    message.message_type === "file" && message.content === message.file_name ? "" : message.content;
+    message.message_type === "file" && (message.content === message.file_name || isAudio) ? "" : message.content;
   const actionable = !message.is_deleted && !message.local;
 
   return (
@@ -96,9 +100,12 @@ export function MessageBubble({
 
       <View style={[styles.column, mine && styles.columnMine]}>
         {showsAuthor && author?.name ? (
-          <Text style={styles.author} numberOfLines={1}>
-            {author.name}
-          </Text>
+          <View style={styles.authorRow}>
+            <Text style={styles.author} numberOfLines={1}>
+              {author.name}
+            </Text>
+            {author.title ? <Text style={styles.titleTag}>{author.title.toUpperCase()}</Text> : null}
+          </View>
         ) : null}
 
         <Pressable
@@ -154,14 +161,26 @@ export function MessageBubble({
                 </Text>
               ) : null}
 
-              {message.file_url && !isImage ? (
-                <Attachment url={message.file_url} name={message.file_name} mine={mine} />
+              {isAudio && message.file_url ? (
+                <AudioBubble url={message.file_url} mine={mine} />
+              ) : isAudio && message.local ? (
+                <Text style={[styles.text, styles.textDeleted]}>Note vocale en cours d&apos;envoi…</Text>
+              ) : null}
+
+              {message.message_type === "file" && !isImage && !isAudio && (message.file_url || message.local) ? (
+                <Attachment
+                  url={message.file_url}
+                  name={message.file_name ?? message.local?.attachment?.name}
+                  size={message.file_size ?? message.local?.attachment?.size}
+                  mine={mine}
+                />
               ) : null}
             </>
           )}
 
           <View style={[styles.meta, isImage && styles.captionPad]}>
             <Text style={[styles.time, mine ? styles.timeMine : styles.timeOther]}>
+              {message.edited_at ? "modifié · " : ""}
               {formatBubbleTime(message.sent_at)}
             </Text>
             {mine && !message.is_deleted ? (
@@ -226,28 +245,41 @@ function highlight(text: string, mine: boolean) {
 }
 
 /**
- * Une pièce jointe s'ouvre dans l'application du système. Le fil ne prévisualise
- * rien : `MessageSerializer` ne dit pas de quel type est le fichier, et un
- * aperçu deviné qui ne s'affiche pas vaut moins qu'un lien qui s'ouvre.
+ * Un document (PDF, tableur…) : une carte avec son type, son nom et son poids,
+ * qui s'ouvre dans l'application du système. Les images et les notes vocales
+ * ont leur propre rendu — `file_kind`, servi par `MessageSerializer`, le dit.
  */
-function Attachment({ url, name, mine }: { url: string; name?: string | null; mine: boolean }) {
-  /*
-    Violet[700] ne tient que 2,1:1 sur le violet-300 de la bulle émise. Le
-    libellé y descend donc d'un cran, comme le fait le label du bouton primaire.
-  */
-  const tint = mine ? Violet[900] : Violet[700];
+function Attachment({
+  url,
+  name,
+  size,
+  mine,
+}: {
+  url?: string | null;
+  name?: string | null;
+  size?: number | null;
+  mine: boolean;
+}) {
+  const ext = (name ?? "").split(".").pop()?.toUpperCase().slice(0, 4) || "DOC";
+  const poids = size ? (size < 1024 * 1024 ? `${Math.round(size / 1024)} Ko` : `${(size / 1048576).toFixed(1).replace(".", ",")} Mo`) : "";
   return (
     <Pressable
-      onPress={() => Linking.openURL(url).catch(() => undefined)}
+      onPress={() => url && Linking.openURL(url).catch(() => undefined)}
+      disabled={!url}
       accessibilityRole="link"
-      accessibilityLabel="Ouvrir la pièce jointe"
-      hitSlop={Space.sm}
-      style={styles.attachment}
+      accessibilityLabel={`Ouvrir le document ${name ?? ""}`}
+      style={[styles.doc, mine && styles.docMine]}
     >
-      <Paperclip size={14} color={tint} strokeWidth={1.6} />
-      <Text style={[styles.attachmentLabel, { color: tint }]} numberOfLines={1}>
-        {name || "Pièce jointe"}
-      </Text>
+      <View style={[styles.docBadge, ext === "PDF" && styles.docBadgePdf]}>
+        <Text style={styles.docBadgeText}>{ext}</Text>
+      </View>
+      <View style={styles.docText}>
+        <Text style={styles.docName} numberOfLines={1}>
+          {name || "Document"}
+        </Text>
+        <Text style={styles.docMeta}>{url ? `${poids ? `${poids} · ` : ""}Ouvrir` : "Envoi en cours…"}</Text>
+      </View>
+      <FileText size={18} color={Violet[700]} strokeWidth={1.6} />
     </Pressable>
   );
 }
@@ -294,7 +326,35 @@ const styles = StyleSheet.create({
 
   column: { maxWidth: BUBBLE_MAX, gap: Space.xs },
   columnMine: { alignItems: "flex-end" },
-  author: { ...Type.micro, fontFamily: Font.semibold, color: Ink[500], marginLeft: Space.sm },
+  author: { ...Type.micro, fontFamily: Font.semibold, color: Ink[500], flexShrink: 1 },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 6, marginLeft: Space.sm },
+  titleTag: {
+    fontSize: 9,
+    fontFamily: Font.extrabold,
+    letterSpacing: 0.4,
+    color: Violet[700],
+    backgroundColor: Violet[100],
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+    overflow: "hidden",
+  },
+  doc: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: "#F4F1FB",
+    minWidth: 220,
+  },
+  docMine: { backgroundColor: "rgba(255,255,255,0.55)" },
+  docBadge: { width: 36, height: 42, borderRadius: 6, backgroundColor: Violet[700], alignItems: "center", justifyContent: "center" },
+  docBadgePdf: { backgroundColor: Status.error },
+  docBadgeText: { fontSize: 10, fontFamily: Font.extrabold, color: Surface.default },
+  docText: { flex: 1, minWidth: 0 },
+  docName: { ...Type.label, fontFamily: Font.semibold, color: Ink[900] },
+  docMeta: { ...Type.micro, color: Ink[500] },
 
   bubble: {
     paddingHorizontal: Space.lg,
@@ -365,8 +425,6 @@ const styles = StyleSheet.create({
   textOther: { color: Ink[900] },
   textDeleted: { fontStyle: "italic", color: Ink[300] },
 
-  attachment: { flexDirection: "row", alignItems: "center", gap: 6 },
-  attachmentLabel: { ...Type.label, fontFamily: Font.semibold },
 
   time: { ...Type.micro },
   timeMine: { color: Violet[700] },

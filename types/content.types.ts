@@ -65,7 +65,7 @@ export interface EventItem {
  * dernier message et la pastille de non-lus étaient recalculés côté client en
  * téléchargeant TOUS les messages de TOUTES les conversations.
  */
-export type ChatType = "direct" | "group";
+export type ChatType = "direct" | "group" | "channel";
 
 /**
  * `UserBriefSerializer` (`comms/serializers.py:27`) — la forme sous laquelle
@@ -78,6 +78,8 @@ export interface ChatMember {
   avatar?: string | null;
   daara_name?: string | null;
   role?: UserRole | null;
+  /** Titre du membre (AMIR, DIEUWRIGNE…), affiché en étiquette. */
+  title?: string | null;
 }
 
 /** Le condensé que `ChatSerializer.get_last_message` compose côté serveur. */
@@ -109,9 +111,28 @@ export interface Chat {
   peer_last_read_at?: string | null;
   last_activity_at?: string | null;
   created_by?: number | null;
+  /** Canaux du Kourel : « guide » (annonces de Sangue Bi) ou « jefs ». */
+  channel_kind?: "guide" | "jefs" | null;
+  description?: string;
+  /** Faux dans un canal pour qui n'en est pas auteur : on y réagit seulement. */
+  can_post: boolean;
   daara?: number | null;
   campaign?: number | null;
   created_at: string;
+}
+
+/** La carte qu'un Jëf confirmé pose dans « Les Jëfs du Kourel ». */
+export interface JefCard {
+  kind: "jef";
+  donation_id: number;
+  campaign_id: number;
+  campaign_name: string;
+  donor: { id: number; name: string; title?: string | null; avatar?: string | null } | null;
+  variant: "palier" | "diaspora" | "photo" | "picto";
+  picto?: string;
+  tone?: "peach" | "yellow" | "teal" | "pink" | "lilac";
+  photo_url?: string;
+  milestone?: number;
 }
 
 /** Ce que cite une réponse — `ReplyPreviewSerializer`. */
@@ -123,7 +144,7 @@ export interface MessageReplyPreview {
   is_deleted: boolean;
 }
 
-export type MessageType = "text" | "file" | "system";
+export type MessageType = "text" | "file" | "system" | "card";
 
 /** Réactions agrégées par emoji — `MessageSerializer.get_reactions`. */
 export interface MessageReaction {
@@ -162,17 +183,28 @@ export interface Message {
   file_size?: number | null;
   /** Une image s'affiche en vignette ; le reste en carte de document. */
   file_is_image?: boolean;
+  file_kind?: "image" | "audio" | "video" | "document" | null;
+  edited_at?: string | null;
+  payload?: JefCard | null;
   reply_preview?: MessageReplyPreview | null;
   /** Message pas encore confirmé par le serveur — absent de tout ce que l'API rend. */
-  local?: { status: "sending" | "failed"; imageUri?: string | null };
+  local?: { status: "sending" | "failed"; imageUri?: string | null; attachment?: Attachment | null };
+}
+
+/** Un fichier local prêt à partir : photo, document ou note vocale. */
+export interface Attachment {
+  uri: string;
+  name: string;
+  mimeType: string;
+  kind: "image" | "audio" | "video" | "document";
+  size?: number | null;
 }
 
 export interface CreateMessagePayload {
   chat: number;
   content: string;
   reply_to?: number | null;
-  /** URI locale d'une image choisie dans la galerie. */
-  imageUri?: string | null;
+  attachment?: Attachment | null;
 }
 
 export interface Announcement {

@@ -41,7 +41,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
+import { Check, HandHeart, Megaphone, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
 
 import { ChatRow } from "@/components/chat/ChatRow";
 import { Avatar } from "@/components/ui/Avatar";
@@ -54,7 +54,7 @@ import { listen } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
 import type { Chat, ChatInvitation, ChatLastMessage } from "@/types/content.types";
-import { Border, GUTTER, HIT, Ink, Space, Surface, Type, UIType, Violet } from "@/theme";
+import { Border, Font, GUTTER, HIT, Ink, Space, Surface, Type, UIType, Violet } from "@/theme";
 
 interface ListState {
   status: "loading" | "ready" | "failed";
@@ -180,8 +180,7 @@ export default function MessagesScreen() {
   */
   useEffect(() => {
     if (!userId) return;
-    return listen(`private-user.${userId}`, {
-      "chat-updated": ((event: { chat_id: number; last_message: ChatLastMessage }) => {
+    const onChatUpdated = (event: { chat_id: number; last_message: ChatLastMessage }) => {
         setState((previous) => {
           if (!previous.chats.some((c) => c.id === event.chat_id)) {
             fetchChats(userId).then(setState);
@@ -204,11 +203,19 @@ export default function MessagesScreen() {
               .sort(byRecency),
           };
         });
-      }) as never,
+    };
+    const offUser = listen(`private-user.${userId}`, {
+      "chat-updated": onChatUpdated as never,
       "new-invitation": (() => {
         fetchChats(userId).then(setState);
       }) as never,
     });
+    /* Les canaux du Kourel ont leur propre canal Pusher, commun à tous. */
+    const offKourel = listen("private-kourel", { "chat-updated": onChatUpdated as never });
+    return () => {
+      offUser();
+      offKourel();
+    };
   }, [userId]);
 
   /*
@@ -239,7 +246,13 @@ export default function MessagesScreen() {
     [router, userId],
   );
 
-  const { status, chats, invitations } = state;
+  const { status, chats: allChats, invitations } = state;
+  /* Les canaux du Kourel sont épinglés en tête, hors des filtres. */
+  const channels = useMemo(
+    () => allChats.filter((c) => c.chat_type === "channel").sort((a) => (a.channel_kind === "guide" ? -1 : 1)),
+    [allChats],
+  );
+  const chats = useMemo(() => allChats.filter((c) => c.chat_type !== "channel"), [allChats]);
   const unreadChats = chats.filter((c) => c.unread_count > 0).length;
   const visible = useMemo(
     () =>
@@ -355,6 +368,15 @@ export default function MessagesScreen() {
           />
         ) : (
           <>
+            {channels.length > 0 ? (
+              <View style={styles.channels}>
+                <Text style={styles.sectionTitle}>CANAUX DU KOUREL</Text>
+                {channels.map((c) => (
+                  <ChannelTile key={c.id} chat={c} onPress={() => router.push(`/chat/${c.id}`)} />
+                ))}
+                <Text style={[styles.sectionTitle, styles.sectionTitleGap]}>DISCUSSIONS</Text>
+              </View>
+            ) : null}
             <View style={styles.filters} accessibilityRole="tablist">
               {FILTERS.map((f) => {
                 const active = filter === f.value;
@@ -392,6 +414,48 @@ export default function MessagesScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * Un canal du Kourel, en tuile : le guide en violet profond, les Jëfs en lilas
+ * (maquette validée le 2026-10-29).
+ */
+function ChannelTile({ chat, onPress }: { chat: Chat; onPress: () => void }) {
+  const guide = chat.channel_kind === "guide";
+  const unread = chat.unread_count;
+  const ink = guide ? Surface.default : Violet[900];
+  const soft = guide ? Violet[200] : Ink[500];
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${chat.display_name}${unread ? `, ${unread} non lu${unread > 1 ? "s" : ""}` : ""}`}
+      style={({ pressed }) => [styles.tile, guide ? styles.tileGuide : styles.tileJefs, pressed && styles.invitePressed]}
+    >
+      <View style={[styles.tileIcon, guide ? styles.tileIconGuide : styles.tileIconJefs]}>
+        {guide ? (
+          <Megaphone size={22} color={Violet[900]} strokeWidth={1.7} />
+        ) : (
+          <HandHeart size={22} color={Violet[700]} strokeWidth={1.7} />
+        )}
+      </View>
+      <View style={styles.tileText}>
+        <Text style={[styles.tileName, { color: ink }]} numberOfLines={1}>
+          {chat.display_name}
+        </Text>
+        <Text style={[styles.tilePreview, { color: soft }]} numberOfLines={1}>
+          {chat.last_message?.content || chat.description || "Canal du Kourel"}
+        </Text>
+      </View>
+      {unread > 0 ? (
+        <View style={[styles.tileBadge, guide ? styles.tileBadgeGuide : styles.tileBadgeJefs]}>
+          <Text style={[styles.tileBadgeText, { color: guide ? Violet[900] : Surface.default }]}>
+            {unread > 99 ? "99+" : unread}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -515,6 +579,23 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: GUTTER },
 
   filters: { flexDirection: "row", flexWrap: "wrap", gap: Space.sm, paddingBottom: Space.sm },
+
+  channels: { gap: Space.xs, paddingBottom: Space.sm },
+  sectionTitle: { ...Type.micro, fontFamily: Font.bold, letterSpacing: 1, color: Ink[500], paddingBottom: Space.xs },
+  sectionTitleGap: { paddingTop: Space.md },
+  tile: { flexDirection: "row", alignItems: "center", gap: Space.md, padding: Space.md, borderRadius: 18 },
+  tileGuide: { backgroundColor: Violet[900] },
+  tileJefs: { backgroundColor: Violet[100] },
+  tileIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  tileIconGuide: { backgroundColor: Violet[200] },
+  tileIconJefs: { backgroundColor: Surface.default },
+  tileText: { flex: 1, minWidth: 0, gap: 2 },
+  tileName: { ...UIType.rowTitle },
+  tilePreview: { ...Type.label },
+  tileBadge: { minWidth: 22, height: 22, paddingHorizontal: 7, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  tileBadgeGuide: { backgroundColor: Surface.default },
+  tileBadgeJefs: { backgroundColor: Violet[700] },
+  tileBadgeText: { fontSize: 11, fontFamily: Font.extrabold },
   pill: {
     paddingHorizontal: 14,
     paddingVertical: 7,

@@ -182,6 +182,7 @@ function normalizeChatMember(item: any): ChatMember | null {
     avatar: absoluteMediaUrl(item.avatar),
     daara_name: item.daara_name ?? null,
     role: item.role ?? null,
+    title: item.title ?? null,
   };
 }
 
@@ -214,6 +215,9 @@ function normalizeChat(item: any): Chat {
     peer_last_read_at: item.peer_last_read_at ?? null,
     last_activity_at: item.last_activity_at ?? null,
     created_by: item.created_by ?? null,
+    channel_kind: item.channel_kind ?? null,
+    description: item.description ?? "",
+    can_post: item.can_post !== false,
     daara: item.daara ?? null,
     campaign: item.campaign ?? null,
     created_at: item.created_at,
@@ -231,6 +235,11 @@ function normalizeMessage(item: any): Message {
     file_name: item.file_name ?? null,
     file_size: item.file_size ?? null,
     file_is_image: Boolean(item.file_is_image),
+    file_kind: item.file_kind ?? null,
+    edited_at: item.edited_at ?? null,
+    payload: item.payload
+      ? { ...item.payload, photo_url: absoluteMediaUrl(item.payload.photo_url) ?? undefined }
+      : null,
     reply_to: item.reply_to ?? null,
     reply_preview: item.reply_preview ?? null,
     is_deleted: Boolean(item.is_deleted),
@@ -653,15 +662,29 @@ export const ContentService = {
     return api.post("comms/pusher/auth/", { channel_name: channelName, socket_id: socketId });
   },
 
+  /** Corriger son propre message texte. */
+  async editMessage(messageId: number, content: string): Promise<Message> {
+    return normalizeMessage(await api.patch<any>(`comms/messages/${messageId}/`, { content }));
+  },
+
+  /** Les messages d'une conversation qui contiennent `q`. */
+  async searchMessages(chatId: number, q: string): Promise<Message[]> {
+    const data = await api.get<any>(`comms/messages/?chat=${chatId}&q=${encodeURIComponent(q)}`);
+    return unwrapList(data).map(normalizeMessage);
+  },
+
   async createMessage(payload: CreateMessagePayload): Promise<Message> {
-    if (payload.imageUri) {
+    if (payload.attachment) {
       /* Multipart, avec un `File` d'expo-file-system — voir `lib/upload.ts`
          pour pourquoi jamais `{ uri, name, type }`. */
       const form = new FormData();
       form.append("chat", String(payload.chat));
       form.append("content", payload.content);
       if (payload.reply_to) form.append("reply_to", String(payload.reply_to));
-      form.append("file", fichierPourEnvoi(payload.imageUri) as unknown as Blob);
+      form.append(
+        "file",
+        fichierPourEnvoi(payload.attachment.uri, payload.attachment.kind === "image" ? "image" : "fichier") as unknown as Blob,
+      );
       return normalizeMessage(await api.post<any>("comms/messages/", form));
     }
     const data = await api.post<any>("comms/messages/", {
