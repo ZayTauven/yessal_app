@@ -192,7 +192,18 @@ export interface User {
   zip_code?: string | null;
   marital_status?: "single" | "married" | "divorced" | "widowed" | null;
   blood_type?: string | null;
+
+  /** Mot de passe attribué par un tiers (admin, import Excel), pas encore remplacé. */
+  must_change_password?: boolean;
+  /**
+   * Les étapes d'accueil restantes, dans l'ordre — vide une fois le compte en
+   * ordre. Calculé par Django (`accounts/services/accueil.py`), seule copie de
+   * la règle : `app/(app)/bienvenue.tsx` le lit, ne le recalcule pas.
+   */
+  onboarding?: OnboardingStep[];
 }
+
+export type OnboardingStep = "daara" | "fiche" | "mot_de_passe";
 
 export interface AuthTokens {
   access: string;

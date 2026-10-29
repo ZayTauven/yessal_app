@@ -24,8 +24,14 @@ import { rememberPendingRoute } from "@/lib/pending-route";
 import { useAuthStore } from "@/store/auth.store";
 import { Radius, Surface } from "@/theme";
 
+/**
+ * Les écrans permis pendant l'accueil (`bienvenue.tsx`) : lui-même, et ceux où
+ * ses étapes renvoient. Tout le reste y ramène tant qu'il reste une étape.
+ */
+const ROUTES_DE_L_ACCUEIL = ["/bienvenue", "/profile/informations", "/profile/documents"];
+
 export default function AppLayout() {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, user } = useAuthStore();
 
   /*
     Taper une notification doit mener à CE dont elle parle. Le crochet vit ici
@@ -81,10 +87,20 @@ export default function AppLayout() {
   if (isLoading) return null;
   if (!isAuthenticated) return <Redirect href="/login" />;
 
+  /* Un compte créé par un tiers termine son accueil avant toute autre chose :
+     Daara, fiche, puis son propre mot de passe. La règle est servie par Django
+     (`user.onboarding`) ; ici, on ne fait que l'appliquer. */
+  if (user?.onboarding?.length && !ROUTES_DE_L_ACCUEIL.includes(pathname)) {
+    return <Redirect href="/bienvenue" />;
+  }
+
   return (
     <View style={styles.shell}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
+
+        {/* L'accueil d'un compte créé par un tiers : pas de retour par geste. */}
+        <Stack.Screen name="bienvenue" options={{ gestureEnabled: false }} />
 
         {/*
           Le flux Jëf. Feuille pleine hauteur : les cinq étapes portent un pavé

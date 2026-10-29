@@ -79,6 +79,26 @@ export const AuthService = {
     await api.post("auth/change-password/", { current_password, new_password });
   },
 
+  /**
+   * Le même changement, SANS quitter la session — pour la dernière étape de
+   * l'accueil. Django révoque les anciens jetons mais en remet de neufs dans
+   * sa réponse ; les garder évite de renvoyer à la connexion un membre qui
+   * vient tout juste de s'y présenter.
+   */
+  async changePasswordAndStay(current_password: string, new_password: string): Promise<void> {
+    const data = await api.post<AuthTokens>("auth/change-password/", {
+      current_password,
+      new_password,
+    });
+    await Storage.setItemAsync(Config.TOKEN_KEY, data.access);
+    await Storage.setItemAsync(Config.REFRESH_KEY, data.refresh);
+  },
+
+  /** L'étape « daara » de l'accueil : une seule fois, compte sans Daara. */
+  async chooseDaara(daaraId: number): Promise<ProfileResponse> {
+    return api.post<ProfileResponse>("profile/daara/", { daara_id: daaraId });
+  },
+
   async forgotPassword(payload: ForgotPasswordPayload): Promise<void> {
     await api.post("auth/forgot-password/", payload, { auth: false });
   },
