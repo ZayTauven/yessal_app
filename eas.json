@@ -11,7 +11,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api"
+        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api",
+        "EXPO_PUBLIC_PUSHER_KEY": "bea7b0eb7536983d2be8",
+        "EXPO_PUBLIC_PUSHER_CLUSTER": "eu"
       }
     },
     "preview": {
@@ -20,7 +22,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api"
+        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api",
+        "EXPO_PUBLIC_PUSHER_KEY": "bea7b0eb7536983d2be8",
+        "EXPO_PUBLIC_PUSHER_CLUSTER": "eu"
       }
     },
     "production": {
@@ -29,7 +33,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api"
+        "EXPO_PUBLIC_API_URL": "https://api-yessal.kasigroupe.tech/api",
+        "EXPO_PUBLIC_PUSHER_KEY": "bea7b0eb7536983d2be8",
+        "EXPO_PUBLIC_PUSHER_CLUSTER": "eu"
       }
     }
   },
