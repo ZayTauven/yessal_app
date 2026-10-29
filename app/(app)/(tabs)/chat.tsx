@@ -28,7 +28,7 @@
  *   Messages n'en dessine pas : un talubé a le salon de son Daara et quelques
  *   échanges, filtrer une liste qu'on voit entière n'a pas d'objet.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -39,7 +39,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Check, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
 
@@ -50,10 +50,11 @@ import { IconButton } from "@/components/ui/Button";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { ContentService } from "@/lib/content.service";
+import { listen } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
-import type { Chat, ChatInvitation } from "@/types/content.types";
-import { GUTTER, HIT, Ink, Space, Surface, Type, UIType, Violet } from "@/theme";
+import type { Chat, ChatInvitation, ChatLastMessage } from "@/types/content.types";
+import { Border, GUTTER, HIT, Ink, Space, Surface, Type, UIType, Violet } from "@/theme";
 
 interface ListState {
   status: "loading" | "ready" | "failed";
@@ -75,10 +76,19 @@ interface ListState {
  * comparer, et les mettre en tête donnerait la première place au silence.
  */
 function byRecency(a: Chat, b: Chat): number {
-  const at = a.last_message?.sent_at ? new Date(a.last_message.sent_at).getTime() : 0;
-  const bt = b.last_message?.sent_at ? new Date(b.last_message.sent_at).getTime() : 0;
-  return bt - at;
+  const stamp = (c: Chat) => new Date(c.last_message?.sent_at || c.last_activity_at || 0).getTime();
+  return stamp(b) - stamp(a);
 }
+
+type Filter = "all" | "unread" | "group" | "direct";
+
+/** Brief §4.3, écran 8 : des pilules au-dessus d'une liste unique. */
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "all", label: "Tous" },
+  { value: "unread", label: "Non lus" },
+  { value: "group", label: "Salons" },
+  { value: "direct", label: "Directs" },
+];
 
 /**
  * Rend un état COMPLET. Le `setState` vit après l'`await`, jamais dans le corps
@@ -128,6 +138,7 @@ export default function MessagesScreen() {
   });
   const [refreshing, setRefreshing] = useState(false);
   const [answering, setAnswering] = useState<number | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     let active = true;
@@ -143,6 +154,61 @@ export default function MessagesScreen() {
     setRefreshing(true);
     setState(await fetchChats(userId));
     setRefreshing(false);
+  }, [userId]);
+
+  /*
+    Au RETOUR sur l'onglet — depuis un fil lu, typiquement. Sans cela la
+    pastille du fil qu'on vient de lire restait affichée jusqu'au prochain
+    tirer-pour-rafraîchir : l'écran n'était chargé qu'une fois, au montage.
+  */
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      fetchChats(userId).then((next) => {
+        if (active && next.status === "ready") setState(next);
+      });
+      return () => {
+        active = false;
+      };
+    }, [userId]),
+  );
+
+  /*
+    Le temps réel : chaque message de chaque fil fait remonter sa ligne et
+    compter sa pastille, sans rien recharger. Un fil inconnu (un salon où l'on
+    vient d'être ajouté) déclenche un rechargement complet.
+  */
+  useEffect(() => {
+    if (!userId) return;
+    return listen(`private-user.${userId}`, {
+      "chat-updated": ((event: { chat_id: number; last_message: ChatLastMessage }) => {
+        setState((previous) => {
+          if (!previous.chats.some((c) => c.id === event.chat_id)) {
+            fetchChats(userId).then(setState);
+            return previous;
+          }
+          const mine = event.last_message.sender_id === userId;
+          return {
+            ...previous,
+            chats: previous.chats
+              .map((c) =>
+                c.id === event.chat_id
+                  ? {
+                      ...c,
+                      last_message: { ...event.last_message, is_mine: mine },
+                      last_activity_at: event.last_message.sent_at,
+                      unread_count: mine ? 0 : c.unread_count + 1,
+                    }
+                  : c,
+              )
+              .sort(byRecency),
+          };
+        });
+      }) as never,
+      "new-invitation": (() => {
+        fetchChats(userId).then(setState);
+      }) as never,
+    });
   }, [userId]);
 
   /*
@@ -174,6 +240,20 @@ export default function MessagesScreen() {
   );
 
   const { status, chats, invitations } = state;
+  const unreadChats = chats.filter((c) => c.unread_count > 0).length;
+  const visible = useMemo(
+    () =>
+      chats.filter((c) =>
+        filter === "unread"
+          ? c.unread_count > 0
+          : filter === "group"
+            ? c.chat_type === "group"
+            : filter === "direct"
+              ? c.chat_type === "direct"
+              : true,
+      ),
+    [chats, filter],
+  );
 
   /*
     La racine est un `SafeAreaView edges={["top"]}`, et non un `View` nu. Même
@@ -274,13 +354,41 @@ export default function MessagesScreen() {
             style={styles.state}
           />
         ) : (
-          chats.map((chat) => (
-            <ChatRow
-              key={chat.id}
-              chat={chat}
-              onPress={() => router.push(`/chat/${chat.id}`)}
-            />
-          ))
+          <>
+            <View style={styles.filters} accessibilityRole="tablist">
+              {FILTERS.map((f) => {
+                const active = filter === f.value;
+                return (
+                  <Pressable
+                    key={f.value}
+                    onPress={() => setFilter(f.value)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                    style={[styles.pill, active && styles.pillActive]}
+                    hitSlop={6}
+                  >
+                    <Text style={[styles.pillLabel, active && styles.pillLabelActive]}>
+                      {f.label}
+                      {f.value === "unread" && unreadChats > 0 ? ` · ${unreadChats}` : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {visible.length === 0 ? (
+              <Text style={styles.filterEmpty}>
+                {filter === "unread" ? "Tout est lu. Alhamdoulillah." : "Rien dans cette catégorie."}
+              </Text>
+            ) : (
+              visible.map((chat) => (
+                <ChatRow
+                  key={chat.id}
+                  chat={chat}
+                  onPress={() => router.push(`/chat/${chat.id}`)}
+                />
+              ))
+            )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -405,5 +513,19 @@ const styles = StyleSheet.create({
   title: { ...Type.screenTitle, color: Violet[900], flex: 1 },
 
   list: { paddingHorizontal: GUTTER },
+
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: Space.sm, paddingBottom: Space.sm },
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Border.hairline,
+    backgroundColor: Surface.default,
+  },
+  pillActive: { backgroundColor: Violet[900], borderColor: Violet[900] },
+  pillLabel: { ...Type.label, color: Ink[500] },
+  pillLabelActive: { color: Surface.default },
+  filterEmpty: { ...Type.label, color: Ink[300], textAlign: "center", marginTop: Space.huge },
   state: { marginTop: 72 },
 });

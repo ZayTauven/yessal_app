@@ -36,6 +36,7 @@ import type {
   Donation,
 } from "@/types/donation.types";
 import { Config } from "@/constants/configs";
+import { fichierPourEnvoi } from "@/lib/upload";
 
 type PaginatedResponse<T> = { results?: T[] } | T[];
 
@@ -201,10 +202,18 @@ function normalizeChat(item: any): Chat {
           content: last.content ?? "",
           sent_at: last.sent_at ?? null,
           sender_name: last.sender_name ?? "",
+          sender_id: last.sender_id ?? null,
+          message_type: last.message_type ?? "text",
+          is_mine: Boolean(last.is_mine),
         }
       : null,
     unread_count: toNumber(item.unread_count),
     members_count: toNumber(item.members_count),
+    is_muted: Boolean(item.is_muted),
+    peer_id: item.peer_id ?? null,
+    peer_last_read_at: item.peer_last_read_at ?? null,
+    last_activity_at: item.last_activity_at ?? null,
+    created_by: item.created_by ?? null,
     daara: item.daara ?? null,
     campaign: item.campaign ?? null,
     created_at: item.created_at,
@@ -219,12 +228,19 @@ function normalizeMessage(item: any): Message {
     message_type: item.message_type ?? "text",
     content: item.content ?? "",
     file_url: absoluteMediaUrl(item.file_url),
+    file_name: item.file_name ?? null,
+    file_size: item.file_size ?? null,
+    file_is_image: Boolean(item.file_is_image),
     reply_to: item.reply_to ?? null,
+    reply_preview: item.reply_preview ?? null,
     is_deleted: Boolean(item.is_deleted),
     reactions: Array.isArray(item.reactions) ? item.reactions : [],
     sent_at: item.sent_at,
   };
 }
+
+/** Pour le temps réel : la charge Pusher a la forme exacte de l'API. */
+export const normalizeIncomingMessage = normalizeMessage;
 
 function normalizeAnnouncement(item: any): Announcement {
   return {
@@ -601,8 +617,58 @@ export const ContentService = {
     await api.post(`comms/${id}/read/`);
   },
 
+  /**
+   * Une page du fil, en remontant : les `limit` derniers messages, ou ceux qui
+   * précèdent `before`. Remplace le chargement de tout l'historique d'un
+   * salon de Daara à chaque ouverture.
+   */
+  async getChatMessagesPage(
+    chatId: number,
+    before?: number,
+    limit = 40,
+  ): Promise<{ messages: Message[]; hasMore: boolean }> {
+    const query = `chat=${chatId}&limit=${limit}${before ? `&before=${before}` : ""}`;
+    const data = await api.get<any>(`comms/messages/?${query}`);
+    return {
+      messages: (Array.isArray(data?.results) ? data.results : []).map(normalizeMessage),
+      hasMore: Boolean(data?.has_more),
+    };
+  },
+
+  async toggleReaction(messageId: number, emoji: string): Promise<void> {
+    await api.post(`comms/messages/${messageId}/react/`, { emoji });
+  },
+
+  async deleteMessage(messageId: number): Promise<void> {
+    await api.delete(`comms/messages/${messageId}/`);
+  },
+
+  async toggleMute(chatId: number): Promise<boolean> {
+    const data = await api.post<{ is_muted: boolean }>(`comms/${chatId}/mute/`);
+    return Boolean(data?.is_muted);
+  },
+
+  /** Signature d'un canal privé ou de présence — voir `lib/realtime.ts`. */
+  async pusherAuth(channelName: string, socketId: string): Promise<{ auth: string; channel_data?: string }> {
+    return api.post("comms/pusher/auth/", { channel_name: channelName, socket_id: socketId });
+  },
+
   async createMessage(payload: CreateMessagePayload): Promise<Message> {
-    const data = await api.post<any>("comms/messages/", payload);
+    if (payload.imageUri) {
+      /* Multipart, avec un `File` d'expo-file-system — voir `lib/upload.ts`
+         pour pourquoi jamais `{ uri, name, type }`. */
+      const form = new FormData();
+      form.append("chat", String(payload.chat));
+      form.append("content", payload.content);
+      if (payload.reply_to) form.append("reply_to", String(payload.reply_to));
+      form.append("file", fichierPourEnvoi(payload.imageUri) as unknown as Blob);
+      return normalizeMessage(await api.post<any>("comms/messages/", form));
+    }
+    const data = await api.post<any>("comms/messages/", {
+      chat: payload.chat,
+      content: payload.content,
+      ...(payload.reply_to ? { reply_to: payload.reply_to } : {}),
+    });
     return normalizeMessage(data);
   },
 

@@ -85,6 +85,10 @@ export interface ChatLastMessage {
   content: string;
   sent_at: string | null;
   sender_name: string;
+  sender_id?: number | null;
+  message_type?: MessageType;
+  /** Écrit par l'utilisateur courant : la ligne affiche « Vous : ». */
+  is_mine?: boolean;
 }
 
 export interface Chat {
@@ -97,9 +101,26 @@ export interface Chat {
   last_message: ChatLastMessage | null;
   unread_count: number;
   members_count: number;
+  /** Sourdine de l'utilisateur courant sur ce fil — aucun push n'en part. */
+  is_muted: boolean;
+  /** L'interlocuteur d'un tête-à-tête. */
+  peer_id?: number | null;
+  /** Jusqu'où l'interlocuteur a lu — c'est le « Vu ». Tête-à-tête seulement. */
+  peer_last_read_at?: string | null;
+  last_activity_at?: string | null;
+  created_by?: number | null;
   daara?: number | null;
   campaign?: number | null;
   created_at: string;
+}
+
+/** Ce que cite une réponse — `ReplyPreviewSerializer`. */
+export interface MessageReplyPreview {
+  id: number;
+  sender_name: string;
+  content: string;
+  message_type: MessageType;
+  is_deleted: boolean;
 }
 
 export type MessageType = "text" | "file" | "system";
@@ -137,11 +158,21 @@ export interface Message {
   is_deleted: boolean;
   reactions: MessageReaction[];
   sent_at: string;
+  file_name?: string | null;
+  file_size?: number | null;
+  /** Une image s'affiche en vignette ; le reste en carte de document. */
+  file_is_image?: boolean;
+  reply_preview?: MessageReplyPreview | null;
+  /** Message pas encore confirmé par le serveur — absent de tout ce que l'API rend. */
+  local?: { status: "sending" | "failed"; imageUri?: string | null };
 }
 
 export interface CreateMessagePayload {
   chat: number;
   content: string;
+  reply_to?: number | null;
+  /** URI locale d'une image choisie dans la galerie. */
+  imageUri?: string | null;
 }
 
 export interface Announcement {

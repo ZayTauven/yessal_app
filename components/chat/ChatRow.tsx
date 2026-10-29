@@ -10,6 +10,7 @@
  * petit écran là où l'ancien écran en montrait quatre.
  */
 import { StyleSheet, Text, View, Pressable } from "react-native";
+import { BellOff } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import type { Chat } from "@/types/content.types";
@@ -18,6 +19,7 @@ import {
   Font,
   Ink,
   Radius,
+  Surface,
   Type,
   UIType,
   Violet,
@@ -42,7 +44,20 @@ export function ChatRow({ chat, onPress }: ChatRowProps) {
     Pas de repli inventé quand la conversation est vide : on le DIT. Écrire un
     faux dernier message ferait croire à un échange qui n'a pas eu lieu.
   */
-  const preview = last?.content?.trim() || "Aucun message pour l'instant";
+  const body = last?.content?.trim();
+  /*
+    Qui a parlé en dernier : « Vous : » pour soi, le prénom en salon. Une note
+    système (« X a rejoint ») n'est la parole de personne — pas d'auteur.
+  */
+  const author =
+    !last || !body || last.message_type === "system"
+      ? ""
+      : last.is_mine
+        ? "Vous : "
+        : chat.chat_type === "group"
+          ? `${last.sender_name.split(" ")[0]} : `
+          : "";
+  const preview = body ? `${author}${body}` : "Aucun message pour l'instant";
 
   return (
     <Pressable
@@ -70,14 +85,21 @@ export function ChatRow({ chat, onPress }: ChatRowProps) {
       </View>
 
       <View style={styles.side}>
-        <Text style={styles.time}>{formatRowTime(last?.sent_at)}</Text>
+        <Text style={[styles.time, unread > 0 && styles.timeUnread]}>
+          {formatRowTime(last?.sent_at ?? chat.last_activity_at)}
+        </Text>
+        <View style={styles.badges}>
+        {chat.is_muted ? (
+          <BellOff size={13} color={Ink[300]} strokeWidth={1.8} accessibilityLabel="En sourdine" />
+        ) : null}
         {unread > 0 ? (
-          <View style={styles.unread}>
+          <View style={[styles.unread, chat.is_muted && styles.unreadMuted]}>
             <Text style={styles.unreadLabel}>
               {unread > UNREAD_CAP ? `${UNREAD_CAP}+` : unread}
             </Text>
           </View>
         ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -98,6 +120,8 @@ export function formatRowTime(value?: string | null): string {
     return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   }
   if (days === 1) return "Hier";
+  // Dans la semaine, le jour suffit et se lit plus vite qu'une date.
+  if (days < 7) return date.toLocaleDateString("fr-FR", { weekday: "short" }).replace(".", "");
   return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
 
@@ -127,6 +151,8 @@ const styles = StyleSheet.create({
 
   side: { alignItems: "flex-end", gap: 6 },
   time: { ...Type.micro, color: Ink[300] },
+  timeUnread: { color: Violet[700], fontFamily: Font.semibold },
+  badges: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20 },
   unread: {
     minWidth: 20,
     height: 20,
@@ -136,6 +162,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  /* En sourdine, la pastille compte toujours mais n'appelle plus : elle passe au gris. */
+  unreadMuted: { backgroundColor: Surface.btn },
   /*
     Violet[900] sur Violet[300] — 6,20:1. Le blanc n'y tiendrait que 2,4:1 :
     c'est la même règle que le libellé du bouton principal.

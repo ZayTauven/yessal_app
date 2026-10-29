@@ -8,26 +8,22 @@
  *   groupe        pile de visages + effectif · annonce épinglée · bulles signées
  *                 et portant le visage de leur auteur · « Message au Daara… »
  *
- * Deux fichiers auraient dupliqué l'en-tête, le fil, le composeur et le
- * chargement pour quatre différences d'affichage.
+ * ── Ce que la refonte de la messagerie (2026-10-29) a apporté ───────────────
  *
- * ── Ce que la planche promet et que le backend ne sait pas dire ─────────────
- *
- * — **« en ligne »** (tête-à-tête) et **« 3 en train d'écrire »** (groupe).
- *   `comms/` n'expose ni présence ni indicateur de frappe : `UserBriefSerializer`
- *   ne porte aucun de ces champs, et le canal Pusher ne diffuse que les
- *   messages, les réactions et les invitations (`comms/signals.py`). Inventer
- *   « en ligne » ferait attendre une réponse immédiate d'un chef de Daara qui
- *   n'a pas ouvert l'application depuis trois jours. Le sous-titre dit donc ce
- *   qui est VRAI : le rôle de l'interlocuteur, l'effectif du salon ;
- * — **le bouton « + » du composeur** — voir `components/chat/Composer.tsx` ;
- * — **les deux boutons de droite de l'en-tête** : le pictogramme « maison » du
- *   tête-à-tête et le « ⋮ » du groupe. Le premier mène au Daara, que rien ne
- *   rattache à une conversation directe côté serveur. Le second ouvre un menu
- *   dont la seule action réelle serait la sourdine — or `is_muted` vit sur
- *   `ChatMembership` et n'est PAS dans `ChatSerializer.Meta.fields` : la bascule
- *   ne pourrait pas afficher son propre état. Un interrupteur dont on ne sait
- *   pas s'il est allumé n'est pas un interrupteur.
+ * — **Le temps réel** (`lib/realtime.ts`) : les messages, réactions,
+ *   suppressions et accusés de lecture arrivent seuls. Avant, le fil ne
+ *   bougeait qu'au tirer-pour-rafraîchir.
+ * — **« écrit… »** dans l'en-tête, relayé par le canal de présence — le
+ *   serveur n'y est pour rien, ce sont les téléphones qui se le disent.
+ * — **Le « Vu »** du tête-à-tête : la double coche, quand l'autre a ouvert le fil.
+ * — **L'appui long** sur une bulle : réagir, répondre, copier, supprimer.
+ * — **Les photos** : le « + » du composeur, et la vignette dans le fil.
+ * — **La sourdine**, enfin pilotable : `is_muted` est désormais servi par
+ *   `ChatSerializer`, l'interrupteur peut donc afficher son propre état.
+ * — **Une liste inversée** (`FlatList inverted`) au lieu d'un `ScrollView`
+ *   recalé en bas à chaque changement de hauteur : on peut remonter l'histoire
+ *   pendant qu'un salon parle, et les messages plus anciens se chargent par
+ *   pages en arrivant en haut.
  *
  * ── Le reçu de Jëf ─────────────────────────────────────────────────────────
  *
@@ -45,20 +41,26 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  AppState,
+  FlatList,
+  Image,
   KeyboardAvoidingView,
-  RefreshControl,
-  ScrollView,
+  Modal,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { Bell, BellOff, ChevronLeft, X } from "lucide-react-native";
 
 import { Composer } from "@/components/chat/Composer";
 import { JefReceipt } from "@/components/chat/JefReceipt";
+import { MessageActions } from "@/components/chat/MessageActions";
 import { DayDivider, MessageBubble, SystemNote } from "@/components/chat/MessageBubble";
 import { PinnedAnnouncement, pickPinned } from "@/components/chat/PinnedAnnouncement";
 import { daysBetween } from "@/components/chat/ChatRow";
@@ -66,10 +68,11 @@ import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar"
 import { ErrorState } from "@/components/ui/EmptyState";
 import { IconButton } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ContentService } from "@/lib/content.service";
+import { ContentService, normalizeIncomingMessage } from "@/lib/content.service";
 import { formatNumber } from "@/lib/format";
+import { listen, whisper } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
-import type { Announcement, Chat, ChatMember, Message } from "@/types/content.types";
+import type { Announcement, Chat, ChatMember, Message, MessageReaction } from "@/types/content.types";
 import type { Donation } from "@/types/donation.types";
 import {
   Border,
@@ -87,6 +90,9 @@ import {
 const HEADER_FACES = 2;
 /** Diamètre des visages de l'en-tête, mesuré sur la planche. */
 const HEADER_FACE = 34;
+/** « écrit… » renvoyé au plus toutes les 3 s ; effacé chez l'autre après 6 s sans nouvelle. */
+const TYPING_THROTTLE_MS = 3000;
+const TYPING_EXPIRE_MS = 6000;
 
 /**
  * Le rôle, en clair. `UserBriefSerializer` renvoie la valeur brute de
@@ -110,6 +116,7 @@ interface ConversationState {
   status: "loading" | "ready" | "failed";
   chat: Chat | null;
   messages: Message[];
+  hasMore: boolean;
   members: ChatMember[];
   /** L'annonce du Daara à épingler, en salon seulement. */
   pinned: Announcement | null;
@@ -121,6 +128,7 @@ const EMPTY: ConversationState = {
   status: "failed",
   chat: null,
   messages: [],
+  hasMore: false,
   members: [],
   pinned: null,
   receipts: [],
@@ -131,21 +139,19 @@ const EMPTY: ConversationState = {
  * l'`await`, comme l'exige `react-hooks/set-state-in-effect`.
  *
  * Deux vagues, et c'est délibéré. La première porte ce SANS QUOI L'ÉCRAN
- * N'EXISTE PAS : la conversation et ses messages. La seconde porte ce qui
- * l'enrichit — les membres, l'annonce, les reçus — et dont l'échec ne doit
- * jamais faire basculer l'écran en erreur : un fil se lit très bien sans la
- * pile de visages de son en-tête. Elle dépend de la première, qui seule dit si
- * la conversation est un salon (annonce) et si elle porte un Ndiguel (reçus).
+ * N'EXISTE PAS : la conversation et la dernière page de messages. La seconde
+ * porte ce qui l'enrichit — les membres, l'annonce, les reçus — et dont
+ * l'échec ne doit jamais faire basculer l'écran en erreur.
  */
 async function fetchConversation(
   chatId: number,
   userId: number | undefined,
 ): Promise<ConversationState> {
-  const [chat, messages] = await Promise.all([
+  const [chat, page] = await Promise.all([
     ContentService.getChatById(chatId).catch(() => null),
-    ContentService.getChatMessages(chatId).catch(() => null),
+    ContentService.getChatMessagesPage(chatId).catch(() => null),
   ]);
-  if (!chat || !messages) return EMPTY;
+  if (!chat || !page) return EMPTY;
 
   const [members, announcements, donations] = await Promise.all([
     ContentService.getChatMembers(chatId).catch(() => []),
@@ -157,15 +163,16 @@ async function fetchConversation(
 
   /*
     L'horodatage de lecture, posé sans attendre : c'est lui qui vide la
-    pastille de non-lus au retour sur la liste. Son échec ne concerne pas
-    l'affichage — au pire la pastille reste, elle ne ment pas pour autant.
+    pastille de non-lus au retour sur la liste — et qui allume le « Vu » chez
+    l'autre, par le canal du fil.
   */
   ContentService.markChatRead(chatId).catch(() => undefined);
 
   return {
     status: "ready",
     chat,
-    messages,
+    messages: page.messages,
+    hasMore: page.hasMore,
     members,
     pinned: pickPinned(announcements, chat.daara),
     /*
@@ -183,6 +190,36 @@ async function fetchConversation(
   };
 }
 
+function applyReaction(
+  reactions: MessageReaction[],
+  emoji: string,
+  add: boolean,
+  mine: boolean,
+): MessageReaction[] {
+  const next = reactions.map((r) => ({ ...r }));
+  const i = next.findIndex((r) => r.emoji === emoji);
+  if (add) {
+    if (i >= 0) {
+      next[i].count += 1;
+      if (mine) next[i].reacted_by_me = true;
+    } else next.push({ emoji, count: 1, reacted_by_me: mine });
+  } else if (i >= 0) {
+    next[i].count -= 1;
+    if (mine) next[i].reacted_by_me = false;
+    if (next[i].count <= 0) next.splice(i, 1);
+  }
+  return next;
+}
+
+/** Ajoute ou remplace par identifiant, en gardant l'ordre chronologique. */
+function mergeMessages(current: Message[], incoming: Message[]): Message[] {
+  const byId = new Map(current.map((m) => [m.id, m]));
+  for (const m of incoming) byId.set(m.id, m);
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime() || a.id - b.id,
+  );
+}
+
 export default function ConversationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -190,15 +227,19 @@ export default function ConversationScreen() {
   const chatId = parseId(params.id);
   const user = useAuthStore((state) => state.user);
   const userId = user?.id;
-
-  const scrollRef = useRef<ScrollView>(null);
+  const userName = [user?.first_name, user?.last_name].filter(Boolean).join(" ") || "Moi";
 
   const [state, setState] = useState<ConversationState>(
     chatId ? { ...EMPTY, status: "loading" } : EMPTY,
   );
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [acting, setActing] = useState<Message | null>(null);
+  const [viewing, setViewing] = useState<Message | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [typing, setTyping] = useState<Record<number, { name: string; at: number }>>({});
+  const lastTypingSent = useRef(0);
 
   useEffect(() => {
     if (!chatId) return;
@@ -216,37 +257,307 @@ export default function ConversationScreen() {
     setState(await fetchConversation(chatId, userId));
   }, [chatId, userId]);
 
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    await reload();
-    setRefreshing(false);
-  }, [reload]);
+  // ─── Temps réel ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!chatId || !userId) return;
 
-  const { status, chat, messages, members, pinned, receipts } = state;
+    const offChat = listen(`private-chat.${chatId}`, {
+      "new-message": ((raw: unknown) => {
+        const incoming = normalizeIncomingMessage(raw);
+        setState((previous) => {
+          if (previous.messages.some((m) => m.id === incoming.id)) return previous;
+          /* Mon propre message peut arriver ici avant la réponse HTTP : il
+             remplace sa bulle « en cours » au lieu de la doubler. */
+          let messages = previous.messages;
+          if (incoming.sender?.id === userId) {
+            const idx = messages.findIndex(
+              (m) => m.local?.status === "sending" && m.content === incoming.content,
+            );
+            if (idx >= 0) messages = messages.filter((_, i) => i !== idx);
+          }
+          return { ...previous, messages: mergeMessages(messages, [incoming]) };
+        });
+        if (incoming.sender?.id !== userId && AppState.currentState === "active") {
+          ContentService.markChatRead(chatId).catch(() => undefined);
+        }
+        if (incoming.sender?.id) {
+          setTyping((t) => {
+            const next = { ...t };
+            delete next[incoming.sender!.id];
+            return next;
+          });
+        }
+      }) as never,
+      "message-reaction": ((data: { message_id: number; emoji: string; user_id: number; action: "add" | "remove" }) => {
+        if (data.user_id === userId) return; // déjà appliquée, de façon optimiste
+        setState((previous) => ({
+          ...previous,
+          messages: previous.messages.map((m) =>
+            m.id === data.message_id
+              ? { ...m, reactions: applyReaction(m.reactions, data.emoji, data.action === "add", false) }
+              : m,
+          ),
+        }));
+      }) as never,
+      "message-deleted": ((data: { message_id: number }) => {
+        setState((previous) => ({
+          ...previous,
+          messages: previous.messages.map((m) =>
+            m.id === data.message_id ? { ...m, is_deleted: true, content: "Message supprimé", file_url: null } : m,
+          ),
+        }));
+      }) as never,
+      "chat-read": ((data: { user_id: number; read_at: string }) => {
+        if (data.user_id === userId) return;
+        setState((previous) =>
+          previous.chat ? { ...previous, chat: { ...previous.chat, peer_last_read_at: data.read_at } } : previous,
+        );
+      }) as never,
+    });
+
+    const offPresence = listen(`presence-chat.${chatId}`, {
+      "client-typing": ((data: { user_id: number; name: string; typing: boolean }) => {
+        if (data.user_id === userId) return;
+        setTyping((t) => {
+          const next = { ...t };
+          if (data.typing) next[data.user_id] = { name: data.name, at: Date.now() };
+          else delete next[data.user_id];
+          return next;
+        });
+      }) as never,
+    });
+
+    return () => {
+      offChat();
+      offPresence();
+    };
+  }, [chatId, userId]);
+
+  /* Un « écrit… » orphelin (réseau coupé, appli fermée) s'éteint seul. */
+  useEffect(() => {
+    if (Object.keys(typing).length === 0) return;
+    const timer = setInterval(() => {
+      setTyping((t) => {
+        const now = Date.now();
+        const kept = Object.fromEntries(Object.entries(t).filter(([, v]) => now - v.at < TYPING_EXPIRE_MS));
+        return Object.keys(kept).length === Object.keys(t).length ? t : kept;
+      });
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [typing]);
+
+  /*
+    Au retour au premier plan, on rattrape ce que le socket a pu manquer
+    pendant que le téléphone dormait : la dernière page, fusionnée.
+  */
+  useEffect(() => {
+    if (!chatId) return;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      ContentService.getChatMessagesPage(chatId)
+        .then((page) => setState((previous) => ({ ...previous, messages: mergeMessages(previous.messages, page.messages) })))
+        .catch(() => undefined);
+      ContentService.markChatRead(chatId).catch(() => undefined);
+    });
+    return () => sub.remove();
+  }, [chatId]);
+
+  const { status, chat, messages, members, pinned, receipts, hasMore } = state;
   const isGroup = chat?.chat_type === "group";
 
+  /** Le dernier de MES messages que l'autre a lu — la double coche se pose dessus. */
+  const peerReadAt = chat?.peer_last_read_at ?? null;
+  const seenId = useMemo(() => {
+    if (isGroup || !peerReadAt) return null;
+    const limit = new Date(peerReadAt).getTime();
+    let found: number | null = null;
+    for (const m of messages) {
+      if (m.sender?.id === userId && !m.local && new Date(m.sent_at).getTime() <= limit) found = m.id;
+    }
+    return found;
+  }, [messages, isGroup, peerReadAt, userId]);
+
+  /* Inversée : le plus récent en premier, la `FlatList` le pose en bas. */
   const timeline = useMemo(
-    () => buildTimeline(messages, receipts, userId),
+    () => buildTimeline(messages, receipts, userId).reverse(),
     [messages, receipts, userId],
   );
 
-  async function handleSend() {
-    const body = draft.trim();
-    if (!chatId || !body || sending) return;
-
-    setSending(true);
+  const loadOlder = useCallback(async () => {
+    if (!chatId || !hasMore || loadingOlder) return;
+    const oldest = messages.find((m) => !m.local);
+    if (!oldest) return;
+    setLoadingOlder(true);
     try {
-      const created = await ContentService.createMessage({ chat: chatId, content: body });
-      setState((previous) => ({ ...previous, messages: [...previous.messages, created] }));
-      setDraft("");
+      const page = await ContentService.getChatMessagesPage(chatId, oldest.id);
+      setState((previous) => ({
+        ...previous,
+        messages: mergeMessages(previous.messages, page.messages),
+        hasMore: page.hasMore,
+      }));
     } catch {
-      Alert.alert(
-        "Message non envoyé",
-        "Il n'est pas parti. Vérifiez votre connexion, puis réessayez — votre texte est conservé.",
-      );
+      /* On réessaiera au prochain passage en haut du fil. */
     } finally {
-      setSending(false);
+      setLoadingOlder(false);
     }
+  }, [chatId, hasMore, loadingOlder, messages]);
+
+  function onDraftChange(value: string) {
+    setDraft(value);
+    if (!chatId || !userId) return;
+    const now = Date.now();
+    if (now - lastTypingSent.current > TYPING_THROTTLE_MS) {
+      lastTypingSent.current = now;
+      whisper(`presence-chat.${chatId}`, "client-typing", {
+        user_id: userId,
+        name: user?.first_name || "Quelqu'un",
+        typing: value.length > 0,
+      });
+    }
+  }
+
+  async function deliver(local: Message) {
+    if (!chatId) return;
+    try {
+      const created = await ContentService.createMessage({
+        chat: chatId,
+        content: local.content,
+        reply_to: local.reply_to ?? null,
+        imageUri: local.local?.imageUri ?? null,
+      });
+      setState((previous) => ({
+        ...previous,
+        messages: mergeMessages(
+          previous.messages.filter((m) => m.id !== local.id),
+          [created],
+        ),
+      }));
+    } catch {
+      setState((previous) => ({
+        ...previous,
+        messages: previous.messages.map((m) =>
+          m.id === local.id ? { ...m, local: { ...m.local, status: "failed" } } : m,
+        ),
+      }));
+    }
+  }
+
+  function handleSend() {
+    const body = draft.trim();
+    if (!chatId || !userId || (!body && !imageUri)) return;
+    lastTypingSent.current = 0;
+    whisper(`presence-chat.${chatId}`, "client-typing", { user_id: userId, name: "", typing: false });
+
+    /*
+      La bulle part dans le fil AVANT la réponse du serveur, marquée « en
+      cours ». Sur une connexion lente, c'est ce qui évite le double envoi :
+      on voit que le message est parti.
+    */
+    const local: Message = {
+      id: -Date.now(),
+      chat: chatId,
+      sender: { id: userId, name: userName, avatar: user?.avatar ?? null },
+      message_type: imageUri ? "file" : "text",
+      content: body,
+      file_url: null,
+      file_is_image: !!imageUri,
+      reply_to: replyingTo?.id ?? null,
+      reply_preview: replyingTo
+        ? {
+            id: replyingTo.id,
+            sender_name: replyingTo.sender?.name ?? "",
+            content: replyingTo.message_type === "file" ? "Pièce jointe" : replyingTo.content,
+            message_type: replyingTo.message_type,
+            is_deleted: replyingTo.is_deleted,
+          }
+        : null,
+      is_deleted: false,
+      reactions: [],
+      sent_at: new Date().toISOString(),
+      local: { status: "sending", imageUri },
+    };
+    setState((previous) => ({ ...previous, messages: [...previous.messages, local] }));
+    setDraft("");
+    setImageUri(null);
+    setReplyingTo(null);
+    deliver(local);
+  }
+
+  function handleRetry(message: Message) {
+    const again: Message = {
+      ...message,
+      sent_at: new Date().toISOString(),
+      local: { ...message.local, status: "sending" },
+    };
+    setState((previous) => ({
+      ...previous,
+      messages: [...previous.messages.filter((m) => m.id !== message.id), again],
+    }));
+    deliver(again);
+  }
+
+  async function handleReact(message: Message, emoji: string) {
+    const already = message.reactions.find((r) => r.emoji === emoji)?.reacted_by_me ?? false;
+    const patch = (add: boolean) =>
+      setState((previous) => ({
+        ...previous,
+        messages: previous.messages.map((m) =>
+          m.id === message.id ? { ...m, reactions: applyReaction(m.reactions, emoji, add, true) } : m,
+        ),
+      }));
+    patch(!already);
+    try {
+      await ContentService.toggleReaction(message.id, emoji);
+    } catch {
+      patch(already);
+    }
+  }
+
+  function handleDelete(message: Message) {
+    Alert.alert(
+      "Supprimer ce message ?",
+      "Les autres verront « Message supprimé » à sa place.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await ContentService.deleteMessage(message.id);
+              setState((previous) => ({
+                ...previous,
+                messages: previous.messages.map((m) =>
+                  m.id === message.id ? { ...m, is_deleted: true, content: "Message supprimé", file_url: null } : m,
+                ),
+              }));
+            } catch {
+              Alert.alert("Suppression impossible", "Vérifiez votre connexion, puis réessayez.");
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  async function handleCopy(message: Message) {
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(message.content);
+  }
+
+  async function handleToggleMute() {
+    if (!chatId || !chat) return;
+    try {
+      const muted = await ContentService.toggleMute(chatId);
+      setState((previous) => (previous.chat ? { ...previous, chat: { ...previous.chat, is_muted: muted } } : previous));
+    } catch {
+      Alert.alert("Réglage non enregistré", "Vérifiez votre connexion, puis réessayez.");
+    }
+  }
+
+  function openActions(message: Message) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    setActing(message);
   }
 
   if (!chatId) {
@@ -262,6 +573,8 @@ export default function ConversationScreen() {
     );
   }
 
+  const typingNames = Object.values(typing).map((t) => t.name);
+
   return (
     <KeyboardAvoidingView style={styles.screen} behavior="padding">
       <ConversationHeader
@@ -270,85 +583,117 @@ export default function ConversationScreen() {
         currentUserId={userId}
         loading={status === "loading"}
         topInset={insets.top}
+        typingNames={typingNames}
         onBack={() => (router.canGoBack() ? router.back() : router.replace("/chat"))}
+        onToggleMute={handleToggleMute}
       />
 
       {isGroup && pinned ? (
-        <PinnedAnnouncement
-          announcement={pinned}
-          onPress={() => router.push("/announcements")}
-        />
+        <PinnedAnnouncement announcement={pinned} onPress={() => router.push("/announcements")} />
       ) : null}
 
       {status === "failed" ? (
         <View style={[styles.centered, styles.failed]}>
           <ErrorState body="Cette conversation n'a pas pu être chargée." onRetry={reload} />
         </View>
+      ) : status === "loading" ? (
+        <View style={styles.thread}>
+          <ThreadSkeleton />
+        </View>
       ) : (
-        <ScrollView
-          ref={scrollRef}
+        <FlatList
           style={styles.thread}
           contentContainerStyle={styles.threadContent}
-          showsVerticalScrollIndicator={false}
+          data={timeline}
+          inverted
+          keyExtractor={(entry) => entry.key}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          /*
-            Le fil se cale en bas à chaque changement de hauteur : chargement,
-            envoi, ouverture du clavier. C'est le point d'arrivée d'une
-            conversation — on la reprend là où elle s'est arrêtée.
-          */
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Violet[500]} />
+          showsVerticalScrollIndicator={false}
+          onEndReached={loadOlder}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            loadingOlder ? <ActivityIndicator color={Violet[500]} style={styles.older} /> : null
           }
-        >
-          {status === "loading" ? (
-            <ThreadSkeleton />
-          ) : timeline.length === 0 ? (
-            <Text style={styles.silent}>
+          ListEmptyComponent={
+            <Text style={[styles.silent, styles.flipped]}>
               {isGroup
-                ? "Personne n'a encore écrit dans ce salon."
+                ? "Personne n'a encore écrit dans ce salon. Un mot d'accueil suffit souvent."
                 : "Aucun message pour l'instant. Écrivez le premier."}
             </Text>
-          ) : (
-            timeline.map((entry) => {
-              switch (entry.kind) {
-                case "day":
-                  return <DayDivider key={entry.key} label={entry.label} />;
-                case "system":
-                  return <SystemNote key={entry.key} content={entry.content} />;
-                case "receipt":
-                  return (
-                    <JefReceipt
-                      key={entry.key}
-                      donation={entry.donation}
-                      campaignName={entry.donation.campaign_name}
-                    />
-                  );
-                case "message":
-                  return (
-                    <MessageBubble
-                      key={entry.key}
-                      message={entry.message}
-                      mine={entry.mine}
-                      leading={entry.leading}
-                      group={isGroup}
-                    />
-                  );
-              }
-            })
-          )}
-        </ScrollView>
+          }
+          ListHeaderComponent={
+            typingNames.length > 0 ? (
+              <Text style={styles.typing}>
+                {typingNames.length === 1 ? `${typingNames[0]} écrit…` : "Plusieurs personnes écrivent…"}
+              </Text>
+            ) : null
+          }
+          renderItem={({ item: entry }) => {
+            switch (entry.kind) {
+              case "day":
+                return <DayDivider label={entry.label} />;
+              case "system":
+                return <SystemNote content={entry.content} />;
+              case "receipt":
+                return <JefReceipt donation={entry.donation} campaignName={entry.donation.campaign_name} />;
+              case "message":
+                return (
+                  <MessageBubble
+                    message={entry.message}
+                    mine={entry.mine}
+                    leading={entry.leading}
+                    group={isGroup}
+                    seen={entry.message.id === seenId}
+                    onLongPress={openActions}
+                    onToggleReaction={handleReact}
+                    onOpenImage={setViewing}
+                    onRetry={handleRetry}
+                  />
+                );
+            }
+          }}
+        />
       )}
 
       <Composer
         value={draft}
-        onChangeText={setDraft}
+        onChangeText={onDraftChange}
         onSend={handleSend}
         placeholder={isGroup ? "Message au Daara…" : "Écrire un message…"}
-        sending={sending}
         bottomInset={insets.bottom}
+        replyingTo={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
+        imageUri={imageUri}
+        onPickImage={setImageUri}
       />
+
+      <MessageActions
+        message={acting}
+        canDelete={!!acting && (acting.sender?.id === userId || user?.role === "admin")}
+        bottomInset={insets.bottom}
+        onClose={() => setActing(null)}
+        onReact={handleReact}
+        onReply={setReplyingTo}
+        onCopy={handleCopy}
+        onDelete={handleDelete}
+      />
+
+      <Modal visible={!!viewing} transparent animationType="fade" onRequestClose={() => setViewing(null)}>
+        <View style={styles.viewer}>
+          {viewing?.file_url ? (
+            <Image source={{ uri: viewing.file_url }} style={styles.viewerImage} resizeMode="contain" />
+          ) : null}
+          <View style={[styles.viewerBar, { top: insets.top + Space.sm }]}>
+            <Text style={styles.viewerCaption} numberOfLines={1}>
+              {viewing?.sender?.name}
+            </Text>
+            <Pressable onPress={() => setViewing(null)} hitSlop={Space.md} accessibilityLabel="Fermer l'image">
+              <X size={26} color={Surface.default} strokeWidth={1.8} />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -361,14 +706,18 @@ function ConversationHeader({
   currentUserId,
   loading,
   topInset,
+  typingNames,
   onBack,
+  onToggleMute,
 }: {
   chat: Chat | null;
   members: ChatMember[];
   currentUserId: number | undefined;
   loading: boolean;
   topInset: number;
+  typingNames: string[];
   onBack: () => void;
+  onToggleMute: () => void;
 }) {
   const isGroup = chat?.chat_type === "group";
 
@@ -386,11 +735,20 @@ function ConversationHeader({
     .slice(0, HEADER_FACES)
     .map((member) => ({ uri: member.avatar, name: member.name }));
 
-  const subtitle = isGroup
-    ? memberCountLabel(chat?.members_count ?? members.length)
-    : [other?.role ? ROLE_LABEL[other.role] : null, other?.daara_name]
-        .filter(Boolean)
-        .join(" · ");
+  const typingLabel =
+    typingNames.length === 0
+      ? null
+      : isGroup
+        ? typingNames.length === 1
+          ? `${typingNames[0]} écrit…`
+          : `${typingNames.length} personnes écrivent…`
+        : "écrit…";
+
+  const subtitle =
+    typingLabel ??
+    (isGroup
+      ? memberCountLabel(chat?.members_count ?? members.length)
+      : [other?.role ? ROLE_LABEL[other.role] : null, other?.daara_name].filter(Boolean).join(" · "));
 
   return (
     <View style={[styles.header, { paddingTop: topInset + Space.xs }]}>
@@ -422,13 +780,28 @@ function ConversationHeader({
             </Text>
             {subtitle ? (
               <Text
-                style={[styles.headerSubtitle, !isGroup && styles.headerSubtitleDirect]}
+                style={[
+                  styles.headerSubtitle,
+                  (!isGroup || typingLabel) && styles.headerSubtitleDirect,
+                ]}
                 numberOfLines={1}
               >
                 {subtitle}
               </Text>
             ) : null}
           </View>
+
+          <IconButton
+            icon={
+              chat.is_muted ? (
+                <BellOff size={19} color={Ink[500]} strokeWidth={1.6} />
+              ) : (
+                <Bell size={19} color={Ink[900]} strokeWidth={1.6} />
+              )
+            }
+            accessibilityLabel={chat.is_muted ? "Réactiver les notifications" : "Mettre en sourdine"}
+            onPress={onToggleMute}
+          />
         </>
       )}
     </View>
@@ -557,7 +930,7 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, minWidth: 0, gap: 1 },
   headerTitle: { ...UIType.rowTitle, color: Ink[900] },
   headerSubtitle: { ...Type.micro, color: Ink[500] },
-  /** En tête-à-tête, le sous-titre porte le rôle : il passe en violet. */
+  /** En tête-à-tête — ou quand quelqu'un écrit — le sous-titre passe en violet. */
   headerSubtitleDirect: { color: Violet[700] },
 
   thread: { flex: 1 },
@@ -567,13 +940,29 @@ const styles = StyleSheet.create({
     gap: 10,
     flexGrow: 1,
   },
+  /* Le contenu d'une liste inversée est retourné ; l'état vide doit l'être aussi. */
+  flipped: { transform: [{ scaleY: -1 }] },
   silent: {
     ...UIType.stateBody,
     color: Ink[300],
     textAlign: "center",
     marginTop: Space.huge,
   },
+  typing: { ...Type.micro, color: Violet[700], paddingHorizontal: Space.sm },
+  older: { paddingVertical: Space.lg },
 
-  skeleton: { gap: Space.md },
+  skeleton: { gap: Space.md, padding: GUTTER },
   skeletonMine: { alignSelf: "flex-end" },
+
+  viewer: { flex: 1, backgroundColor: "rgba(0,0,0,0.94)", justifyContent: "center" },
+  viewerImage: { width: "100%", height: "80%" },
+  viewerBar: {
+    position: "absolute",
+    left: GUTTER,
+    right: GUTTER,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  viewerCaption: { ...Type.label, color: Surface.default, flex: 1 },
 });

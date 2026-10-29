@@ -188,6 +188,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       on peut le faire, et une déconnexion supporte un aller-retour réseau.
     */
     await PushService.unregister();
+    /* Les canaux Pusher de ce membre se ferment avec sa session. Import
+       différé : `lib/realtime` tire `content.service` puis `api`, et un import
+       de haut niveau bouclerait sur ce store. */
+    await import("@/lib/realtime").then((m) => m.closeRealtime()).catch(() => undefined);
     await AuthService.logout();
     /*
       Le compte de pièces d'identité vit dans un magasin de module
