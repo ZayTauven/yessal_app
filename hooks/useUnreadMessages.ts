@@ -6,8 +6,8 @@
  * attendait.
  *
  * Le total vient du serveur (`comms/unread/`, sans les fils en sourdine) ; le
- * temps réel ne fait que le redemander, regroupé sur une seconde — un salon
- * qui s'anime ne déclenche qu'un appel :
+ * temps réel ne fait que le redemander, regroupé sur 300 ms — une rafale
+ * de messages ne déclenche qu'un appel :
  *
  *   private-user.{moi}   chat-updated · chat-read (lu ici ou sur un autre appareil)
  *   private-kourel       chat-updated (canaux du Kourel)
@@ -19,7 +19,7 @@ import { ContentService } from "@/lib/content.service";
 import { chargerNotifications } from "@/lib/push.service";
 import { listen, onReconnect } from "@/lib/realtime";
 
-const REGROUPEMENT_MS = 1000;
+const REGROUPEMENT_MS = 300;
 
 export function useUnreadMessages(userId?: number | null) {
   const [total, setTotal] = useState(0);

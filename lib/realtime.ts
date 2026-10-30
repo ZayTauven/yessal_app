@@ -30,7 +30,7 @@ import Pusher from "pusher-js";
 
 import { ContentService } from "@/lib/content.service";
 
-const PUSHER_KEY = process.env.EXPO_PUBLIC_PUSHER_KEY || "0369577c46baf67bfc0a";
+const PUSHER_KEY = process.env.EXPO_PUBLIC_PUSHER_KEY || "bea7b0eb7536983d2be8";
 const PUSHER_CLUSTER = process.env.EXPO_PUBLIC_PUSHER_CLUSTER || "eu";
 
 let client: Pusher | null = null;
