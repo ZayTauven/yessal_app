@@ -96,6 +96,7 @@ async function fetchPreferences(): Promise<State> {
 export default function SettingsScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const estAdmin = user?.role === "admin";
 
   const [state, setState] = useState<State>({ status: "loading", prefs: null });
   /** La clé en cours d'écriture — elle grise sa ligne, pas tout l'écran. */
@@ -317,11 +318,14 @@ export default function SettingsScreen() {
             </Group>
 
             <Group title="Qui peut me joindre">
+              {/* L'administration reste joignable : ces trois réglages sont
+                  ouverts d'office pour elle (décision du 2026-10-30). */}
               <ValueRow
                 label="Visible par"
-                hint="Qui peut me trouver dans la recherche."
-                value={VISIBILITY_LABELS[prefs.visibility]}
+                hint={estAdmin ? "Ouvert d'office : l'administration reste joignable." : "Qui peut me trouver dans la recherche."}
+                value={VISIBILITY_LABELS[estAdmin ? "all" : prefs.visibility]}
                 busy={pending === "visibility"}
+                disabled={estAdmin}
                 onPress={() => {
                   const index = VISIBILITY_CYCLE.indexOf(prefs.visibility);
                   write(
@@ -333,15 +337,17 @@ export default function SettingsScreen() {
               <SwitchRow
                 label="Conversations en tête-à-tête"
                 hint="Accepter qu'un membre m'écrive directement."
-                value={prefs.allow_direct_invites}
+                value={estAdmin || prefs.allow_direct_invites}
                 busy={pending === "allow_direct_invites"}
+                disabled={estAdmin}
                 onChange={(v) => write("allow_direct_invites", v)}
               />
               <SwitchRow
                 label="Ajout aux groupes"
                 hint="Accepter d'être ajouté à un groupe du Daara."
-                value={prefs.allow_group_invites}
+                value={estAdmin || prefs.allow_group_invites}
                 busy={pending === "allow_group_invites"}
+                disabled={estAdmin}
                 onChange={(v) => write("allow_group_invites", v)}
               />
               <SwitchRow
@@ -493,6 +499,7 @@ function ValueRow({
   hint,
   value,
   busy = false,
+  disabled = false,
   onPress,
   last,
 }: {
@@ -500,18 +507,19 @@ function ValueRow({
   hint?: string;
   value: string;
   busy?: boolean;
+  disabled?: boolean;
   onPress: () => void;
   last?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      disabled={busy}
+      disabled={busy || disabled}
       accessibilityRole="button"
       accessibilityLabel={`${label} : ${value}`}
       accessibilityHint="Change la valeur"
     >
-      <RowShell label={label} hint={hint} disabled={busy} last={last}>
+      <RowShell label={label} hint={hint} disabled={busy || disabled} last={last}>
         <Text style={styles.rowValue}>{value}</Text>
         <ChevronRight size={18} color={Ink[300]} strokeWidth={1.5} />
       </RowShell>

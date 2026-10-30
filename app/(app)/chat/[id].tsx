@@ -47,12 +47,13 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -262,6 +263,23 @@ export default function ConversationScreen() {
     if (!chatId) return;
     setState(await fetchConversation(chatId, userId));
   }, [chatId, userId]);
+
+  /* Au retour de l'écran des membres : la composition et les droits ont pu
+     changer. Seuls le fil et ses membres sont relus, pas les messages. */
+  useFocusEffect(
+    useCallback(() => {
+      if (!chatId) return;
+      let active = true;
+      Promise.all([ContentService.getChatById(chatId), ContentService.getChatMembers(chatId)])
+        .then(([chat, members]) => {
+          if (active) setState((previous) => (previous.status === "ready" ? { ...previous, chat, members } : previous));
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, [chatId]),
+  );
 
   /* Tant que ce fil est à l'écran, ses pushes ne s'affichent pas en bannière. */
   useEffect(() => {
@@ -712,6 +730,7 @@ export default function ConversationScreen() {
         typingNames={typingNames}
         onBack={() => (router.canGoBack() ? router.back() : router.replace("/chat"))}
         onToggleMute={handleToggleMute}
+        onOpenMembers={() => router.push(`/chat/membres/${chatId}`)}
       />
 
       {isGroup && pinned ? (
@@ -904,6 +923,7 @@ function ConversationHeader({
   typingNames,
   onBack,
   onToggleMute,
+  onOpenMembers,
 }: {
   chat: Chat | null;
   members: ChatMember[];
@@ -913,6 +933,8 @@ function ConversationHeader({
   typingNames: string[];
   onBack: () => void;
   onToggleMute: () => void;
+  /** Salon : l'écran des membres et de la modération. */
+  onOpenMembers: () => void;
 }) {
   const isGroup = chat?.chat_type === "group";
 
@@ -975,7 +997,14 @@ function ConversationHeader({
             <Avatar uri={chat.avatar} name={chat.display_name} size={40} />
           )}
 
-          <View style={styles.headerText}>
+          {/* Dans un salon, toucher le nom ouvre ses membres — le geste de WhatsApp. */}
+          <Pressable
+            style={styles.headerText}
+            onPress={isGroup ? onOpenMembers : undefined}
+            disabled={!isGroup}
+            accessibilityRole={isGroup ? "button" : undefined}
+            accessibilityLabel={isGroup ? `Membres de ${chat.display_name}` : undefined}
+          >
             <Text style={styles.headerTitle} numberOfLines={1}>
               {chat.display_name}
             </Text>
@@ -990,7 +1019,7 @@ function ConversationHeader({
                 {subtitle}
               </Text>
             ) : null}
-          </View>
+          </Pressable>
 
           <IconButton
             icon={
@@ -1228,8 +1257,11 @@ const styles = StyleSheet.create({
     gap: 10,
     flexGrow: 1,
   },
-  /* Le contenu d'une liste inversée est retourné ; l'état vide doit l'être aussi. */
-  flipped: { transform: [{ scaleY: -1 }] },
+  /* Le contenu d'une liste inversée est retourné ; l'état vide doit l'être aussi.
+     Sur Android, la liste se retourne sur les DEUX axes (`scale: -1`) : ne
+     compenser que la verticale laissait le texte en miroir (constaté le
+     2026-10-30 sur l'émulateur). */
+  flipped: { transform: Platform.OS === "android" ? [{ scale: -1 }] : [{ scaleY: -1 }] },
   silent: {
     ...UIType.stateBody,
     color: Ink[300],

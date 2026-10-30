@@ -360,8 +360,12 @@ export default function MessagesScreen() {
             onRetry={refresh}
             style={styles.state}
           />
-        ) : chats.length === 0 ? (
+        ) : chats.length === 0 && channels.length === 0 ? (
           /*
+            ⚠ La condition ne regardait que les discussions : un membre sans
+            discussion ne voyait PAS les canaux du Kourel, qui étaient pourtant
+            là — « Annonces de Sangue Bi » compris (constaté le 2026-10-30).
+
             ⚠ Le corps disait « les annonces publiques restent dans l'onglet
             Accueil ». C'ÉTAIT FAUX : l'Accueil sert `getNews()`, c'est-à-dire
             des `NewsPost` — des articles — et n'affiche aucun `Announcement`.
@@ -399,6 +403,12 @@ export default function MessagesScreen() {
                 <Text style={[styles.sectionTitle, styles.sectionTitleGap]}>DISCUSSIONS</Text>
               </View>
             ) : null}
+            {chats.length === 0 ? (
+              <Text style={styles.filterEmpty}>
+                Aucune discussion pour l&apos;instant. Écrivez à un membre ou ouvrez un salon avec le crayon, en haut.
+              </Text>
+            ) : null}
+            {chats.length === 0 ? null : (
             <View style={styles.filters} accessibilityRole="tablist">
               {FILTERS.map((f) => {
                 const active = filter === f.value;
@@ -419,7 +429,8 @@ export default function MessagesScreen() {
                 );
               })}
             </View>
-            {visible.length === 0 ? (
+            )}
+            {chats.length === 0 ? null : visible.length === 0 ? (
               <Text style={styles.filterEmpty}>
                 {filter === "unread" ? "Tout est lu. Alhamdoulillah." : "Rien dans cette catégorie."}
               </Text>

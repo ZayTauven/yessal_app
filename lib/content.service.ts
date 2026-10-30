@@ -185,6 +185,8 @@ function normalizeChatMember(item: any): ChatMember | null {
     daara_name: item.daara_name ?? null,
     role: item.role ?? null,
     title: item.title ?? null,
+    is_moderator: Boolean(item.is_moderator),
+    par_audience: Boolean(item.par_audience),
   };
 }
 
@@ -220,6 +222,7 @@ function normalizeChat(item: any): Chat {
     channel_kind: item.channel_kind ?? null,
     description: item.description ?? "",
     can_post: item.can_post !== false,
+    can_moderate: Boolean(item.can_moderate),
     audience: item.audience ?? null,
     push_enabled: item.push_enabled !== false,
     show_amounts: Boolean(item.show_amounts),
@@ -686,6 +689,30 @@ export const ContentService = {
     return Boolean(data?.is_muted);
   },
 
+  /**
+   * Ajouter des membres à un salon — modérateurs seulement. `refused` compte
+   * ceux que les préférences ou le pilotage tiennent à l'écart.
+   */
+  async addChatMembers(chatId: number, userIds: number[]): Promise<{ added: number; refused: number }> {
+    const data = await api.post<{ added?: number; refused?: number }>(`comms/${chatId}/add-members/`, {
+      user_ids: userIds,
+    });
+    return { added: toNumber(data?.added), refused: toNumber(data?.refused) };
+  },
+
+  async removeChatMember(chatId: number, userId: number): Promise<void> {
+    await api.post(`comms/${chatId}/remove-member/`, { user_id: userId });
+  },
+
+  async setChatModerator(chatId: number, userId: number, isModerator: boolean): Promise<void> {
+    await api.post(`comms/${chatId}/moderators/`, { user_id: userId, is_moderator: isModerator });
+  },
+
+  /** Quitter un salon. Un tête-à-tête ou un canal ne se quittent pas. */
+  async leaveChat(chatId: number): Promise<void> {
+    await api.post(`comms/${chatId}/leave/`);
+  },
+
   /** Signature d'un canal privé ou de présence — voir `lib/realtime.ts`. */
   async pusherAuth(channelName: string, socketId: string): Promise<{ auth: string; channel_data?: string }> {
     return api.post("comms/pusher/auth/", { channel_name: channelName, socket_id: socketId });
@@ -870,13 +897,16 @@ export const ContentService = {
    * destinataire et le pilotage du demandeur : un membre absent du résultat
    * n'est pas introuvable, il a choisi de ne pas l'être.
    */
-  async searchMembers(query: string): Promise<MemberSearchResult[]> {
+  async searchMembers(query: string, pour?: "salon"): Promise<MemberSearchResult[]> {
     const q = query.trim();
     if (q.length < 2) return [];
+    const suite = pour ? `&pour=${pour}` : "";
     const data = await api.get<PaginatedResponse<any>>(
-      `comms/search-members/?q=${encodeURIComponent(q)}`,
+      `comms/search-members/?q=${encodeURIComponent(q)}${suite}`,
     );
-    return unwrapList(data);
+    return unwrapList(data)
+      .map(normalizeChatMember)
+      .filter((member): member is MemberSearchResult => member !== null);
   },
 
   /** Les invitations reçues ET envoyées, tous statuts confondus. */
@@ -892,9 +922,13 @@ export const ContentService = {
    * existe déjà, une invitation est déjà en attente — et en 403 si le
    * destinataire ou le pilotage l'interdit. L'appelant traduit ; ce ne sont
    * pas des pannes.
+   *
+   * L'administration, elle, écrit directement (2026-10-30) : le serveur rend
+   * le fil, existant ou neuf, et `chat` est alors renseigné — à ouvrir.
    */
-  async createInvitation(recipientId: number): Promise<ChatInvitation> {
-    return api.post<ChatInvitation>("comms/invitations/", { recipient: recipientId });
+  async createInvitation(recipientId: number): Promise<{ chat: Chat | null }> {
+    const data = await api.post<any>("comms/invitations/", { recipient: recipientId });
+    return { chat: data?.direct && data.chat ? normalizeChat(data.chat) : null };
   },
 
   /** Accepter : crée le `Chat` DIRECT et renvoie le fil, prêt à ouvrir. */

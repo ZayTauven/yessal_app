@@ -151,6 +151,7 @@ export default function AppLayout() {
         <Stack.Screen name="campaign/[id]" />
         <Stack.Screen name="campaign/etat-[id]" />
         <Stack.Screen name="chat/[id]" />
+        <Stack.Screen name="chat/membres/[id]" />
         <Stack.Screen name="event/[id]" />
         <Stack.Screen name="news/[slug]" />
         <Stack.Screen name="profile/documents" />

@@ -80,6 +80,10 @@ export interface ChatMember {
   role?: UserRole | null;
   /** Titre du membre (AMIR, DIEUWRIGNE…), affiché en étiquette. */
   title?: string | null;
+  /** Dans un salon : modérateur (le créateur d'office). `comms/{id}/members/` seulement. */
+  is_moderator?: boolean;
+  /** Entré par son titre : la synchronisation le gère, on ne le retire pas à la main. */
+  par_audience?: boolean;
 }
 
 /** Le condensé que `ChatSerializer.get_last_message` compose côté serveur. */
@@ -116,6 +120,8 @@ export interface Chat {
   description?: string;
   /** Faux dans un canal pour qui n'en est pas auteur, et partout dans un fil archivé. */
   can_post: boolean;
+  /** Salon : ajouter, retirer, nommer un modérateur — `services.peut_moderer` côté serveur. */
+  can_moderate: boolean;
   /** À qui s'adresse le fil (`comms/audience.py`) ; `null` : tout le Kourel ou composé à la main. */
   audience?: { titles?: number[]; ldds?: number[]; daaras?: number[]; roles?: string[] } | null;
   push_enabled?: boolean;

@@ -14,7 +14,8 @@
  * direct naît d'une invitation acceptée. On envoie donc une demande, et le
  * `Chat` est créé quand l'autre l'accepte. Ce n'est pas une lourdeur du
  * backend : on n'ouvre pas un fil dans la boîte de quelqu'un sans son accord,
- * et le destinataire garde ses préférences de visibilité.
+ * et le destinataire garde ses préférences de visibilité. Seule exception
+ * (2026-10-30) : l'administration écrit directement, le serveur rend le fil.
  *
  * **Ouvrir un salon.** Là, un seul appel. Les modes de peuplement font le
  * travail côté serveur — « tout le Daara », « les collecteurs » — plutôt que
@@ -252,7 +253,12 @@ export default function NewChatScreen() {
     async (member: MemberSearchResult) => {
       setSendingTo(member.id);
       try {
-        await ContentService.createInvitation(member.id);
+        const { chat } = await ContentService.createInvitation(member.id);
+        /* L'administration écrit directement : le fil est là, on l'ouvre. */
+        if (chat) {
+          router.replace(`/chat/${chat.id}`);
+          return;
+        }
         Alert.alert(
           "Demande envoyée",
           `${memberName(member)} recevra votre demande. La conversation s'ouvrira dès qu'elle sera acceptée.`,
@@ -296,15 +302,18 @@ export default function NewChatScreen() {
     dire est utile : sans cela, un membre cherche en vain quelqu'un d'un autre
     Daara qu'il sait pourtant inscrit, et conclut que l'application est cassée.
   */
-  const portee = useMemo(() => {
-    if (!pilotage) return "Tapez au moins deux lettres.";
-    return pilotage.allow_cross_daara_search
-      ? "Nom, adresse e-mail ou numéro. Au moins deux lettres."
-      : "Recherche limitée à votre Daara, par décision du responsable.";
-  }, [pilotage]);
+  /* Le pilotage règle les échanges des membres, jamais ceux de l'administration. */
+  const estAdmin = user?.role === "admin";
 
-  const peutInviter = pilotage?.allow_member_invite !== false;
-  const peutCreerSalon = pilotage?.allow_group_creation !== false;
+  const portee = useMemo(() => {
+    if (!pilotage && !estAdmin) return "Tapez au moins deux lettres.";
+    return estAdmin || pilotage?.allow_cross_daara_search
+      ? "Nom, Daara, adresse e-mail ou numéro. Au moins deux lettres."
+      : "Recherche limitée à votre Daara, par décision du responsable.";
+  }, [pilotage, estAdmin]);
+
+  const peutInviter = estAdmin || pilotage?.allow_member_invite !== false;
+  const peutCreerSalon = estAdmin || pilotage?.allow_group_creation !== false;
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
