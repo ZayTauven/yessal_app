@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef } from "react";
 import { Redirect, Stack, usePathname, useUnstableGlobalHref } from "expo-router";
-import { View, StyleSheet } from "react-native";
+import { Platform, View, StyleSheet } from "react-native";
 
 import { Sidebar } from "@/components/navigation/Sidebar";
 import { usePushNavigation } from "@/hooks/usePushNavigation";
@@ -105,23 +105,38 @@ export default function AppLayout() {
         {/*
           Le flux Jëf. Feuille pleine hauteur : les cinq étapes portent un pavé
           numérique, un palier intermédiaire les couperait en deux.
-          ⚠ `sheetGrabberVisible` est iOS seulement — sur Android, la feuille se
-          referme au geste et au bouton retour, sans poignée dessinée.
+          ⚠ `sheetGrabberVisible` est iOS seulement.
+
+          🔴 SUR ANDROID, PLUS DE FEUILLE (retour terrain du 2026-10-30, reproduit
+          sur émulateur) : descendu choisir une tutelle, le membre ne pouvait
+          plus remonter — tout glissement vers le bas REFERMAIT le Jëf.
+          react-native-screens force `isDraggable = true` sur le
+          BottomSheetBehavior (`SheetDelegate.kt`) et ignore `gestureEnabled`.
+          Le comportement ne repère l'enfant défilant qu'au premier placement,
+          pendant le chargement, quand aucun ScrollView n'existe encore :
+          `nestedScrollEnabled` n'y change rien, essayé et constaté. Plein écran
+          modal à la place : même entrée par le bas, aucun geste de fermeture,
+          le chevron et le bouton retour ferment.
         */}
         <Stack.Screen
           name="donate"
-          options={{
-            presentation: "formSheet",
-            sheetAllowedDetents: [1],
-            sheetGrabberVisible: true,
-            sheetCornerRadius: Radius.card + 4,
-            sheetExpandsWhenScrolledToEdge: true,
-          }}
+          options={
+            Platform.OS === "android"
+              ? { presentation: "modal" }
+              : {
+                  presentation: "formSheet",
+                  sheetAllowedDetents: [1],
+                  sheetGrabberVisible: true,
+                  sheetCornerRadius: Radius.card + 4,
+                  sheetExpandsWhenScrolledToEdge: true,
+                }
+          }
         />
 
         {/* Destinations secondaires — empilées, pas modales. */}
         <Stack.Screen name="daara" />
         <Stack.Screen name="donations" />
+        <Stack.Screen name="donation/[id]" />
         <Stack.Screen name="explore" />
         <Stack.Screen name="events" />
         <Stack.Screen name="notifications" />

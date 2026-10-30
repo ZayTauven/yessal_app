@@ -64,8 +64,12 @@ export interface Donation {
   collector?: number | null;
   collector_name?: string | null;
   validated_by?: number | null;
+  /** Qui a confirmé : l'administrateur qui a validé la remise ou le paiement. */
+  validated_by_name?: string | null;
   validated_at?: string | null;
   external_ref?: string | null;
+  /** Référence de virement saisie par le membre. */
+  wire_reference?: string | null;
   /** Le collecteur appelle avant de se déplacer. */
   donor_phone?: string | null;
   donor_daara_name?: string | null;

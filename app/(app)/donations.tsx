@@ -50,9 +50,15 @@ import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { formatFCFA } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
+import {
+  METHOD_LABELS,
+  PAYMENT_LOGOS,
+  STATUS_COLORS,
+  STATUS_LABELS,
+} from "@/lib/donation-display";
 import { donationsTitle } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
-import type { AnyPaymentMethod, Donation, PaymentStatus } from "@/types/donation.types";
+import type { Donation, PaymentStatus } from "@/types/donation.types";
 import {
   GUTTER,
   Ink,
@@ -66,53 +72,6 @@ import {
   continuous,
   montant,
 } from "@/theme";
-
-/**
- * L'historique remonte aussi des dons anciens : les valeurs héritées
- * (`LegacyPaymentMethod`) restent ici, elles ne sont plus émises mais elles
- * sont en base.
- */
-const PAYMENT_LOGOS: Partial<Record<AnyPaymentMethod, number>> = {
-  orange_money: require("@/assets/images/orange money.png"),
-  wave: require("@/assets/images/wave.png"),
-  bictorys: require("@/assets/images/carte-paiement.png"),
-  virement: require("@/assets/images/banque.png"),
-  manual: require("@/assets/images/collecteur.png"),
-  collector: require("@/assets/images/collecteur.png"),
-  visa: require("@/assets/images/carte-paiement.png"),
-  mastercard: require("@/assets/images/mastercard.png"),
-  paypal: require("@/assets/images/pay-pal.png"),
-};
-
-const METHOD_LABELS: Record<AnyPaymentMethod, string> = {
-  orange_money: "Orange Money",
-  wave: "Wave",
-  bictorys: "Carte bancaire",
-  virement: "Virement",
-  manual: "Collecteur",
-  collector: "Collecteur",
-  visa: "Carte bancaire",
-  mastercard: "Carte bancaire",
-  paypal: "PayPal",
-};
-
-const STATUS_LABELS: Record<PaymentStatus, string> = {
-  pending: "En attente",
-  confirmed: "Confirmé",
-  failed: "Échoué",
-  pending_wire: "Virement en attente",
-  collected: "Encaissé, à remettre",
-  cancelled: "Annulé",
-};
-
-const STATUS_COLORS: Record<PaymentStatus, string> = {
-  pending: Status.warning,
-  confirmed: Status.success,
-  failed: Status.error,
-  pending_wire: Status.info,
-  collected: Status.info,
-  cancelled: Ink[500],
-};
 
 type Filter = "all" | PaymentStatus;
 
@@ -411,11 +370,10 @@ export default function DonationsScreen() {
                 key={donation.id}
                 donation={donation}
                 showDonor={onCollected}
-                onPress={
-                  donation.campaign
-                    ? () => router.push(`/campaign/${donation.campaign}`)
-                    : undefined
-                }
+                /* Le reçu du Jëf, pas la page du Ndiguel : le membre venait
+                   relire CE qu'il a donné (retour terrain du 2026-10-30). Le
+                   Ndiguel reste à un geste, depuis le reçu. */
+                onPress={() => router.push(`/donation/${donation.id}`)}
               />
             ))}
           </View>
@@ -438,10 +396,20 @@ function DonationCard({
   const logo = PAYMENT_LOGOS[donation.payment_method];
   const statusColor = STATUS_COLORS[donation.payment_status];
 
+  /*
+    Retour terrain du 2026-10-30, trois débordements sur la même carte :
+    le statut plafonné à 108 px (« Encaissé, à … »), la date repoussée sur deux
+    lignes par ce même statut, et « Pour Souraya Hassarhouna » qui sortait de
+    la carte à côté d'un « 1 000 000 FCFA ».
+
+    Le statut quitte donc la rangée du titre pour celle du bas, où il ne se
+    tronque plus ; le montant prend sa ligne ; le bénéficiaire partage le bas
+    avec le statut et passe à la ligne s'il le faut.
+  */
   return (
     <Card
       onPress={onPress}
-      accessibilityLabel={`${donation.campaign_name ?? "Ndiguel"} — ${formatFCFA(donation.amount)}`}
+      accessibilityLabel={`${donation.campaign_name ?? "Ndiguel"} — ${formatFCFA(donation.amount)}, ${STATUS_LABELS[donation.payment_status]}. Voir le reçu`}
       style={styles.card}
     >
       <View style={styles.cardTop}>
@@ -458,29 +426,30 @@ function DonationCard({
                 l'identifiant reste utile pour un Ndiguel supprimé. */}
             {donation.campaign_name ?? `Ndiguel n° ${donation.campaign}`}
           </Text>
-          <Text style={styles.cardSub}>
+          <Text style={styles.cardSub} numberOfLines={1}>
             {METHOD_LABELS[donation.payment_method] ?? donation.payment_method} ·{" "}
             {formatDate(donation.created_at)}
           </Text>
         </View>
+      </View>
+
+      <Text
+        style={[
+          styles.amount,
+          /* Un montant échoué n'est pas un montant versé : il perd le vert. */
+          donation.payment_status !== "confirmed" && styles.amountUnconfirmed,
+        ]}
+      >
+        {formatFCFA(donation.amount)}
+      </Text>
+
+      <View style={styles.cardBottom}>
         <View style={[styles.statusChip, { backgroundColor: `${statusColor}14` }]}>
           <Text style={[styles.statusText, { color: statusColor }]} numberOfLines={1}>
             {STATUS_LABELS[donation.payment_status]}
           </Text>
         </View>
-      </View>
-
-      <View style={styles.cardBottom}>
-        <Text
-          style={[
-            styles.amount,
-            /* Un montant échoué n'est pas un montant versé : il perd le vert. */
-            donation.payment_status !== "confirmed" && styles.amountUnconfirmed,
-          ]}
-        >
-          {formatFCFA(donation.amount)}
-        </Text>
-        <Text style={styles.beneficiary}>
+        <Text style={styles.beneficiary} numberOfLines={2}>
           {showDonor
             ? `De ${donation.donor_name || "—"}`
             : donation.beneficiary_name
@@ -514,8 +483,8 @@ const styles = StyleSheet.create({
   },
   pendingText: { ...Type.label, color: Status.warning },
 
-  card: { gap: Space.md },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: Space.md },
+  card: { gap: Space.sm + 2 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: Space.md, marginBottom: Space.xs },
   logoWrap: {
     width: 44,
     height: 44,
@@ -529,20 +498,22 @@ const styles = StyleSheet.create({
   cardHeading: { flex: 1, gap: 2 },
   cardTitle: { ...UIType.rowTitle, color: Ink[900] },
   cardSub: { ...Type.micro, color: Ink[300] },
+  /* Plus de plafond : le libellé le plus long, « Virement en attente », tient
+     dans la rangée du bas, qu'il ne partage qu'avec le bénéficiaire. */
   statusChip: {
     paddingHorizontal: Space.sm,
     paddingVertical: Space.xs,
     borderRadius: Radius.chip,
-    maxWidth: 108,
+    flexShrink: 0,
   },
   statusText: { ...UIType.badgeLabel },
   cardBottom: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "space-between",
-    gap: Space.sm,
+    gap: Space.md,
   },
   amount: { ...Type.amountCard, color: montant },
   amountUnconfirmed: { color: Ink[500] },
-  beneficiary: { ...Type.micro, color: Ink[300] },
+  beneficiary: { ...Type.micro, color: Ink[500], flex: 1, textAlign: "right" },
 });

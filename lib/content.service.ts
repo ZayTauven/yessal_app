@@ -155,8 +155,10 @@ function normalizeDonation(item: any): Donation {
     collector: item.collector ?? null,
     collector_name: item.collector_name || null,
     validated_by: item.validated_by ?? null,
+    validated_by_name: item.validated_by_name || null,
     validated_at: item.validated_at ?? null,
     external_ref: item.external_ref ?? null,
+    wire_reference: item.wire_reference || null,
     donor_phone: item.donor_phone ?? null,
     donor_daara_name: item.donor_daara_name ?? null,
     collected_at: item.collected_at ?? null,
@@ -511,6 +513,11 @@ export const ContentService = {
   async getDonations(): Promise<Donation[]> {
     const data = await api.get<PaginatedResponse<any>>("contributions/");
     return unwrapList(data).map(normalizeDonation);
+  },
+
+  /** Un Jëf, pour son reçu. Même portée que la liste : 404 hors de celle du rôle. */
+  async getDonation(id: number): Promise<Donation> {
+    return normalizeDonation(await api.get<any>(`contributions/${id}/`));
   },
 
   /** Demandes de collecte ouvertes, dans la portée du rôle. */

@@ -38,6 +38,7 @@ import { formatFCFA } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
 import type { CollecteStatus, Donation } from "@/types/donation.types";
 import {
+  Font,
   GUTTER,
   HIT,
   Ink,
@@ -228,17 +229,28 @@ export default function CollectScreen() {
             const taken = d.collector != null && !mine;
             return (
               <Card key={d.id} style={styles.card}>
+                {/*
+                  Retour terrain du 2026-10-30 : nom et montant partageaient une
+                  rangée. « 300 000 FCFA » mangeait la place du nom, et le
+                  Daara · Ndiguel · date tombait en points de suspension sur
+                  deux lignes. Le montant a désormais sa ligne, et chaque fait
+                  la sienne, étiquetée : un nom long passe à la ligne au lieu
+                  de disparaître.
+                */}
                 <View style={styles.cardTop}>
-                  <View style={styles.cardHeading}>
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {d.donor_name || "—"}
-                    </Text>
-                    <Text style={styles.cardSub} numberOfLines={2}>
-                      {d.donor_daara_name || "Sans Daara"}
-                      {d.campaign_name ? ` · ${d.campaign_name}` : ""} · {formatDate(d.created_at)}
-                    </Text>
-                  </View>
-                  <Text style={styles.amount}>{formatFCFA(d.amount)}</Text>
+                  <Text style={styles.cardTitle} numberOfLines={2}>
+                    {d.donor_name || "—"}
+                  </Text>
+                  <Text style={styles.cardDate}>{formatDate(d.created_at)}</Text>
+                </View>
+                <Text style={styles.amount} selectable>
+                  {formatFCFA(d.amount)}
+                </Text>
+
+                <View style={styles.facts}>
+                  <Fact label="Daara" value={d.donor_daara_name || "Sans Daara"} />
+                  {d.campaign_name ? <Fact label="Ndiguel" value={d.campaign_name} /> : null}
+                  {d.beneficiary_name ? <Fact label="Pour" value={d.beneficiary_name} /> : null}
                 </View>
 
                 {d.donor_phone ? (
@@ -288,13 +300,14 @@ export default function CollectScreen() {
                     </View>
                   </View>
                 ) : (
-                  <View style={styles.confirmActions}>
+                  /* Empilés, pour la même raison que la confirmation : côte à
+                     côte, « Je m'en charge » sortait en « Je m'en c… » sur un
+                     vrai téléphone (retour terrain du 2026-10-30). */
+                  <View style={styles.confirmStack}>
                     <Button
                       label={mine ? "Je ne peux plus" : "Je m'en charge"}
                       variant="secondary"
                       size="md"
-                      fullWidth={false}
-                      style={styles.flex}
                       loading={busy === d.id}
                       disabled={busy !== null}
                       onPress={() => (mine ? relacher(d) : prendre(d))}
@@ -303,8 +316,6 @@ export default function CollectScreen() {
                       label="Encaisser"
                       variant="outline"
                       size="md"
-                      fullWidth={false}
-                      style={styles.flex}
                       icon={<HandCoins size={16} color={Violet[900]} strokeWidth={2} />}
                       onPress={() => {
                         setError(null);
@@ -322,12 +333,23 @@ export default function CollectScreen() {
   );
 }
 
+/** Un fait de la demande. L'étiquette a sa colonne, la valeur passe à la ligne. */
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.fact}>
+      <Text style={styles.factLabel}>{label}</Text>
+      <Text style={styles.factValue} numberOfLines={3}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Surface.default },
   scroll: { paddingTop: Space.sm, paddingBottom: 120, gap: Space.lg },
   gutter: { paddingHorizontal: GUTTER },
   list: { paddingHorizontal: GUTTER, gap: Space.md },
-  flex: { flex: 1 },
 
   cashCard: { gap: Space.xs },
   cashLabel: { ...Type.label, color: Ink[500] },
@@ -347,10 +369,21 @@ const styles = StyleSheet.create({
 
   card: { gap: Space.md },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
-  cardHeading: { flex: 1, gap: 2 },
-  cardTitle: { ...UIType.rowTitle, color: Ink[900] },
-  cardSub: { ...Type.micro, color: Ink[300] },
-  amount: { ...Type.amountCard, color: montant },
+  cardTitle: { ...UIType.rowTitle, color: Ink[900], flex: 1 },
+  cardDate: { ...Type.micro, color: Ink[300], paddingTop: 2 },
+  amount: { ...Type.amountCard, color: montant, marginTop: -Space.xs },
+  facts: {
+    gap: Space.sm,
+    backgroundColor: Surface.alt,
+    borderRadius: Radius.input,
+    ...continuous,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm + 2,
+  },
+  fact: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
+  /* Assez pour « Ndiguel », la plus longue étiquette, à 12 px. */
+  factLabel: { ...Type.label, color: Ink[500], width: 56 },
+  factValue: { ...Type.label, fontFamily: Font.semibold, color: Ink[900], flex: 1 },
   phone: {
     flexDirection: "row",
     alignItems: "center",
@@ -367,7 +400,6 @@ const styles = StyleSheet.create({
     padding: Space.md,
   },
   confirmText: { ...Type.label, color: Ink[900] },
-  confirmActions: { flexDirection: "row", gap: Space.sm },
   confirmStack: { gap: Space.sm },
   claim: { ...UIType.badgeLabel, color: Ink[500] },
   claimMine: { color: Status.success },

@@ -48,9 +48,10 @@ import {
   matchesQuery,
   memberFullName,
 } from "@/lib/member-identity";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -457,7 +458,9 @@ export default function DonateScreen() {
   ]);
 
   const padding = {
-    paddingTop: Space.sm,
+    /* Plein écran sur Android (voir `_layout.tsx`) : rien ne retient plus le
+       contenu sous la barre d'état, contrairement à la feuille d'iOS. */
+    paddingTop: Platform.OS === "android" ? insets.top + Space.sm : Space.sm,
     paddingBottom: Math.max(insets.bottom, Space.xl),
   };
 
@@ -708,6 +711,17 @@ function AmountStep({
       ? `Minimum ${formatFCFA(MIN_JEF)}`
       : `Entre ${formatNumber(MIN_JEF)} et ${formatNumber(MAX_JEF)} FCFA`;
 
+  /*
+    Retour terrain du 2026-10-30 : descendu choisir une tutelle, le membre
+    tapait son montant à l'aveugle — le chiffre était sorti par le haut. Toute
+    frappe ramène donc le montant héros sous les yeux.
+  */
+  const scrollRef = useRef<ScrollView>(null);
+  const typeDigits = (next: string) => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    onDigits(next);
+  };
+
   return (
     <>
       <Header title="Montant" onBack={onBack} />
@@ -722,6 +736,7 @@ function AmountStep({
         automatique.
       */}
       <ScrollView
+        ref={scrollRef}
         style={styles.amountScroll}
         contentContainerStyle={styles.amountScrollInner}
         showsVerticalScrollIndicator={false}
@@ -774,7 +789,7 @@ function AmountStep({
       <View style={styles.keypadSlot}>
         <NumericKeypad
           value={digits}
-          onChange={onDigits}
+          onChange={typeDigits}
           maxLength={MAX_DIGITS}
           keyHeight={keyHeight}
         />
@@ -1244,7 +1259,7 @@ function Row({
       <Text style={styles.rowLabel}>{label}</Text>
       <Text
         style={[styles.rowValue, mono && styles.rowValueMono]}
-        numberOfLines={1}
+        numberOfLines={mono ? 1 : 2}
         selectable={mono}
       >
         {value}

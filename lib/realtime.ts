@@ -26,16 +26,31 @@
  * d'environnement fonctionne quand même ; la signature des canaux privés,
  * elle, ne se fait que côté Django.
  */
-import Pusher from "pusher-js";
+import * as PusherModule from "pusher-js";
+import type PusherClient from "pusher-js";
 
 import { ContentService } from "@/lib/content.service";
+
+/*
+  🔴 L'APPLICATION NE DÉMARRAIT PLUS (constaté sur émulateur le 2026-10-30).
+
+  `import Pusher from "pusher-js"` → « Object cannot be used as a constructor »
+  au premier écran connecté. Les types de pusher-js 8.6 annoncent un export
+  PAR DÉFAUT, mais le paquet React Native que Metro résout (champ
+  `react-native` → `dist/react-native/pusher.js`) finit par
+  `module.exports.Pusher = …` : un export NOMMÉ. L'import par défaut recevait
+  donc l'objet `{ Pusher }`, et `new` échouait dessus. Le build web (Expo Web,
+  champ `browser`) expose bien un défaut : on prend l'un ou l'autre.
+*/
+const Pusher: typeof PusherClient =
+  (PusherModule as unknown as { Pusher?: typeof PusherClient }).Pusher ?? PusherModule.default;
 
 const PUSHER_KEY = process.env.EXPO_PUBLIC_PUSHER_KEY || "bea7b0eb7536983d2be8";
 const PUSHER_CLUSTER = process.env.EXPO_PUBLIC_PUSHER_CLUSTER || "eu";
 
-let client: Pusher | null = null;
+let client: PusherClient | null = null;
 
-export function realtime(): Pusher {
+export function realtime(): PusherClient {
   if (client) return client;
   client = new Pusher(PUSHER_KEY, {
     cluster: PUSHER_CLUSTER,
