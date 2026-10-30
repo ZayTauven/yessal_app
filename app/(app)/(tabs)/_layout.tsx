@@ -16,10 +16,11 @@
  * contrat, écrit en phase B. Ici on ne fait que la nourrir.
  */
 import { Tabs, useRouter } from "expo-router";
-import { HandHeart, Home, MessageSquare, Scroll, User } from "lucide-react-native";
+import { HandHeart, Home, Megaphone, MessageSquare, Scroll, User } from "lucide-react-native";
 
 import { TabBar, type TabItem } from "@/components/navigation/TabBar";
 import { useUnreadMessages } from "@/hooks/useUnreadMessages";
+import { SuiviService } from "@/lib/suivi.service";
 import { useAuthStore } from "@/store/auth.store";
 
 /** L'ordre des onglets. Il fixe aussi l'ordre des `Tabs.Screen` ci-dessous. */
@@ -33,6 +34,9 @@ const TABS = [
 export default function TabsLayout() {
   const router = useRouter();
   const userId = useAuthStore((s) => s.user?.id);
+  /* Sangue Bi ne fait pas de Jëf depuis la barre : l'action centrale est la
+     sienne — annoncer au Kourel, dans son canal. */
+  const guide = useAuthStore((s) => s.user?.role === "guide");
   /* La pastille de l'onglet Messages — et le chiffre sur l'icône de l'appli. */
   const unread = useUnreadMessages(userId);
 
@@ -66,13 +70,27 @@ export default function TabsLayout() {
           <TabBar
             items={items}
             activeKey={state.routes[state.index]?.name ?? "home"}
-            center={{
-              icon: ({ color, size }) => (
-                <HandHeart size={size} color={color} strokeWidth={1.6} />
-              ),
-              accessibilityLabel: "Faire un Jëf",
-              onPress: () => router.push("/donate"),
-            }}
+            center={
+              guide
+                ? {
+                    icon: ({ color, size }) => (
+                      <Megaphone size={size} color={color} strokeWidth={1.6} />
+                    ),
+                    accessibilityLabel: "Annoncer au Kourel",
+                    onPress: () => {
+                      SuiviService.getGuideChannel()
+                        .then((chat) => chat && router.push(`/chat/${chat.id}`))
+                        .catch(() => undefined);
+                    },
+                  }
+                : {
+                    icon: ({ color, size }) => (
+                      <HandHeart size={size} color={color} strokeWidth={1.6} />
+                    ),
+                    accessibilityLabel: "Faire un Jëf",
+                    onPress: () => router.push("/donate"),
+                  }
+            }
           />
         );
       }}

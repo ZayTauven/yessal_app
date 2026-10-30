@@ -3,7 +3,9 @@ export type UserRole =
   | "chef_daara"
   | "collector"
   | "member"
-  | "tutelle";
+  | "tutelle"
+  /** Sangue Bi, la guide du Kourel : voit tout, annonce, ne modifie rien. */
+  | "guide";
 
 export type UserStatus = "pending" | "active" | "inactive" | "blocked";
 

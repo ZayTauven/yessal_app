@@ -54,6 +54,7 @@ import { canSeeAmounts } from "@/lib/roles";
 import { ContentService } from "@/lib/content.service";
 import { formatCountdown, formatFCFA, formatPercent } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
+import { SuiviHome } from "@/components/suivi/SuiviHome";
 import { useUiStore } from "@/store/ui.store";
 import type { Campaign } from "@/types/campaign.types";
 import type { NewsPost, Tutelle } from "@/types/content.types";
@@ -113,7 +114,16 @@ async function fetchHome(): Promise<HomeState> {
   }
 }
 
+/**
+ * Sangue Bi, la guide du Kourel, n'a pas l'accueil d'un membre : le sien est
+ * sa fenêtre de suivi (maquette validée le 2026-10-30).
+ */
 export default function HomeScreen() {
+  const role = useAuthStore((state) => state.user?.role);
+  return role === "guide" ? <SuiviHome /> : <MemberHome />;
+}
+
+function MemberHome() {
   const router = useRouter();
   const openDrawer = useUiStore((state) => state.openDrawer);
   const insets = useSafeAreaInsets();

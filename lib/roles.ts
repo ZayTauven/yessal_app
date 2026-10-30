@@ -24,7 +24,7 @@ import type { UserRole } from "@/types/auth.types";
  * visages et le nombre de participants. La carte ne rétrécit pas — elle dit
  * autre chose.
  */
-const AMOUNT_ROLES: readonly string[] = ["admin", "chef_daara", "collector"];
+const AMOUNT_ROLES: readonly string[] = ["admin", "chef_daara", "collector", "guide"];
 
 /** Vrai si ce rôle a le droit de voir la somme collectée d'un Ndiguel. */
 export function canSeeAmounts(role: UserRole | string | null | undefined): boolean {
@@ -69,6 +69,7 @@ export const ROLE_LABEL: Record<string, string> = {
   chef_daara: "Coordinateur du Daara",
   tutelle: "Tutelle",
   admin: "Administrateur",
+  guide: "Sangue Bi",
 };
 
 const ROLE_LABEL_LONG: Record<string, string> = {
