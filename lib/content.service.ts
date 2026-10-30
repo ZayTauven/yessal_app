@@ -220,6 +220,12 @@ function normalizeChat(item: any): Chat {
     channel_kind: item.channel_kind ?? null,
     description: item.description ?? "",
     can_post: item.can_post !== false,
+    audience: item.audience ?? null,
+    push_enabled: item.push_enabled !== false,
+    show_amounts: Boolean(item.show_amounts),
+    icon: item.icon || "",
+    archived_at: item.archived_at ?? null,
+    pinned_message: item.pinned_message ?? null,
     daara: item.daara ?? null,
     campaign: item.campaign ?? null,
     created_at: item.created_at,
@@ -276,6 +282,7 @@ function normalizeNotification(item: any): AppNotification {
     title: item.title,
     message: item.message,
     is_read: Boolean(item.is_read),
+    url: item.url || null,
     created_at: item.created_at,
   };
 }
@@ -664,6 +671,14 @@ export const ContentService = {
 
   async deleteMessage(messageId: number): Promise<void> {
     await api.delete(`comms/messages/${messageId}/`);
+  },
+
+  /** Épingler un message en tête du fil, ou désépingler (`null`). */
+  async pinMessage(chatId: number, messageId: number | null): Promise<Chat["pinned_message"]> {
+    const data = await api.post<{ pinned_message: Chat["pinned_message"] }>(`comms/${chatId}/pin/`, {
+      message_id: messageId,
+    });
+    return data?.pinned_message ?? null;
   },
 
   async toggleMute(chatId: number): Promise<boolean> {

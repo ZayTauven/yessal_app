@@ -11,7 +11,7 @@
  * touche du pouce, et ne masque pas la bulle visée.
  */
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { Copy, Pencil, Reply, Trash2 } from "lucide-react-native";
+import { Copy, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react-native";
 
 import type { Message } from "@/types/content.types";
 import { Border, Font, GUTTER, HIT, Ink, Radius, Space, Status, Surface, Type, Violet } from "@/theme";
@@ -32,6 +32,10 @@ interface MessageActionsProps {
   onCopy: (message: Message) => void;
   onDelete: (message: Message) => void;
   onEdit?: (message: Message) => void;
+  /** Épingler : l'administration, les auteurs d'un canal, le créateur d'un salon. */
+  onPin?: (message: Message) => void;
+  /** Ce message est-il déjà épinglé ? Le geste devient alors « Désépingler ». */
+  isPinned?: boolean;
 }
 
 export function MessageActions({
@@ -46,6 +50,8 @@ export function MessageActions({
   onCopy,
   onDelete,
   onEdit,
+  onPin,
+  isPinned = false,
 }: MessageActionsProps) {
   const visible = !!message;
   const mineEmojis = new Set(message?.reactions.filter((r) => r.reacted_by_me).map((r) => r.emoji));
@@ -95,6 +101,19 @@ export function MessageActions({
         ) : null}
         {message?.message_type === "text" ? (
           <Action icon={<Copy size={20} color={Ink[900]} strokeWidth={1.7} />} label="Copier le texte" onPress={run(onCopy)} />
+        ) : null}
+        {onPin ? (
+          <Action
+            icon={
+              isPinned ? (
+                <PinOff size={20} color={Ink[900]} strokeWidth={1.7} />
+              ) : (
+                <Pin size={20} color={Ink[900]} strokeWidth={1.7} />
+              )
+            }
+            label={isPinned ? "Désépingler" : "Épingler en tête du fil"}
+            onPress={run(onPin)}
+          />
         ) : null}
         {canDelete ? (
           <Action

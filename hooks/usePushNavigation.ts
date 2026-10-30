@@ -72,6 +72,8 @@ export function routeDepuisUrl(url: unknown): Href | null {
     [/^\/campaigns?\/(\d+)(?:\/etat)?$/, (id) => `/campaign/${id}` as Href],
     [/^\/chat\/(\d+)$/, (id) => `/chat/${id}` as Href],
     [/^\/events?\/(\d+)$/, (id) => `/event/${id}` as Href],
+    // Le reçu d'un Jëf : « Jëf encaissé », « Jëf confirmé », « Jëf annulé »…
+    [/^\/donations\/(\d+)$/, (id) => `/donation/${id}` as Href],
   ];
   for (const [motif, construire] of parametres) {
     const trouve = chemin.match(motif);

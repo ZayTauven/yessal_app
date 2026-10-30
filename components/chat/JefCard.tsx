@@ -43,11 +43,24 @@ function formatTime(value: string) {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Le montant, quand le serveur l'envoie : le donateur a accepté d'être nommé
+ * ET l'administration affiche les montants sur ce canal. Jamais autrement.
+ */
+function montant(card: Card) {
+  return typeof card.amount === "number" ? ` · ${card.amount.toLocaleString("fr-FR")} FCFA` : "";
+}
+
 /** Le nom du donateur, en gras et suivi de son titre, quand il l'a rendu public. */
 function CardText({ message, card, color }: { message: Message; card: Card; color: string }) {
   const name = card.donor?.name;
   if (!name || !message.content.includes(name)) {
-    return <Text style={[styles.text, { color }]}>{message.content}</Text>;
+    return (
+      <Text style={[styles.text, { color }]}>
+        {message.content}
+        {montant(card) ? <Text style={styles.strong}>{montant(card)}</Text> : null}
+      </Text>
+    );
   }
   const [before, ...rest] = message.content.split(name);
   return (
@@ -56,6 +69,7 @@ function CardText({ message, card, color }: { message: Message; card: Card; colo
       <Text style={styles.strong}>{name}</Text>
       {card.donor?.title ? <Text style={styles.titleTag}> {card.donor.title.toUpperCase()} </Text> : null}
       {rest.join(name)}
+      {montant(card) ? <Text style={styles.strong}>{montant(card)}</Text> : null}
     </Text>
   );
 }

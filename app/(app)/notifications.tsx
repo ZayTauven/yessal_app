@@ -49,6 +49,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
+import { routeDepuisUrl } from "@/hooks/usePushNavigation";
 import type { AppNotification } from "@/types/content.types";
 import {
   Border,
@@ -139,6 +140,22 @@ export default function NotificationsScreen() {
   }, []);
 
   /**
+   * Une notification qui mène quelque part (le reçu d'un Jëf…) s'ouvre au
+   * toucher, et se marque lue au passage. Sans destination, le toucher la
+   * marque lue, comme avant ; lue et sans destination, elle ne réagit plus.
+   */
+  const ouvrirOuMarquer = (item: AppNotification): (() => void) | undefined => {
+    const destination = routeDepuisUrl(item.url);
+    if (destination) {
+      return () => {
+        if (!item.is_read) void markRead(item.id);
+        router.push(destination);
+      };
+    }
+    return item.is_read ? undefined : () => markRead(item.id);
+  };
+
+  /**
    * Pas de point d'API « tout marquer lu » : c'est une suite de `PATCH`. On les
    * lance ensemble et on ne garde que ce qui a réellement abouti.
    */
@@ -215,7 +232,7 @@ export default function NotificationsScreen() {
               <NotificationRow
                 key={item.id}
                 item={item}
-                onPress={item.is_read ? undefined : () => markRead(item.id)}
+                onPress={ouvrirOuMarquer(item)}
               />
             ))}
           </View>
@@ -253,7 +270,11 @@ function NotificationRow({
     <Card
       onPress={onPress}
       accessibilityLabel={
-        onPress ? `${item.title} — marquer comme lue` : item.title
+        routeDepuisUrl(item.url)
+          ? `${item.title} — ouvrir`
+          : onPress
+            ? `${item.title} — marquer comme lue`
+            : item.title
       }
       style={[styles.card, item.is_read && styles.cardRead]}
     >

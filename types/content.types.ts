@@ -114,8 +114,17 @@ export interface Chat {
   /** Canaux du Kourel : « guide » (annonces de Sangue Bi) ou « jefs ». */
   channel_kind?: "guide" | "jefs" | null;
   description?: string;
-  /** Faux dans un canal pour qui n'en est pas auteur : on y réagit seulement. */
+  /** Faux dans un canal pour qui n'en est pas auteur, et partout dans un fil archivé. */
   can_post: boolean;
+  /** À qui s'adresse le fil (`comms/audience.py`) ; `null` : tout le Kourel ou composé à la main. */
+  audience?: { titles?: number[]; ldds?: number[]; daaras?: number[]; roles?: string[] } | null;
+  push_enabled?: boolean;
+  show_amounts?: boolean;
+  /** Clé d'icône choisie par l'administration — `components/chat/ChannelIcon.tsx`. */
+  icon?: string;
+  archived_at?: string | null;
+  /** Le message épinglé en tête du fil. */
+  pinned_message?: { id: number; preview: string; sender_name: string; sent_at: string } | null;
   daara?: number | null;
   campaign?: number | null;
   created_at: string;
@@ -133,6 +142,8 @@ export interface JefCard {
   tone?: "peach" | "yellow" | "teal" | "pink" | "lilac";
   photo_url?: string;
   milestone?: number;
+  /** Présent seulement si le donateur a consenti ET que le canal affiche les montants. */
+  amount?: number;
 }
 
 /** Ce que cite une réponse — `ReplyPreviewSerializer`. */
@@ -246,6 +257,8 @@ export interface AppNotification {
   title: string;
   message: string;
   is_read: boolean;
+  /** L'écran qu'ouvre la notification, en chemin web — `routeDepuisUrl`. */
+  url?: string | null;
   created_at: string;
 }
 

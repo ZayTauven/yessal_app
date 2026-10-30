@@ -54,6 +54,17 @@ interface AuthState {
  * et c'est exactement la forme d'un formulaire d'inscription refusé. D'où la
  * seconde passe ci-dessous.
  */
+/** Ce qu'un nettoyage de déconnexion a le droit d'attendre au plus. */
+const DELAI_NETTOYAGE_MS = 4000;
+
+/** La promesse, ou rien passé le délai — jamais une attente sans fin. */
+function avantDelai<T>(promesse: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    promesse,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms)),
+  ]);
+}
+
 function messageServeur(erreur: unknown, repli: string, champs: string[] = []): string {
   if (!(erreur instanceof ApiError)) return repli;
 
@@ -176,31 +187,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setUser: (user) => set({ user }),
 
   logout: async () => {
-    set({ isLoading: true });
     /*
-      ⚠ LE RETRAIT PASSE EN PREMIER, et l'ordre est la seule chose qui compte
-      ici : `comms/fcm-token/` exige une session, et `AuthService.logout()`
-      efface les jetons d'accès. Retirer après, c'est un 401 — le jeton FCM
-      resterait en base, et le membre suivant sur cet appareil recevrait les
-      notifications du précédent.
+      🔴 DÉCONNEXION BLOQUÉE SUR UN ÉCRAN GRIS (retour terrain du 2026-10-30).
 
-      Attendu, contrairement à l'enregistrement : c'est le dernier moment où
-      on peut le faire, et une déconnexion supporte un aller-retour réseau.
+      Elle posait `isLoading: true` d'entrée — et `(app)/_layout` ne rend RIEN
+      tant que `isLoading` est vrai — puis attendait le retrait du jeton FCM :
+      une requête réseau SANS délai. Sur la liaison Dakar ↔ VPS, où une
+      connexion sur quatre se perd, elle pouvait ne jamais revenir : écran
+      vide pour toujours, et comme la suite ne s'exécutait pas, les jetons
+      restaient en place — la session se rouvrait au lancement suivant.
+
+      Désormais : pas d'`isLoading` (l'écran reste celui qu'on quitte), chaque
+      nettoyage est borné dans le temps, et la session tombe QUOI QU'IL ARRIVE.
     */
-    await PushService.unregister();
-    /* Les canaux Pusher de ce membre se ferment avec sa session. Import
-       différé : `lib/realtime` tire `content.service` puis `api`, et un import
-       de haut niveau bouclerait sur ce store. */
-    await import("@/lib/realtime").then((m) => m.closeRealtime()).catch(() => undefined);
-    await AuthService.logout();
-    /*
-      Le compte de pièces d'identité vit dans un magasin de module
-      (`hooks/useProfileCompletion.ts`) et ne disparaît donc pas avec `user`. Il
-      s'efface de lui-même : ce module s'abonne À CE STORE et se remet à zéro
-      quand la session tombe. L'abonnement va dans ce sens-là, et pas l'inverse,
-      pour ne pas créer de cycle d'imports entre `store/` et `hooks/`.
-    */
-    set({ user: null, isAuthenticated: false, isLoading: false });
+    try {
+      /*
+        ⚠ LE RETRAIT PASSE EN PREMIER : `comms/fcm-token/` exige une session,
+        et `AuthService.logout()` efface les jetons d'accès. Retirer après,
+        c'est un 401 — le jeton FCM resterait en base, et le membre suivant sur
+        cet appareil recevrait les notifications du précédent. Borné : passé le
+        délai, le serveur purgera de lui-même ce jeton quand FCM le déclarera mort.
+      */
+      await avantDelai(PushService.unregister(), DELAI_NETTOYAGE_MS);
+      /* Les canaux Pusher de ce membre se ferment avec sa session. Import
+         différé : `lib/realtime` tire `content.service` puis `api`, et un import
+         de haut niveau bouclerait sur ce store. */
+      await avantDelai(
+        import("@/lib/realtime").then((m) => m.closeRealtime()),
+        DELAI_NETTOYAGE_MS,
+      );
+    } catch {
+      /* Un nettoyage raté n'empêche jamais de sortir. */
+    } finally {
+      await AuthService.logout().catch(() => undefined);
+      /*
+        Le compte de pièces d'identité vit dans un magasin de module
+        (`hooks/useProfileCompletion.ts`) et ne disparaît donc pas avec `user`. Il
+        s'efface de lui-même : ce module s'abonne À CE STORE et se remet à zéro
+        quand la session tombe. L'abonnement va dans ce sens-là, et pas l'inverse,
+        pour ne pas créer de cycle d'imports entre `store/` et `hooks/`.
+      */
+      set({ user: null, isAuthenticated: false, isLoading: false });
+    }
   },
 
   clearError: () => set({ error: null }),

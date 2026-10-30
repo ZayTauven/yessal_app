@@ -41,7 +41,9 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check, HandHeart, Megaphone, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
+import { Check, MessagesSquare, Menu, SquarePen, X } from "lucide-react-native";
+
+import { ChannelGlyph } from "@/components/chat/ChannelIcon";
 
 import { ChatRow } from "@/components/chat/ChatRow";
 import { Avatar } from "@/components/ui/Avatar";
@@ -220,7 +222,13 @@ export default function MessagesScreen() {
       }) as never,
     });
     /* Les canaux du Kourel ont leur propre canal Pusher, commun à tous. */
-    const offKourel = listen("private-kourel", { "chat-updated": onChatUpdated as never });
+    const offKourel = listen("private-kourel", {
+      "chat-updated": onChatUpdated as never,
+      /* Un canal créé, renommé, archivé ou ciblé autrement : la liste se recharge. */
+      "chat-settings": (() => {
+        fetchChats(userId).then((next) => next.status === "ready" && setState(next));
+      }) as never,
+    });
     /* Après une coupure, des messages ont pu arriver sans nous : on recharge. */
     const offReconnect = onReconnect(() => {
       fetchChats(userId).then((next) => next.status === "ready" && setState(next));
@@ -448,11 +456,7 @@ function ChannelTile({ chat, onPress }: { chat: Chat; onPress: () => void }) {
       style={({ pressed }) => [styles.tile, guide ? styles.tileGuide : styles.tileJefs, pressed && styles.invitePressed]}
     >
       <View style={[styles.tileIcon, guide ? styles.tileIconGuide : styles.tileIconJefs]}>
-        {guide ? (
-          <Megaphone size={22} color={Violet[900]} strokeWidth={1.7} />
-        ) : (
-          <HandHeart size={22} color={Violet[700]} strokeWidth={1.7} />
-        )}
+        <ChannelGlyph chat={chat} size={22} color={guide ? Violet[900] : Violet[700]} />
       </View>
       <View style={styles.tileText}>
         <Text style={[styles.tileName, { color: ink }]} numberOfLines={1}>

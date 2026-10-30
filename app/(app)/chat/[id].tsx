@@ -56,7 +56,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { Bell, BellOff, ChevronLeft, HandHeart, Megaphone, SmilePlus, X } from "lucide-react-native";
+import { Bell, BellOff, ChevronLeft, Pin, PinOff, SmilePlus, X } from "lucide-react-native";
+
+import { ChannelGlyph } from "@/components/chat/ChannelIcon";
 
 import { Composer } from "@/components/chat/Composer";
 import { AudioBubble, JefCardView } from "@/components/chat/JefCard";
@@ -78,6 +80,7 @@ import type { Announcement, Attachment, Chat, ChatMember, Message, MessageReacti
 import type { Donation } from "@/types/donation.types";
 import {
   Border,
+  Font,
   GUTTER,
   Ink,
   Radius,
@@ -360,6 +363,18 @@ export default function ConversationScreen() {
           previous.chat ? { ...previous, chat: { ...previous.chat, peer_last_read_at: data.read_at } } : previous,
         );
       }) as never,
+      /* Un message épinglé (ou désépinglé) par l'administration ou un auteur. */
+      "chat-pinned": ((data: { pinned_message: Chat["pinned_message"] }) => {
+        setState((previous) =>
+          previous.chat ? { ...previous, chat: { ...previous.chat, pinned_message: data.pinned_message } } : previous,
+        );
+      }) as never,
+      /* Renommé, archivé, réglé autrement : on relit le fil. */
+      "chat-settings": (() => {
+        ContentService.getChatById(chatId)
+          .then((fresh) => setState((previous) => ({ ...previous, chat: fresh })))
+          .catch(() => undefined);
+      }) as never,
     });
 
     const offPresence = listen(`presence-chat.${chatId}`, {
@@ -420,6 +435,23 @@ export default function ConversationScreen() {
   const { status, chat, messages, members, pinned, receipts, hasMore } = state;
   const isGroup = chat?.chat_type === "group";
   const isChannel = chat?.chat_type === "channel";
+  /* Épingler : l'administration ; dans un canal, ses auteurs ; dans un salon, son créateur. */
+  const canPin = Boolean(
+    chat &&
+      !chat.archived_at &&
+      chat.chat_type !== "direct" &&
+      (user?.role === "admin" || (isChannel && chat.can_post) || (isGroup && chat.created_by === userId)),
+  );
+
+  async function handlePin(message: Message | null) {
+    if (!chat) return;
+    try {
+      const epingle = await ContentService.pinMessage(chat.id, message ? message.id : null);
+      setState((previous) => (previous.chat ? { ...previous, chat: { ...previous.chat, pinned_message: epingle } } : previous));
+    } catch {
+      Alert.alert("Épingle impossible", "Vérifiez votre connexion, puis réessayez.");
+    }
+  }
 
   /** Le dernier de MES messages que l'autre a lu — la double coche se pose dessus. */
   const peerReadAt = chat?.peer_last_read_at ?? null;
@@ -690,6 +722,29 @@ export default function ConversationScreen() {
         <Text style={styles.channelIntro}>{chat.description}</Text>
       ) : null}
 
+      {chat?.pinned_message ? (
+        <View style={styles.pinBar}>
+          <Pin size={15} color={Violet[700]} strokeWidth={1.8} />
+          <View style={styles.pinText}>
+            <Text style={styles.pinLabel}>ÉPINGLÉ</Text>
+            <Text style={styles.pinPreview} numberOfLines={1}>
+              {chat.pinned_message.preview}
+            </Text>
+          </View>
+          {canPin ? (
+            <Pressable
+              onPress={() => handlePin(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Désépingler"
+              hitSlop={Space.sm}
+              style={styles.pinOff}
+            >
+              <PinOff size={16} color={Ink[500]} strokeWidth={1.8} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
       {status === "failed" ? (
         <View style={[styles.centered, styles.failed]}>
           <ErrorState body="Cette conversation n'a pas pu être chargée." onRetry={reload} />
@@ -787,11 +842,15 @@ export default function ConversationScreen() {
         members={isGroup ? members : []}
         currentUserId={userId}
         readOnlyNote={
-          isChannel && chat && !chat.can_post
-            ? chat.channel_kind === "jefs"
-              ? "Dans ce canal, on réagit — on ne répond pas."
-              : "Seul Sangue Bi publie ici. Appui long pour réagir."
-            : null
+          chat?.archived_at
+            ? "Ce fil est archivé : on peut le relire, plus y écrire."
+            : isChannel && chat && !chat.can_post
+              ? chat.channel_kind === "jefs"
+                ? "Dans ce canal, on réagit — on ne répond pas."
+                : chat.channel_kind === "guide"
+                  ? "Seul Sangue Bi publie ici. Appui long pour réagir."
+                  : "Seuls les auteurs du canal publient ici. Appui long pour réagir."
+              : null
         }
       />
 
@@ -799,7 +858,9 @@ export default function ConversationScreen() {
         message={acting}
         canDelete={!!acting && acting.message_type !== "card" && (acting.sender?.id === userId || user?.role === "admin")}
         canEdit={!!acting && acting.sender?.id === userId && acting.message_type === "text"}
-        canReply={!isChannel}
+        canReply={!isChannel && !chat?.archived_at}
+        onPin={canPin && acting && acting.message_type !== "card" ? (m) => handlePin(m) : undefined}
+        isPinned={!!acting && chat?.pinned_message?.id === acting.id}
         onEdit={(m) => {
           setReplyingTo(null);
           setEditing(m);
@@ -906,11 +967,7 @@ function ConversationHeader({
         <>
           {chat.chat_type === "channel" ? (
             <View style={[styles.channelIcon, chat.channel_kind === "guide" && styles.channelIconGuide]}>
-              {chat.channel_kind === "guide" ? (
-                <Megaphone size={20} color={Surface.default} strokeWidth={1.7} />
-              ) : (
-                <HandHeart size={20} color={Violet[700]} strokeWidth={1.7} />
-              )}
+              <ChannelGlyph chat={chat} size={20} color={chat.channel_kind === "guide" ? Surface.default : Violet[700]} />
             </View>
           ) : isGroup && faces.length > 0 ? (
             <AvatarStack people={faces} size={HEADER_FACE} max={HEADER_FACES} />
@@ -1185,6 +1242,18 @@ const styles = StyleSheet.create({
   skeleton: { gap: Space.md, padding: GUTTER },
   skeletonMine: { alignSelf: "flex-end" },
 
+  pinBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Space.sm,
+    paddingHorizontal: GUTTER,
+    paddingVertical: Space.sm,
+    backgroundColor: Violet[100],
+  },
+  pinText: { flex: 1, minWidth: 0 },
+  pinLabel: { fontSize: 10, fontFamily: Font.extrabold, letterSpacing: 0.8, color: Violet[700] },
+  pinPreview: { ...Type.label, color: Ink[900] },
+  pinOff: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
   channelIntro: {
     ...Type.micro,
     color: Ink[500],

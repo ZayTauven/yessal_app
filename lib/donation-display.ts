@@ -37,6 +37,16 @@ export const METHOD_LABELS: Record<AnyPaymentMethod, string> = {
   paypal: "PayPal",
 };
 
+/**
+ * Le libellé d'un moyen de paiement reçu en texte brut (états de Ndiguel,
+ * listes d'événement), où le type n'est pas garanti : une valeur inconnue
+ * s'affiche telle quelle plutôt que de disparaître.
+ */
+export function methodLabel(method: string | null | undefined): string {
+  if (!method) return "—";
+  return METHOD_LABELS[method as AnyPaymentMethod] ?? method;
+}
+
 export const STATUS_LABELS: Record<PaymentStatus, string> = {
   pending: "En attente",
   confirmed: "Confirmé",

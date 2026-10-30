@@ -44,6 +44,7 @@ import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { formatFCFA, formatNumber } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
 import type { Contributor, FeteCampaign, FeteEtat } from "@/types/campaign.types";
+import { methodLabel } from "@/lib/donation-display";
 import {
   Border,
   GUTTER,
@@ -70,18 +71,6 @@ const STATUS_LABELS: Record<string, string> = {
   pending: "En attente",
   completed: "Terminé",
   inactive: "Inactif",
-};
-
-const METHOD_LABELS: Record<string, string> = {
-  orange_money: "Orange Money",
-  wave: "Wave",
-  bictorys: "Carte bancaire",
-  virement: "Virement",
-  manual: "Collecteur",
-  collector: "Collecteur",
-  visa: "Carte bancaire",
-  mastercard: "Carte bancaire",
-  paypal: "PayPal",
 };
 
 /** Voir `campaign/etat-[id].tsx` : la réponse ne porte aucun identifiant de don. */
@@ -385,7 +374,7 @@ function ContributorRow({ item, divided }: { item: Contributor; divided: boolean
       <View style={styles.rowRight}>
         <Text style={styles.rowAmount}>{formatFCFA(item.amount)}</Text>
         <Text style={styles.rowMethod} numberOfLines={1}>
-          {METHOD_LABELS[item.payment_method] ?? item.payment_method}
+          {methodLabel(item.payment_method)}
         </Text>
       </View>
     </View>
