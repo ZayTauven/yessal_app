@@ -13,7 +13,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "yessalgui",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yessalgui.app",
@@ -61,7 +60,13 @@
           "defaultChannel": "default"
         }
       ],
-      ["expo-audio", {"microphonePermission": "Yessal Gui utilise le micro pour enregistrer vos notes vocales dans la messagerie."}]
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Yessal Gui utilise le micro pour enregistrer vos notes vocales dans la messagerie."
+        }
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
