@@ -237,6 +237,7 @@ function normalizeMessage(item: any): Message {
     file_is_image: Boolean(item.file_is_image),
     file_kind: item.file_kind ?? null,
     edited_at: item.edited_at ?? null,
+    client_id: item.client_id ?? null,
     payload: item.payload
       ? { ...item.payload, photo_url: absoluteMediaUrl(item.payload.photo_url) ?? undefined }
       : null,
@@ -622,6 +623,12 @@ export const ContentService = {
    * retour sur la liste — sans cet appel, la pastille de non-lus ne descend
    * jamais.
    */
+  /** Le total des non-lus, hors fils en sourdine — pastille et icône. */
+  async getUnreadSummary(): Promise<{ total: number; chats: number }> {
+    const data = await api.get<{ total?: number; chats?: number }>("comms/unread/");
+    return { total: Number(data?.total ?? 0), chats: Number(data?.chats ?? 0) };
+  },
+
   async markChatRead(id: number): Promise<void> {
     await api.post(`comms/${id}/read/`);
   },
@@ -681,6 +688,7 @@ export const ContentService = {
       form.append("chat", String(payload.chat));
       form.append("content", payload.content);
       if (payload.reply_to) form.append("reply_to", String(payload.reply_to));
+      if (payload.client_id) form.append("client_id", payload.client_id);
       form.append(
         "file",
         fichierPourEnvoi(payload.attachment.uri, payload.attachment.kind === "image" ? "image" : "fichier") as unknown as Blob,
@@ -691,6 +699,7 @@ export const ContentService = {
       chat: payload.chat,
       content: payload.content,
       ...(payload.reply_to ? { reply_to: payload.reply_to } : {}),
+      ...(payload.client_id ? { client_id: payload.client_id } : {}),
     });
     return normalizeMessage(data);
   },

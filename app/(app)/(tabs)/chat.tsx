@@ -50,7 +50,7 @@ import { IconButton } from "@/components/ui/Button";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { TAB_BAR_SPACE } from "@/components/navigation/TabBar";
 import { ContentService } from "@/lib/content.service";
-import { listen } from "@/lib/realtime";
+import { listen, onReconnect } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
 import type { Chat, ChatInvitation, ChatLastMessage } from "@/types/content.types";
@@ -206,15 +206,29 @@ export default function MessagesScreen() {
     };
     const offUser = listen(`private-user.${userId}`, {
       "chat-updated": onChatUpdated as never,
+      /* Lu sur un autre appareil (ou dans le fil qu'on vient de quitter) :
+         la pastille s'éteint sans attendre le prochain rafraîchissement. */
+      "chat-read": ((event: { chat_id: number; user_id: number }) => {
+        if (event.user_id !== userId) return;
+        setState((previous) => ({
+          ...previous,
+          chats: previous.chats.map((c) => (c.id === event.chat_id ? { ...c, unread_count: 0 } : c)),
+        }));
+      }) as never,
       "new-invitation": (() => {
         fetchChats(userId).then(setState);
       }) as never,
     });
     /* Les canaux du Kourel ont leur propre canal Pusher, commun à tous. */
     const offKourel = listen("private-kourel", { "chat-updated": onChatUpdated as never });
+    /* Après une coupure, des messages ont pu arriver sans nous : on recharge. */
+    const offReconnect = onReconnect(() => {
+      fetchChats(userId).then((next) => next.status === "ready" && setState(next));
+    });
     return () => {
       offUser();
       offKourel();
+      offReconnect();
     };
   }, [userId]);
 

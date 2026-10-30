@@ -9,8 +9,9 @@
  * Les pictogrammes sont ceux du dossier `assets/pictos` (Noun Project,
  * attribution dans `assets/pictos/ATTRIBUTION.md`).
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { HandHeart, Pause, Play } from "lucide-react-native";
 
@@ -82,7 +83,13 @@ export function JefCardView({ message, footer }: { message: Message; footer?: Re
     return (
       <View style={[styles.card, styles.photoCard]}>
         <View>
-          <Image source={{ uri: card.photo_url }} style={styles.photo} resizeMode="cover" accessibilityLabel={`Ndiguel ${card.campaign_name}`} />
+          <ExpoImage
+            source={{ uri: card.photo_url }}
+            style={styles.photo}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            accessibilityLabel={`Ndiguel ${card.campaign_name}`}
+          />
           <Text style={styles.photoBadge} numberOfLines={1}>
             Ndiguel · {card.campaign_name}
           </Text>
@@ -119,10 +126,27 @@ export function JefCardView({ message, footer }: { message: Message; footer?: Re
   );
 }
 
-/** Une note vocale : lecture, progression, durée. */
+/**
+ * Une note vocale : lecture, progression, durée.
+ *
+ * Le lecteur n'est créé qu'au PREMIER toucher : un salon de cinquante notes
+ * vocales en ouvrait cinquante d'un coup, chacun téléchargeant son fichier
+ * avant même qu'on ait choisi laquelle écouter.
+ */
 export function AudioBubble({ url, mine = false }: { url: string; mine?: boolean }) {
+  const [armed, setArmed] = useState(false);
+  if (armed) return <AudioEngine url={url} mine={mine} />;
+  return <AudioFace url={url} mine={mine} playing={false} progress={0} label="" onToggle={() => setArmed(true)} />;
+}
+
+function AudioEngine({ url, mine }: { url: string; mine: boolean }) {
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
+
+  useEffect(() => {
+    // Monté par un toucher sur « lecture » : on lit aussitôt.
+    player.play();
+  }, [player]);
 
   useEffect(() => {
     // Revenue au début une fois lue, prête à être réécoutée.
@@ -131,6 +155,33 @@ export function AudioBubble({ url, mine = false }: { url: string; mine?: boolean
 
   const progress = status.duration ? status.currentTime / status.duration : 0;
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  return (
+    <AudioFace
+      url={url}
+      mine={mine}
+      playing={status.playing}
+      progress={progress}
+      label={fmt(status.playing || status.currentTime ? status.currentTime : status.duration || 0)}
+      onToggle={() => (status.playing ? player.pause() : player.play())}
+    />
+  );
+}
+
+function AudioFace({
+  url,
+  mine,
+  playing,
+  progress,
+  label,
+  onToggle,
+}: {
+  url: string;
+  mine: boolean;
+  playing: boolean;
+  progress: number;
+  label: string;
+  onToggle: () => void;
+}) {
   const bars = Array.from({ length: 22 }, (_, i) => 6 + ((url.charCodeAt(i % url.length) * (i + 3)) % 18));
   const played = mine ? Violet[900] : Violet[700];
   const pending = mine ? "rgba(47,25,102,0.35)" : Violet[300];
@@ -138,13 +189,13 @@ export function AudioBubble({ url, mine = false }: { url: string; mine?: boolean
   return (
     <View style={styles.audio}>
       <Pressable
-        onPress={() => (status.playing ? player.pause() : player.play())}
+        onPress={onToggle}
         accessibilityRole="button"
-        accessibilityLabel={status.playing ? "Mettre en pause la note vocale" : "Écouter la note vocale"}
+        accessibilityLabel={playing ? "Mettre en pause la note vocale" : "Écouter la note vocale"}
         style={[styles.audioBtn, { backgroundColor: mine ? Surface.default : Violet[700] }]}
         hitSlop={Space.xs}
       >
-        {status.playing ? (
+        {playing ? (
           <Pause size={15} color={mine ? Violet[900] : Surface.default} fill={mine ? Violet[900] : Surface.default} />
         ) : (
           <Play size={15} color={mine ? Violet[900] : Surface.default} fill={mine ? Violet[900] : Surface.default} />
@@ -155,9 +206,7 @@ export function AudioBubble({ url, mine = false }: { url: string; mine?: boolean
           <View key={i} style={[styles.bar, { height: h, backgroundColor: i / bars.length <= progress ? played : pending }]} />
         ))}
       </View>
-      <Text style={[styles.audioTime, { color: mine ? Violet[900] : Ink[500] }]}>
-        {fmt(status.playing || status.currentTime ? status.currentTime : status.duration || 0)}
-      </Text>
+      <Text style={[styles.audioTime, { color: mine ? Violet[900] : Ink[500] }]}>{label}</Text>
     </View>
   );
 }

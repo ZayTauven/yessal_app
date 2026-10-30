@@ -19,6 +19,8 @@ import { Tabs, useRouter } from "expo-router";
 import { HandHeart, Home, MessageSquare, Scroll, User } from "lucide-react-native";
 
 import { TabBar, type TabItem } from "@/components/navigation/TabBar";
+import { useUnreadMessages } from "@/hooks/useUnreadMessages";
+import { useAuthStore } from "@/store/auth.store";
 
 /** L'ordre des onglets. Il fixe aussi l'ordre des `Tabs.Screen` ci-dessous. */
 const TABS = [
@@ -30,6 +32,9 @@ const TABS = [
 
 export default function TabsLayout() {
   const router = useRouter();
+  const userId = useAuthStore((s) => s.user?.id);
+  /* La pastille de l'onglet Messages — et le chiffre sur l'icône de l'appli. */
+  const unread = useUnreadMessages(userId);
 
   return (
     <Tabs
@@ -38,6 +43,7 @@ export default function TabsLayout() {
         const items: TabItem[] = TABS.map(({ name, label, icon: Icon }) => ({
           key: name,
           label,
+          badge: name === "chat" && unread > 0,
           icon: ({ color, size }) => (
             <Icon size={size} color={color} strokeWidth={1.6} />
           ),

@@ -12,7 +12,8 @@
  * messages consécutifs de Serigne Modou n'ont pas besoin de quatre portraits.
  * En tête-à-tête, ni l'un ni l'autre — on sait à qui l'on parle.
  */
-import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { AlertCircle, Ban, Check, CheckCheck, FileText } from "lucide-react-native";
 
 import { AudioBubble } from "@/components/chat/JefCard";
@@ -145,7 +146,8 @@ export function MessageBubble({
                   accessibilityRole="imagebutton"
                   accessibilityLabel="Agrandir l'image"
                 >
-                  <Image source={{ uri: imageUri }} style={styles.thumb} resizeMode="cover" />
+                  {/* expo-image : mise en cache disque — un fil rouvert ne retélécharge pas ses photos. */}
+                  <Image source={{ uri: imageUri }} style={styles.thumb} contentFit="cover" cachePolicy="memory-disk" transition={150} />
                 </Pressable>
               ) : null}
 

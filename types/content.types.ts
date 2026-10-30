@@ -188,7 +188,9 @@ export interface Message {
   payload?: JefCard | null;
   reply_preview?: MessageReplyPreview | null;
   /** Message pas encore confirmé par le serveur — absent de tout ce que l'API rend. */
-  local?: { status: "sending" | "failed"; imageUri?: string | null; attachment?: Attachment | null };
+  local?: { status: "sending" | "failed"; imageUri?: string | null; attachment?: Attachment | null; clientId?: string };
+  /** Renvoyé par l'événement Pusher : l'identifiant de la bulle optimiste d'origine. */
+  client_id?: string | null;
 }
 
 /** Un fichier local prêt à partir : photo, document ou note vocale. */
@@ -205,6 +207,8 @@ export interface CreateMessagePayload {
   content: string;
   reply_to?: number | null;
   attachment?: Attachment | null;
+  /** Identifiant de la bulle optimiste, renvoyé par l'événement Pusher. */
+  client_id?: string | null;
 }
 
 export interface Announcement {

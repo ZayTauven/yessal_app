@@ -91,3 +91,18 @@ export function whisper(channelName: string, event: string, data: unknown) {
   const channel = client?.channel(channelName);
   if (channel?.subscribed) channel.trigger(event, data);
 }
+
+/**
+ * Prévient à chaque RECONNEXION (pas à la première connexion) : pendant la
+ * coupure, des événements ont pu se perdre, l'écran doit se recaler.
+ */
+export function onReconnect(fn: () => void): () => void {
+  const pusher = realtime();
+  let dejaConnecte = pusher.connection.state === "connected";
+  const handler = () => {
+    if (dejaConnecte) fn();
+    dejaConnecte = true;
+  };
+  pusher.connection.bind("connected", handler);
+  return () => pusher.connection.unbind("connected", handler);
+}

@@ -45,7 +45,6 @@ import {
   Alert,
   AppState,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Pressable,
@@ -54,6 +53,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { Bell, BellOff, ChevronLeft, HandHeart, Megaphone, SmilePlus, X } from "lucide-react-native";
@@ -72,7 +72,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { ContentService, normalizeIncomingMessage } from "@/lib/content.service";
 import { formatNumber } from "@/lib/format";
 import { setChatOuvert } from "@/lib/push.service";
-import { listen, whisper } from "@/lib/realtime";
+import { listen, onReconnect, whisper } from "@/lib/realtime";
 import { useAuthStore } from "@/store/auth.store";
 import type { Announcement, Attachment, Chat, ChatMember, Message, MessageReaction } from "@/types/content.types";
 import type { Donation } from "@/types/donation.types";
@@ -284,8 +284,12 @@ export default function ConversationScreen() {
              remplace sa bulle « en cours » au lieu de la doubler. */
           let messages = previous.messages;
           if (incoming.sender?.id === userId) {
-            const idx = messages.findIndex(
-              (m) => m.local?.status === "sending" && m.content === incoming.content,
+            /* Par l'identifiant donné à la bulle — deux photos sans légende
+               envoyées d'affilée ont le même contenu vide et se confondaient. */
+            const idx = messages.findIndex((m) =>
+              incoming.client_id
+                ? m.local?.clientId === incoming.client_id
+                : m.local?.status === "sending" && m.content === incoming.content,
             );
             if (idx >= 0) messages = messages.filter((_, i) => i !== idx);
           }
@@ -302,7 +306,27 @@ export default function ConversationScreen() {
           });
         }
       }) as never,
-      "message-reaction": ((data: { message_id: number; emoji: string; user_id: number; action: "add" | "remove" }) => {
+      "message-reaction": ((data: {
+        message_id: number;
+        emoji: string;
+        user_id: number;
+        action: "add" | "remove";
+        reactions?: { emoji: string; count: number; user_ids: number[] }[];
+      }) => {
+        /* L'état complet, quand le serveur l'envoie : appliqué tel quel, y
+           compris pour ses propres réactions faites sur un autre appareil. */
+        if (data.reactions) {
+          const next = data.reactions.map((r) => ({
+            emoji: r.emoji,
+            count: r.count,
+            reacted_by_me: userId !== undefined && r.user_ids.includes(userId),
+          }));
+          setState((previous) => ({
+            ...previous,
+            messages: previous.messages.map((m) => (m.id === data.message_id ? { ...m, reactions: next } : m)),
+          }));
+          return;
+        }
         if (data.user_id === userId) return; // déjà appliquée, de façon optimiste
         setState((previous) => ({
           ...previous,
@@ -350,9 +374,17 @@ export default function ConversationScreen() {
       }) as never,
     });
 
+    /* Après une coupure réseau : la dernière page, refusionnée. */
+    const offReconnect = onReconnect(() => {
+      ContentService.getChatMessagesPage(chatId)
+        .then((page) => setState((previous) => ({ ...previous, messages: mergeMessages(previous.messages, page.messages) })))
+        .catch(() => undefined);
+    });
+
     return () => {
       offChat();
       offPresence();
+      offReconnect();
     };
   }, [chatId, userId]);
 
@@ -448,6 +480,7 @@ export default function ConversationScreen() {
         content: local.content,
         reply_to: local.reply_to ?? null,
         attachment: local.local?.attachment ?? null,
+        client_id: local.local?.clientId ?? null,
       });
       setState((previous) => ({
         ...previous,
@@ -520,7 +553,12 @@ export default function ConversationScreen() {
       is_deleted: false,
       reactions: [],
       sent_at: new Date().toISOString(),
-      local: { status: "sending", imageUri: file?.kind === "image" ? file.uri : null, attachment: file },
+      local: {
+        status: "sending",
+        imageUri: file?.kind === "image" ? file.uri : null,
+        attachment: file,
+        clientId: `mob-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
     };
     setState((previous) => ({ ...previous, messages: [...previous.messages, local] }));
     setReplyingTo(null);
@@ -778,7 +816,7 @@ export default function ConversationScreen() {
       <Modal visible={!!viewing} transparent animationType="fade" onRequestClose={() => setViewing(null)}>
         <View style={styles.viewer}>
           {viewing?.file_url ? (
-            <Image source={{ uri: viewing.file_url }} style={styles.viewerImage} resizeMode="contain" />
+            <ExpoImage source={{ uri: viewing.file_url }} style={styles.viewerImage} contentFit="contain" cachePolicy="memory-disk" />
           ) : null}
           <View style={[styles.viewerBar, { top: insets.top + Space.sm }]}>
             <Text style={styles.viewerCaption} numberOfLines={1}>
@@ -974,7 +1012,7 @@ function ChannelPost({
     <Pressable onLongPress={() => onLongPress(message)} delayLongPress={280} style={styles.post}>
       {image ? (
         <Pressable onPress={() => onOpenImage(message)} accessibilityRole="imagebutton" accessibilityLabel="Agrandir l'image">
-          <Image source={{ uri: message.file_url! }} style={styles.postImage} resizeMode="cover" />
+          <ExpoImage source={{ uri: message.file_url! }} style={styles.postImage} contentFit="cover" cachePolicy="memory-disk" transition={150} />
         </Pressable>
       ) : null}
       <View style={styles.postBody}>
