@@ -453,13 +453,19 @@ export default function ConversationScreen() {
   const { status, chat, messages, members, pinned, receipts, hasMore } = state;
   const isGroup = chat?.chat_type === "group";
   const isChannel = chat?.chat_type === "channel";
-  /* Épingler : l'administration ; dans un canal, ses auteurs ; dans un salon, son créateur. */
+  /* Épingler : l'administration ; dans un canal, ses auteurs ; dans un salon,
+     ses modérateurs (`can_moderate`, tranché par le serveur — le créateur
+     seul était retenu, les modérateurs nommés en étaient exclus). */
   const canPin = Boolean(
     chat &&
       !chat.archived_at &&
       chat.chat_type !== "direct" &&
-      (user?.role === "admin" || (isChannel && chat.can_post) || (isGroup && chat.created_by === userId)),
+      (user?.role === "admin" || (isChannel && chat.can_post) || (isGroup && chat.can_moderate)),
   );
+  /* Retirer le message d'un autre : l'administration, et les modérateurs d'un
+     salon qui n'est pas archivé. */
+  const canDeleteAny =
+    user?.role === "admin" || Boolean(isGroup && chat?.can_moderate && !chat?.archived_at);
 
   async function handlePin(message: Message | null) {
     if (!chat) return;
@@ -875,7 +881,7 @@ export default function ConversationScreen() {
 
       <MessageActions
         message={acting}
-        canDelete={!!acting && acting.message_type !== "card" && (acting.sender?.id === userId || user?.role === "admin")}
+        canDelete={!!acting && acting.message_type !== "card" && (acting.sender?.id === userId || canDeleteAny)}
         canEdit={!!acting && acting.sender?.id === userId && acting.message_type === "text"}
         canReply={!isChannel && !chat?.archived_at}
         onPin={canPin && acting && acting.message_type !== "card" ? (m) => handlePin(m) : undefined}
