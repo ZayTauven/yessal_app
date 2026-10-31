@@ -7,13 +7,11 @@
  * métier qui n'a plus de source. Le détail d'un Ndiguel et la feuille Jëf en
  * ajoutaient deux.
  *
- * ⚠ CE N'EST PAS UNE FRONTIÈRE DE SÉCURITÉ. C'est une règle d'AFFICHAGE.
- * `GET /events/campaigns/{id}/etat/` est ouvert à tout utilisateur authentifié
- * — `IsCampaignOrganizer.has_object_permission` laisse passer toutes les
- * méthodes sûres (`events/views.py:37-41`) — et il renvoie la somme collectée
- * ET la liste nominative des contributeurs avec leurs montants. Un talubé qui
- * appelle l'API directement voit donc ce que cet écran lui cache.
- * Porté au registre de dette ; la correction est côté Django.
+ * C'est une règle d'AFFICHAGE, doublée côté Django depuis le 2026-10-31 :
+ * les deux `/etat/` ne rendent le montant de chaque Jëf qu'à ces rôles (le
+ * sien reste visible à chacun), et taisent le donateur d'un Jëf anonyme sauf
+ * à l'administration (`events/views.py`, `_masquer_contribution`). La liste
+ * ci-dessous et `ROLES_MONTANTS` côté Django doivent rester identiques.
  */
 import type { UserRole } from "@/types/auth.types";
 

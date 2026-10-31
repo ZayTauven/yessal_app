@@ -15,9 +15,8 @@
  * autre chose.** La piste de progression reste dessinée, vide — une barre
  * absente se lirait comme un défaut de chargement.
  *
- * ⚠ Ce masquage est une règle d'AFFICHAGE, pas une frontière de sécurité :
- * `/etat/` renvoie les montants à tout utilisateur authentifié. Voir
- * `lib/roles.ts` et le registre de dette.
+ * Ce masquage est doublé côté Django : `/etat/` ne rend plus le montant des
+ * Jëfs d'autrui à un talubé. Voir `lib/roles.ts`.
  *
  * ── Ce qui a disparu de l'ancien écran ──────────────────────────────────────
  *
