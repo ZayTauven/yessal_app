@@ -204,8 +204,10 @@ export default function DonateScreen() {
 
   const [data, setData] = useState<LoadState>({ status: "loading", ...EMPTY });
   const [step, setStep] = useState<Step>("amount");
-  /* Anonyme par défaut dans le canal des Jëfs (décision du 2026-10-29). */
-  const [showName, setShowName] = useState(false);
+  /* « Rester anonyme », le seul choix du donateur (2026-10-31) : il vaut
+     partout. Sans lui, l'administration décide si « Les Jëfs du Kourel »
+     nomme les donateurs. */
+  const [anonyme, setAnonyme] = useState(false);
 
   /**
    * Le bénéficiaire a TROIS états, pas deux, et c'est ce qui évite un effet de
@@ -377,7 +379,8 @@ export default function DonateScreen() {
            `member_id` : ignoré sans erreur, il imputait chaque collecte au
            collecteur lui-même. */
         ...(collectMode && memberId ? { donor: memberId } : {}),
-        public_in_channel: !collectMode && showName,
+        /* Plus de `public_in_channel` : le serveur le déduit de l'anonymat. */
+        is_anonymous: !collectMode && anonyme,
       });
 
       /*
@@ -451,7 +454,7 @@ export default function DonateScreen() {
     member,
     memberId,
     method,
-    showName,
+    anonyme,
     submitting,
     valid,
     wireRef,
@@ -566,8 +569,8 @@ export default function DonateScreen() {
           onMemberQuery={setMemberQuery}
           onMember={setMemberId}
           onSubmit={submit}
-          showName={showName}
-          onToggleShowName={() => setShowName((v) => !v)}
+          anonyme={anonyme}
+          onToggleAnonyme={() => setAnonyme((v) => !v)}
         />
       ) : null}
 
@@ -801,9 +804,9 @@ function AmountStep({
 }
 
 interface MethodStepProps {
-  /** Consentement à voir son nom dans « Les Jëfs du Kourel » — jamais le montant. */
-  showName: boolean;
-  onToggleShowName: () => void;
+  /** « Rester anonyme » : ni nom ni montant nulle part, sauf pour l'administration. */
+  anonyme: boolean;
+  onToggleAnonyme: () => void;
   amount: number;
   method: PaymentMethod;
   collector: boolean;
@@ -849,8 +852,8 @@ function MethodStep({
   onClearMember,
   collecte,
   onSubmit,
-  showName,
-  onToggleShowName,
+  anonyme,
+  onToggleAnonyme,
 }: MethodStepProps) {
   /*
    * « Collecteur » (les espèces) n'est proposé que si quelqu'un peut passer.
@@ -1002,18 +1005,18 @@ function MethodStep({
           leur écran, pas le nôtre. On ne se l'attribue pas.
         */}
         {!collectMode ? (
-          /* Le consentement est celui du donateur : jamais proposé à un
-             collecteur qui enregistre au nom d'un autre. */
+          /* Le choix est celui du donateur : jamais proposé à un collecteur
+             qui enregistre au nom d'un autre. */
           <Pressable
-            onPress={onToggleShowName}
+            onPress={onToggleAnonyme}
             accessibilityRole="switch"
-            accessibilityState={{ checked: showName }}
-            accessibilityHint="Le montant n'est jamais affiché"
-            style={[styles.collect, showName && styles.collectOn]}
+            accessibilityState={{ checked: anonyme }}
+            accessibilityHint="Votre nom et votre montant ne seront montrés nulle part, sauf à l'administration du Kourel"
+            style={[styles.collect, anonyme && styles.collectOn]}
           >
-            <Text style={styles.collectLabel}>Afficher mon nom dans « Les Jëfs du Kourel »</Text>
-            <View style={[styles.mark, showName && styles.markOn]}>
-              {showName ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
+            <Text style={styles.collectLabel}>Rester anonyme</Text>
+            <View style={[styles.mark, anonyme && styles.markOn]}>
+              {anonyme ? <Check size={14} color={Surface.default} strokeWidth={2.5} /> : null}
             </View>
           </Pressable>
         ) : null}
