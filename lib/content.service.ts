@@ -713,6 +713,11 @@ export const ContentService = {
     await api.post(`comms/${chatId}/leave/`);
   },
 
+  /** Supprimer un salon, messages et fichiers compris — l'administration seulement. */
+  async deleteChat(chatId: number): Promise<void> {
+    await api.delete(`comms/${chatId}/`);
+  },
+
   /** Signature d'un canal privé ou de présence — voir `lib/realtime.ts`. */
   async pusherAuth(channelName: string, socketId: string): Promise<{ auth: string; channel_data?: string }> {
     return api.post("comms/pusher/auth/", { channel_name: channelName, socket_id: socketId });

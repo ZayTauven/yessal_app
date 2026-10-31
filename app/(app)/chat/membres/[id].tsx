@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Check, LogOut, MoreHorizontal, Search, ShieldCheck, UserPlus } from "lucide-react-native";
+import { Check, LogOut, MoreHorizontal, Search, ShieldCheck, Trash2, UserPlus } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -225,6 +225,32 @@ export default function SalonMembersScreen() {
     Alert.alert(m.name, sousTitre(m, true), boutons);
   };
 
+  /* L'administration supprime le salon au lieu de le quitter : c'est elle qui
+     retrouve les salons que tous leurs membres ont quittés. */
+  const supprimer = (chat: Chat) => {
+    Alert.alert(
+      `Supprimer « ${chat.display_name} » ?`,
+      "Le salon, tous ses messages et les fichiers partagés seront effacés pour tous ses membres. Cette suppression est définitive.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await ContentService.deleteChat(chatId);
+              router.dismissTo("/chat");
+            } catch (error) {
+              setBusy(false);
+              Alert.alert("Impossible de supprimer", raison(error, "Réessayez dans un instant."));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const quitter = (chat: Chat) => {
     Alert.alert(
       `Quitter « ${chat.display_name} » ?`,
@@ -407,13 +433,23 @@ export default function SalonMembersScreen() {
 
         {busy && !ajoutOuvert ? <ActivityIndicator color={Violet[700]} /> : null}
 
-        <Button
-          label="Quitter le salon"
-          variant="outline"
-          icon={<LogOut size={18} color={Ink[900]} strokeWidth={1.6} />}
-          onPress={() => quitter(chat)}
-          disabled={busy}
-        />
+        {estAdmin ? (
+          <Button
+            label="Supprimer le salon"
+            variant="outline"
+            icon={<Trash2 size={18} color={Ink[900]} strokeWidth={1.6} />}
+            onPress={() => supprimer(chat)}
+            disabled={busy}
+          />
+        ) : (
+          <Button
+            label="Quitter le salon"
+            variant="outline"
+            icon={<LogOut size={18} color={Ink[900]} strokeWidth={1.6} />}
+            onPress={() => quitter(chat)}
+            disabled={busy}
+          />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
