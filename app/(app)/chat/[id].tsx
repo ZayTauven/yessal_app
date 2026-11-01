@@ -57,7 +57,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { Bell, BellOff, ChevronLeft, Pin, PinOff, SmilePlus, X } from "lucide-react-native";
+import { Bell, BellOff, ChevronLeft, Pin, PinOff, SmilePlus, Trash2, X } from "lucide-react-native";
 
 import { ChannelGlyph } from "@/components/chat/ChannelIcon";
 
@@ -705,6 +705,31 @@ export default function ConversationScreen() {
     }
   }
 
+  /* « Supprimer la discussion », comme WhatsApp : chez moi seulement. L'autre
+     garde l'historique ; le prochain message fait revenir le fil, vide. */
+  function handleClear() {
+    if (!chatId || !chat) return;
+    Alert.alert(
+      "Supprimer la discussion ?",
+      "Les messages disparaissent de votre côté seulement : votre interlocuteur les garde. Un nouveau message fera revenir la discussion.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await ContentService.clearChat(chatId);
+              router.replace("/chat");
+            } catch {
+              Alert.alert("Suppression impossible", "Vérifiez votre connexion, puis réessayez.");
+            }
+          },
+        },
+      ],
+    );
+  }
+
   function openActions(message: Message) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     setActing(message);
@@ -736,6 +761,7 @@ export default function ConversationScreen() {
         typingNames={typingNames}
         onBack={() => (router.canGoBack() ? router.back() : router.replace("/chat"))}
         onToggleMute={handleToggleMute}
+        onClear={handleClear}
         onOpenMembers={() => router.push(`/chat/membres/${chatId}`)}
       />
 
@@ -929,6 +955,7 @@ function ConversationHeader({
   typingNames,
   onBack,
   onToggleMute,
+  onClear,
   onOpenMembers,
 }: {
   chat: Chat | null;
@@ -939,6 +966,8 @@ function ConversationHeader({
   typingNames: string[];
   onBack: () => void;
   onToggleMute: () => void;
+  /** Tête-à-tête : « Supprimer la discussion », chez moi seulement. */
+  onClear: () => void;
   /** Salon : l'écran des membres et de la modération. */
   onOpenMembers: () => void;
 }) {
@@ -1038,6 +1067,13 @@ function ConversationHeader({
             accessibilityLabel={chat.is_muted ? "Réactiver les notifications" : "Mettre en sourdine"}
             onPress={onToggleMute}
           />
+          {chat.chat_type === "direct" ? (
+            <IconButton
+              icon={<Trash2 size={19} color={Ink[900]} strokeWidth={1.6} />}
+              accessibilityLabel="Supprimer la discussion"
+              onPress={onClear}
+            />
+          ) : null}
         </>
       )}
     </View>

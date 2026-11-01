@@ -713,6 +713,11 @@ export const ContentService = {
     await api.post(`comms/${chatId}/leave/`);
   },
 
+  /** « Supprimer la discussion » d'un tête-à-tête, chez moi seulement (comme WhatsApp). */
+  async clearChat(chatId: number): Promise<void> {
+    await api.post(`comms/${chatId}/clear/`);
+  },
+
   /** Supprimer un salon, messages et fichiers compris — l'administration seulement. */
   async deleteChat(chatId: number): Promise<void> {
     await api.delete(`comms/${chatId}/`);
