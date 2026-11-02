@@ -72,6 +72,7 @@ import { Input } from "@/components/ui/Input";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { CountrySheet } from "@/components/auth/CountrySheet";
+import { SearchablePicker, type PickerOption } from "@/components/auth/SearchablePicker";
 import { DialPrefix } from "@/components/auth/DialPrefix";
 import { AuthService } from "@/lib/auth.service";
 import { estPanneReseau, messageApi } from "@/lib/api";
@@ -113,6 +114,22 @@ const GENDERS: SelectOption[] = [
   { value: "male", label: "Homme" },
   { value: "female", label: "Femme" },
 ];
+
+/**
+ * Le pays de résidence : la liste de l'indicatif téléphonique, la même que
+ * `core/pays.py` côté serveur. On enregistre le code ISO (« SN »), jamais un
+ * nom tapé. `SearchablePicker` veut des identifiants numériques : la
+ * position dans `DIAL_COUNTRIES` en tient lieu.
+ */
+const RESIDENCE_OPTIONS: PickerOption[] = DIAL_COUNTRIES.map((c, i) => ({
+  id: i,
+  name: `${c.flag}  ${c.name}`,
+}));
+
+function residenceIndex(code: string): number | undefined {
+  const i = DIAL_COUNTRIES.findIndex((c) => c.iso === code);
+  return i < 0 ? undefined : i;
+}
 
 /**
  * ⚠ QUATRE valeurs, pas deux. `User.MaritalStatus` (`accounts/models.py:116`)
@@ -286,7 +303,7 @@ export default function InformationsScreen() {
         last_name: lastName.trim(),
         birth_date: iso,
         gender: gender || null,
-        residence_country: country.trim() || null,
+        residence_country: country || null,
         city: city.trim() || null,
         address: address.trim() || null,
         state: stateField.trim() || null,
@@ -473,12 +490,14 @@ export default function InformationsScreen() {
               placeholder="Choisir"
             />
 
-            <Input
+            {/* Une liste, plus un texte libre : « Senegl » faisait un pays de
+                plus dans la répartition des Jëfs. Le serveur reçoit le code. */}
+            <SearchablePicker
               label="Pays de résidence"
-              placeholder="Sénégal, France, Italie…"
-              value={country}
-              onChangeText={setCountry}
-              autoCapitalize="words"
+              placeholder="Choisir"
+              options={RESIDENCE_OPTIONS}
+              value={residenceIndex(country)}
+              onChange={(i) => setCountry(DIAL_COUNTRIES[i]?.iso ?? "")}
             />
             <Input
               label="Ville"

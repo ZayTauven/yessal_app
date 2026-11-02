@@ -187,7 +187,10 @@ export interface User {
   birth_date?: string | null;
   /** Homme ou Femme seulement — `other` a été retiré côté Django. */
   gender?: "male" | "female" | null;
+  /** Code ISO (« SN », « FR ») — voir `core/pays.py`. */
   residence_country?: string | null;
+  /** « Sénégal », rendu par le serveur. */
+  residence_country_name?: string | null;
   city?: string | null;
   address?: string | null;
   state?: string | null;

@@ -41,7 +41,7 @@ function resume(r: SuiviRepartition): { label: string; value: string; note: stri
       return { label: "Membres titrés", value: formatNumber(titres), note: premier?.amount ? `${premier.name} en tête` : "" };
     }
     case "pays": {
-      const sn = r.rows.find((l) => l.name === "Sénégal");
+      const sn = r.rows.find((l) => l.id === "SN");
       return { label: "Part de la diaspora", value: `${100 - (sn?.pct ?? 0)} %`, note: premier ? `${premier.name} en tête` : "" };
     }
     default:
