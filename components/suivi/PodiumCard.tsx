@@ -180,9 +180,12 @@ function Ligne({ d, divided }: { d: SuiviPodiumLigne; divided: boolean }) {
       )}
 
       <View style={styles.text}>
-        {/* Les étiquettes passent à la ligne plutôt que d'écraser le nom. */}
+        {/* Les étiquettes passent à la ligne plutôt que d'écraser le nom. Deux
+            lignes : à 375 px, la médaille, la couronne et le montant laissent
+            ~90 px au nom, et trois « Souleyman… » ne se distinguaient plus —
+            c'est cette liste que Sangue Bi lit au Kourel. */}
         <View style={styles.nameLine}>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={styles.name} numberOfLines={2}>
             {d.name}
           </Text>
           <TitleBadge title={d.title} />

@@ -7,7 +7,7 @@
  *
  * ── 🔴 Aucun retour à l'écran ───────────────────────────────────────────────
  *
- * Même défaut que `campaign/etat-[id]` : un `headerLeft` posé sur un en-tête
+ * Même défaut que `campaign/etat/[id]` : un `headerLeft` posé sur un en-tête
  * que `app/(app)/_layout.tsx` masque. Le chevron n'a jamais été rendu.
  *
  * ── « Donateurs » comptait des dons ─────────────────────────────────────────
@@ -74,7 +74,7 @@ const STATUS_LABELS: Record<string, string> = {
   inactive: "Inactif",
 };
 
-/** Voir `campaign/etat-[id].tsx` : la réponse ne porte aucun identifiant de don. */
+/** Voir `campaign/etat/[id].tsx` : la réponse ne porte aucun identifiant de don. */
 function contributorKey(item: Contributor, index: number) {
   return `${item.member_id}-${item.date}-${item.amount}-${index}`;
 }
@@ -237,7 +237,11 @@ export default function FeteDetailScreen() {
                       key={campaign.id}
                       item={campaign}
                       divided={index > 0}
-                      onPress={() => router.push(`/campaign/etat-${campaign.id}`)}
+                      /* `/campaign/etat/5`, plus `/campaign/etat-5` : Expo
+                         Router résolvait `etat-5` vers `campaign/[id]`,
+                         identifiant « etat-5 » — « Ce Ndiguel n'a pas pu être
+                         chargé ». L'écran de l'état était inaccessible. */
+                      onPress={() => router.push(`/campaign/etat/${campaign.id}`)}
                     />
                   ))}
                 </Card>
@@ -368,6 +372,8 @@ function ContributorRow({ item, divided }: { item: Contributor; divided: boolean
           name={masque ? "Contributeur anonyme" : item.member_name}
           anonyme={item.anonymous_revealed}
           nameStyle={styles.rowName}
+          /* À côté de l'étiquette, une ligne ne laissait que « Said Rad… ». */
+          numberOfLines={item.anonymous_revealed ? 2 : 1}
         />
         <Text style={styles.rowMeta} numberOfLines={1}>
           {[item.campaign_name, item.daara_name, new Date(item.date).toLocaleDateString("fr-FR")]

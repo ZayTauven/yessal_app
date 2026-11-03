@@ -149,7 +149,7 @@ export default function AppLayout() {
           Mêmes options que les destinations secondaires ci-dessus : aucune.
         */}
         <Stack.Screen name="campaign/[id]" />
-        <Stack.Screen name="campaign/etat-[id]" />
+        <Stack.Screen name="campaign/etat/[id]" />
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="chat/membres/[id]" />
         <Stack.Screen name="event/[id]" />

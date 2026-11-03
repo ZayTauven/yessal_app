@@ -1,5 +1,5 @@
 /**
- * app/(app)/campaign/etat-[id].tsx — l'état d'un Ndiguel, passé au système
+ * app/(app)/campaign/etat/[id].tsx — l'état d'un Ndiguel, passé au système
  * (phase F).
  *
  * Écran hérité (§5.2). Trois corrections en chemin.
@@ -276,6 +276,8 @@ function ContributorRow({ item, divided }: { item: Contributor; divided: boolean
           name={masque ? "Contributeur anonyme" : item.member_name || getInitials(null)}
           anonyme={item.anonymous_revealed}
           nameStyle={styles.rowName}
+          /* À côté de l'étiquette, une ligne coupait le nom à quelques lettres. */
+          numberOfLines={item.anonymous_revealed ? 2 : 1}
         />
         <Text style={styles.rowMeta} numberOfLines={1}>
           {[item.daara_name, new Date(item.date).toLocaleDateString("fr-FR")]

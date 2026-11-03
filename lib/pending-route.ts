@@ -73,11 +73,12 @@ const EXACT_ROUTES: ReadonlySet<string> = new Set([
 const SEGMENT = String.raw`[A-Za-z0-9._~%@+-]+`;
 
 /**
- * `/campaign/etat-5` est couvert par `/campaign/<segment>` : les deux sont des
- * routes réelles, il n'y a rien à distinguer ici.
+ * L'état d'un Ndiguel vit sous `/campaign/etat/<id>` depuis le 2026-11-03 :
+ * l'ancien `/campaign/etat-5` ouvrait `campaign/[id]`, identifiant « etat-5 ».
  */
 const DYNAMIC_ROUTES: readonly RegExp[] = [
   new RegExp(`^/campaign/${SEGMENT}$`),
+  new RegExp(`^/campaign/etat/${SEGMENT}$`),
   new RegExp(`^/chat/${SEGMENT}$`),
   new RegExp(`^/event/${SEGMENT}$`),
   new RegExp(`^/news/${SEGMENT}$`),
