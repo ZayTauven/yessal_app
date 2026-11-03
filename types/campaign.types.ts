@@ -98,6 +98,8 @@ export interface Contributor {
   date: string;
   payment_method: string;
   is_anonymous: boolean;
+  /** Anonyme, mais nommé pour l'admin et Sangue Bi : à étiqueter « Anonyme ». */
+  anonymous_revealed: boolean;
 }
 
 export interface FeteCampaign {

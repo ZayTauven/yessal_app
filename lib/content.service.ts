@@ -163,6 +163,7 @@ function normalizeDonation(item: any): Donation {
     donor_daara_name: item.donor_daara_name ?? null,
     collected_at: item.collected_at ?? null,
     cancellation_reason: item.cancellation_reason || null,
+    is_anonymous: Boolean(item.is_anonymous),
     created_at: item.created_at,
     updated_at: item.updated_at,
   };
@@ -443,6 +444,7 @@ function normalizeContributor(item: any): Contributor {
     date: item.date,
     payment_method: item.payment_method,
     is_anonymous: Boolean(item.is_anonymous),
+    anonymous_revealed: Boolean(item.anonymous_revealed),
   };
 }
 

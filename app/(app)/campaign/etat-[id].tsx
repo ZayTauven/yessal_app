@@ -32,6 +32,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Target, TrendingUp, Trophy, Users } from "lucide-react-native";
 
+import { DonorName } from "@/components/ui/AnonymeBadge";
 import { Avatar, getInitials } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
@@ -257,9 +258,12 @@ function Kpi({
 }
 
 function ContributorRow({ item, divided }: { item: Contributor; divided: boolean }) {
+  /* L'admin et Sangue Bi lisent le vrai nom d'un anonyme, étiqueté : ils
+     voyaient « Contributeur anonyme » comme tout le monde. */
+  const masque = item.is_anonymous && !item.anonymous_revealed;
   return (
     <View style={[styles.row, divided && styles.rowDivided]}>
-      {item.is_anonymous ? (
+      {masque ? (
         <View style={styles.anonymous}>
           <Text style={styles.anonymousMark}>?</Text>
         </View>
@@ -268,9 +272,11 @@ function ContributorRow({ item, divided }: { item: Contributor; divided: boolean
       )}
 
       <View style={styles.rowText}>
-        <Text style={styles.rowName} numberOfLines={1}>
-          {item.is_anonymous ? "Contributeur anonyme" : item.member_name || getInitials(null)}
-        </Text>
+        <DonorName
+          name={masque ? "Contributeur anonyme" : item.member_name || getInitials(null)}
+          anonyme={item.anonymous_revealed}
+          nameStyle={styles.rowName}
+        />
         <Text style={styles.rowMeta} numberOfLines={1}>
           {[item.daara_name, new Date(item.date).toLocaleDateString("fr-FR")]
             .filter(Boolean)

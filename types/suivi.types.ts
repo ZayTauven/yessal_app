@@ -17,6 +17,8 @@ export interface SuiviJef {
   campaign: { id: number; name: string };
   method: string;
   daara: string | null;
+  /** La guide voit le vrai nom ; l'écran l'étiquette « Anonyme » pour qu'elle ne le cite pas. */
+  is_anonymous?: boolean;
   created_at: string;
 }
 

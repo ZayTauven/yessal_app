@@ -75,6 +75,9 @@ export interface Donation {
   donor_daara_name?: string | null;
   collected_at?: string | null;
   cancellation_reason?: string | null;
+  /** Anonyme. Le nom n'arrive qu'à qui peut le voir (`donor` non nul) :
+   *  l'écran pose alors l'étiquette « Anonyme » — voir `nomRevele`. */
+  is_anonymous?: boolean;
   created_at: string;
   updated_at?: string;
 }

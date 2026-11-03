@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MessageSquare, Phone } from "lucide-react-native";
 
+import { DonorName } from "@/components/ui/AnonymeBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
@@ -169,7 +170,7 @@ export default function SuiviDaaraScreen() {
               {data.donations.map((j) => (
                 <View key={j.id} style={styles.row}>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.name} numberOfLines={1}>{j.donor.name}</Text>
+                    <DonorName name={j.donor.name} anonyme={Boolean(j.is_anonymous)} nameStyle={styles.name} />
                     <Text style={styles.muted} numberOfLines={1}>{j.campaign.name} · {j.method}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>

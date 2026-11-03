@@ -43,6 +43,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Settings2, Wallet } from "lucide-react-native";
 
+import { DonorName, nomRevele } from "@/components/ui/AnonymeBadge";
 import { Card } from "@/components/ui/Card";
 import { Chip, ChipRow } from "@/components/ui/Chip";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
@@ -449,13 +450,19 @@ function DonationCard({
             {STATUS_LABELS[donation.payment_status]}
           </Text>
         </View>
-        <Text style={styles.beneficiary} numberOfLines={2}>
-          {showDonor
-            ? `De ${donation.donor_name || "—"}`
-            : donation.beneficiary_name
-              ? `Pour ${donation.beneficiary_name}`
-              : "En mon nom"}
-        </Text>
+        {showDonor ? (
+          <DonorName
+            name={`De ${donation.donor_name || "—"}`}
+            anonyme={nomRevele(donation)}
+            nameStyle={styles.beneficiary}
+            numberOfLines={2}
+            style={styles.donorLine}
+          />
+        ) : (
+          <Text style={styles.beneficiary} numberOfLines={2}>
+            {donation.beneficiary_name ? `Pour ${donation.beneficiary_name}` : "En mon nom"}
+          </Text>
+        )}
       </View>
     </Card>
   );
@@ -516,4 +523,5 @@ const styles = StyleSheet.create({
   amount: { ...Type.amountCard, color: montant },
   amountUnconfirmed: { color: Ink[500] },
   beneficiary: { ...Type.micro, color: Ink[500], flex: 1, textAlign: "right" },
+  donorLine: { flex: 1 },
 });

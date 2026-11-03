@@ -34,6 +34,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BookOpen, Calendar, TrendingUp, Users } from "lucide-react-native";
 
+import { DonorName } from "@/components/ui/AnonymeBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -350,9 +351,11 @@ function CampaignRow({
 }
 
 function ContributorRow({ item, divided }: { item: Contributor; divided: boolean }) {
+  /* L'admin et Sangue Bi lisent le vrai nom d'un anonyme, étiqueté. */
+  const masque = item.is_anonymous && !item.anonymous_revealed;
   return (
     <View style={[styles.row, divided && styles.divided]}>
-      {item.is_anonymous ? (
+      {masque ? (
         <View style={styles.anonymous}>
           <Text style={styles.anonymousMark}>?</Text>
         </View>
@@ -361,9 +364,11 @@ function ContributorRow({ item, divided }: { item: Contributor; divided: boolean
       )}
 
       <View style={styles.rowText}>
-        <Text style={styles.rowName} numberOfLines={1}>
-          {item.is_anonymous ? "Contributeur anonyme" : item.member_name}
-        </Text>
+        <DonorName
+          name={masque ? "Contributeur anonyme" : item.member_name}
+          anonyme={item.anonymous_revealed}
+          nameStyle={styles.rowName}
+        />
         <Text style={styles.rowMeta} numberOfLines={1}>
           {[item.campaign_name, item.daara_name, new Date(item.date).toLocaleDateString("fr-FR")]
             .filter(Boolean)

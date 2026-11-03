@@ -28,6 +28,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { HandCoins, Inbox, Phone, ShieldAlert } from "lucide-react-native";
 
+import { DonorName, nomRevele } from "@/components/ui/AnonymeBadge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
@@ -173,9 +174,12 @@ export default function CollectScreen() {
             </Text>
             {state.cash.map((d) => (
               <View key={d.id} style={styles.cashRow}>
-                <Text style={styles.cashName} numberOfLines={1}>
-                  {d.donor_name || "—"}
-                </Text>
+                <DonorName
+                  name={d.donor_name || "—"}
+                  anonyme={nomRevele(d)}
+                  nameStyle={styles.cashName}
+                  style={styles.cashNameLine}
+                />
                 <Text style={styles.cashAmount}>{formatFCFA(d.amount)}</Text>
               </View>
             ))}
@@ -238,9 +242,15 @@ export default function CollectScreen() {
                   de disparaître.
                 */}
                 <View style={styles.cardTop}>
-                  <Text style={styles.cardTitle} numberOfLines={2}>
-                    {d.donor_name || "—"}
-                  </Text>
+                  {/* Le collecteur rencontre le membre : il garde le nom, et
+                      l'étiquette lui rappelle de ne pas le citer. */}
+                  <DonorName
+                    name={d.donor_name || "—"}
+                    anonyme={nomRevele(d)}
+                    nameStyle={styles.cardTitle}
+                    numberOfLines={2}
+                    style={styles.cardTitleLine}
+                  />
                   <Text style={styles.cardDate}>{formatDate(d.created_at)}</Text>
                 </View>
                 <Text style={styles.amount} selectable>
@@ -361,7 +371,10 @@ const styles = StyleSheet.create({
     gap: Space.sm,
     paddingVertical: Space.xs,
   },
-  cashName: { ...Type.micro, color: Ink[500], flex: 1 },
+  /* La ligne prend la place, le nom se coupe : l'étiquette « Anonyme » suit
+     le nom au lieu d'être repoussée contre le montant. */
+  cashNameLine: { flex: 1 },
+  cashName: { ...Type.micro, color: Ink[500] },
   cashAmount: { ...Type.micro, color: Ink[900] },
 
   section: { ...UIType.rowTitle, color: Ink[900] },
@@ -369,7 +382,8 @@ const styles = StyleSheet.create({
 
   card: { gap: Space.md },
   cardTop: { flexDirection: "row", alignItems: "flex-start", gap: Space.md },
-  cardTitle: { ...UIType.rowTitle, color: Ink[900], flex: 1 },
+  cardTitleLine: { flex: 1 },
+  cardTitle: { ...UIType.rowTitle, color: Ink[900] },
   cardDate: { ...Type.micro, color: Ink[300], paddingTop: 2 },
   amount: { ...Type.amountCard, color: montant, marginTop: -Space.xs },
   facts: {

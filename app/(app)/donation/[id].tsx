@@ -29,6 +29,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Share2 } from "lucide-react-native";
 
+import { AnonymeBadge, nomRevele } from "@/components/ui/AnonymeBadge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/EmptyState";
@@ -89,13 +90,17 @@ interface Fact {
   value: string;
   /** Chiffres tabulaires et sélection : une référence se recopie. */
   mono?: boolean;
+  /** Le vrai nom d'un donateur anonyme : étiquette « Anonyme ». */
+  anonyme?: boolean;
 }
 
 /** Les lignes du reçu, dans l'ordre du courriel, sans aucune ligne vide. */
 function receiptFacts(d: Donation, viewerIsDonor: boolean): Fact[] {
   const facts: (Fact | null)[] = [
     { label: "Ndiguel", value: d.campaign_name ?? `Ndiguel n° ${d.campaign}` },
-    viewerIsDonor ? null : { label: "Donateur", value: d.donor_name || "—" },
+    viewerIsDonor
+      ? null
+      : { label: "Donateur", value: d.donor_name || "—", anonyme: nomRevele(d) },
     {
       label: "Au nom de",
       value: d.beneficiary_name ?? (viewerIsDonor ? "En mon nom" : d.donor_name || "—"),
@@ -283,6 +288,7 @@ export default function DonationReceiptScreen() {
                     <Text style={[styles.factValue, f.mono && styles.factMono]} selectable>
                       {f.value}
                     </Text>
+                    {f.anonyme ? <AnonymeBadge style={styles.factBadge} /> : null}
                   </View>
                 ))}
               </View>
@@ -377,6 +383,8 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   factMono: { fontVariant: ["tabular-nums"], letterSpacing: 0.3 },
+  /* Le fait est aligné en haut ; l'étiquette se cale sur la première ligne. */
+  factBadge: { marginLeft: -Space.sm, marginTop: 1 },
 
   footnote: { ...Type.micro, color: Ink[300], textAlign: "center", paddingHorizontal: Space.lg },
 });
