@@ -3,20 +3,21 @@
  *
  * Toute la plateforme d'un coup d'œil : les Jëfs confirmés et ceux qui
  * attendent l'équipe, la part de la diaspora, les Talubés, les Ndiguels, les
- * LDD, les coordinateurs, et un encart « À regarder ». Elle annonce au Kourel
+ * LDD, le podium des donateurs, et un encart « À regarder ». Elle annonce au Kourel
  * d'un geste ; elle ne modifie rien.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronRight, Clock, Megaphone, Menu } from "lucide-react-native";
+import { Clock, Megaphone, Menu } from "lucide-react-native";
 
 import { DonorName } from "@/components/ui/AnonymeBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
+import { PodiumCard } from "@/components/suivi/PodiumCard";
 import { formatFCFA, formatNumber } from "@/lib/format";
 import { SuiviService } from "@/lib/suivi.service";
 import { useAuthStore } from "@/store/auth.store";
@@ -44,6 +45,8 @@ export function SuiviHome() {
   const [data, setData] = useState<SuiviOverview | null>(null);
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /* Le podium charge ses propres périodes : il suit le geste de rafraîchir. */
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async (p: Periode) => {
     try {
@@ -61,6 +64,7 @@ export function SuiviHome() {
 
   const refresh = useCallback(() => {
     setRefreshing(true);
+    setRefreshKey((k) => k + 1);
     load(periode).finally(() => setRefreshing(false));
   }, [load, periode]);
 
@@ -200,28 +204,9 @@ export function SuiviHome() {
               <Text style={styles.muted}>Par LDD, par Daara, par titre et par pays — jusqu&apos;au Jëf de chaque Talubé.</Text>
             </Section>
 
-            <Section title="Coordinateurs">
-              {data.coordinators_list.length === 0 && <Text style={styles.muted}>Aucun coordinateur nommé.</Text>}
-              {data.coordinators_list.map((c) => (
-                <Pressable
-                  key={c.id}
-                  disabled={!c.daara}
-                  onPress={() => c.daara && router.push({ pathname: "/suivi/daara/[id]", params: { id: String(c.daara.id), periode } })}
-                  accessibilityRole="button"
-                  style={styles.personRow}
-                >
-                  <Avatar uri={c.avatar} name={c.name} size={40} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.personName} numberOfLines={1}>{c.name}</Text>
-                    <Text style={styles.muted} numberOfLines={1}>{c.daara ? `Daara ${c.daara.name}` : "Sans Daara"}</Text>
-                  </View>
-                  <Text style={[styles.personAmount, !c.amount && { color: Ink[500] }]}>
-                    {c.amount ? formatFCFA(c.amount) : "—"}
-                  </Text>
-                  {c.daara && <ChevronRight size={18} color={Ink[300]} />}
-                </Pressable>
-              ))}
-            </Section>
+            {/* Le podium des donateurs remplace « Coordinateurs » (demande du
+                porteur, 2026-11-01) : c'est lui que Sangue Bi annonce au Kourel. */}
+            <PodiumCard refreshKey={refreshKey} />
 
             <Section title="Derniers Jëfs">
               {data.recent.length === 0 && <Text style={styles.muted}>Aucun Jëf confirmé sur la période.</Text>}

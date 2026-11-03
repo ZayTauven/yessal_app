@@ -6,9 +6,11 @@ import api from "./api";
 import { ContentService } from "./content.service";
 import type {
   Periode,
+  PodiumPeriode,
   RepartitionPar,
   SuiviDaara,
   SuiviOverview,
+  SuiviPodium,
   SuiviRepartition,
 } from "@/types/suivi.types";
 
@@ -19,6 +21,11 @@ export const SuiviService = {
 
   getRepartition(par: RepartitionPar, periode: Periode) {
     return api.get<SuiviRepartition>(`suivi/repartition/?par=${par}&periode=${periode}`);
+  },
+
+  /** Le Top 10 des donateurs ; ses périodes ne sont pas celles du reste du Suivi. */
+  getPodium(periode: PodiumPeriode) {
+    return api.get<SuiviPodium>(`suivi/podium/?periode=${periode}`);
   },
 
   getDaara(id: number, periode: Periode) {

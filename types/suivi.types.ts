@@ -51,8 +51,27 @@ export interface SuiviOverview {
   monthly: { month: string; amount: number; count: number }[];
   campaigns_list: SuiviNdiguel[];
   alerts: SuiviAlerte[];
+  /** Plus lu depuis le podium (2026-11-03) ; le serveur l'envoie encore pour les anciennes apps. */
   coordinators_list: (SuiviPersonne & { daara: { id: number; name: string } | null; amount: number; count: number })[];
   recent: SuiviJef[];
+}
+
+/** Le podium des donateurs : semaine depuis lundi, mois depuis le 1er, année depuis le 1er janvier. */
+export type PodiumPeriode = "semaine" | "mois" | "annee";
+
+export interface SuiviPodiumLigne extends SuiviPersonne {
+  rank: number;
+  daara: { id: number; name: string } | null;
+  amount: number;
+  count: number;
+  /** Au moins un Jëf anonyme dans la période : nom visible par la guide, étiqueté. */
+  anonymous: boolean;
+}
+
+export interface SuiviPodium {
+  period: PodiumPeriode;
+  since: string;
+  rows: SuiviPodiumLigne[];
 }
 
 export interface SuiviRepartitionLigne {
