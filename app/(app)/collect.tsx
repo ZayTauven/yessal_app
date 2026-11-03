@@ -35,7 +35,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { ContentService } from "@/lib/content.service";
-import { formatFCFA } from "@/lib/format";
+import { formatFCFA, tailleMontant } from "@/lib/format";
 import { useAuthStore } from "@/store/auth.store";
 import type { CollecteStatus, Donation } from "@/types/donation.types";
 import {
@@ -164,7 +164,9 @@ export default function CollectScreen() {
         <View style={styles.gutter}>
           <Card style={styles.cashCard}>
             <Text style={styles.cashLabel}>Ma caisse · à remettre</Text>
-            <Text style={styles.cashValue}>{formatFCFA(cashTotal)}</Text>
+            {/* 34 px : quinze caractères tiennent. Au-delà (des centaines de
+                millions), la taille baisse au lieu de sortir de la carte. */}
+            <Text style={[styles.cashValue, tailleMontant(formatFCFA(cashTotal), 34, 15)]}>{formatFCFA(cashTotal)}</Text>
             <Text style={styles.cashMeta}>
               {state.cash.length === 0
                 ? "Rien en caisse."

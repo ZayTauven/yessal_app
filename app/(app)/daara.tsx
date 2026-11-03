@@ -90,7 +90,7 @@ import { Skeleton, SkeletonListRow } from "@/components/ui/Skeleton";
 import { TitledName } from "@/components/ui/TitleBadge";
 import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
-import { formatCountdown, formatFCFA, formatNumber } from "@/lib/format";
+import { formatCountdown, formatFCFA, formatFCFACompact, formatNumber } from "@/lib/format";
 import { ROLE_LABEL, canSeeAmounts } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
@@ -776,8 +776,14 @@ function ChantierRow({
         chantier.
       */}
       {showsAmounts ? (
-        <Text style={styles.chantierAmount} numberOfLines={1}>
-          {formatFCFA(campaign.collected_amount)}
+        /* Colonne de droite : abrégée au-delà de 10 millions plutôt que
+           tronquée en « 2 250 22… ». Le montant exact est sur la fiche. */
+        <Text
+          style={styles.chantierAmount}
+          numberOfLines={1}
+          accessibilityLabel={formatFCFA(campaign.collected_amount)}
+        >
+          {formatFCFACompact(campaign.collected_amount)}
         </Text>
       ) : null}
     </Card>

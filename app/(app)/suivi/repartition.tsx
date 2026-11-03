@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
-import { formatFCFA, formatNumber } from "@/lib/format";
+import { formatFCFA, formatFCFACompact, formatNumber } from "@/lib/format";
 import { SuiviService } from "@/lib/suivi.service";
 import { Font, Ink, Radius, Space, Surface, Violet } from "@/theme";
 import { lirePeriode, PERIODES, type RepartitionPar, type SuiviRepartition } from "@/types/suivi.types";
@@ -33,7 +33,9 @@ function resume(r: SuiviRepartition): { label: string; value: string; note: stri
     case "ldd":
       return {
         label: `${r.rows.length} LDD ont donné`,
-        value: formatFCFA(r.total),
+        /* Une ligne, à côté d'une note : abrégé au-delà de 10 millions
+           plutôt que tronqué. */
+        value: formatFCFACompact(r.total),
         note: r.without_jef ? `${r.without_jef} LDD sans Jëf` : "Toutes les LDD ont donné",
       };
     case "titre": {
@@ -156,7 +158,9 @@ export default function RepartitionScreen() {
             >
               <View style={styles.rowHead}>
                 <Text style={styles.rank}>{i + 1}</Text>
-                <Text style={styles.rowName} numberOfLines={1}>{l.name}</Text>
+                {/* Deux lignes : à côté d'un total en milliards, un nom de Daara
+                    long tombait à quelques lettres. */}
+                <Text style={styles.rowName} numberOfLines={2}>{l.name}</Text>
                 <Text style={styles.rowAmount}>{l.amount ? formatFCFA(l.amount) : "—"}</Text>
               </View>
               <View style={styles.rowFoot}>

@@ -181,9 +181,8 @@ function Ligne({ d, divided }: { d: SuiviPodiumLigne; divided: boolean }) {
 
       <View style={styles.text}>
         {/* Les étiquettes passent à la ligne plutôt que d'écraser le nom. Deux
-            lignes : à 375 px, la médaille, la couronne et le montant laissent
-            ~90 px au nom, et trois « Souleyman… » ne se distinguaient plus —
-            c'est cette liste que Sangue Bi lit au Kourel. */}
+            lignes : trois « Souleyman… » ne se distinguaient plus — c'est
+            cette liste que Sangue Bi lit au Kourel. */}
         <View style={styles.nameLine}>
           <Text style={styles.name} numberOfLines={2}>
             {d.name}
@@ -191,12 +190,17 @@ function Ligne({ d, divided }: { d: SuiviPodiumLigne; divided: boolean }) {
           <TitleBadge title={d.title} />
           {d.anonymous ? <AnonymeBadge /> : null}
         </View>
+        {/* Le montant a sa ligne, en entier : c'est le chiffre que Sangue Bi
+            annonce. En colonne de droite, « 1 999 999 999 FCFA » réduisait
+            le nom à « Daara … » et recouvrait l'étiquette « Anonyme ». */}
+        <Text style={styles.amount} selectable>
+          {formatFCFA(d.amount)}
+        </Text>
         <Text style={styles.muted} numberOfLines={1}>
           {daara ? `Daara ${daara.name}` : "Sans Daara"} · {d.count} Jëf{d.count > 1 ? "s" : ""}
         </Text>
       </View>
 
-      <Text style={styles.amount}>{formatFCFA(d.amount)}</Text>
       {daara ? <ChevronRight size={16} color={Ink[300]} /> : null}
     </Pressable>
   );

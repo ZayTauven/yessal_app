@@ -64,7 +64,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { campaignVisual } from "@/lib/campaign-visuals";
 import { ContentService } from "@/lib/content.service";
-import { formatCountdown, formatFCFA, formatNumber, formatPercent } from "@/lib/format";
+import { NBSP, formatCountdown, formatFCFA, formatNumber, formatPercent, tailleMontant } from "@/lib/format";
 import { canSeeAmounts } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth.store";
 import type { Campaign, CampaignEtat, CampaignTodo } from "@/types/campaign.types";
@@ -347,10 +347,18 @@ function Collecte({
 
   return (
     <View style={styles.collecte}>
+      {/* Des milliards demain (2026-11-03) : le montant réduit sa taille avec
+          sa longueur, et l'objectif passe sous lui quand les deux ne tiennent
+          plus côte à côte — il se glissait, sans « FCFA », sous le « sur ». */}
       <View style={styles.collecteHead}>
-        <Text style={styles.collecteAmount}>{formatFCFA(campaign.collected_amount)}</Text>
+        <Text
+          style={[styles.collecteAmount, tailleMontant(formatFCFA(campaign.collected_amount), 24, 20)]}
+          selectable
+        >
+          {formatFCFA(campaign.collected_amount)}
+        </Text>
         {goal > 0 ? (
-          <Text style={styles.collecteGoal}>sur {formatNumber(goal)}</Text>
+          <Text style={styles.collecteGoal}>sur{NBSP}{formatFCFA(goal)}</Text>
         ) : null}
       </View>
       <ProgressBar progress={ratio} />
@@ -693,9 +701,15 @@ const styles = StyleSheet.create({
   participantsLabel: { ...Type.label, color: Ink[500], flexShrink: 1 },
 
   collecte: { gap: Space.md },
-  collecteHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  collecteHead: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    columnGap: Space.sm,
+  },
   collecteAmount: { ...Type.greeting, color: montant },
-  collecteGoal: { ...Type.label, color: Ink[500] },
+  collecteGoal: { ...Type.label, color: Ink[500], marginLeft: "auto" },
   collecteNote: { ...Type.label, color: Ink[500], lineHeight: 18 },
 
   section: { gap: Space.sm },

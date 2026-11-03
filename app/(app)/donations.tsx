@@ -49,7 +49,7 @@ import { Chip, ChipRow } from "@/components/ui/Chip";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
-import { formatFCFA } from "@/lib/format";
+import { formatFCFA, tailleMontant } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
 import {
   METHOD_LABELS,
@@ -285,7 +285,9 @@ export default function DonationsScreen() {
             <Text style={styles.totalLabel}>
               {onCollected ? "Collectes confirmées" : "Total confirmé"}
             </Text>
-            <Text style={styles.totalValue}>{formatFCFA(totals.confirmedAmount)}</Text>
+            {/* 34 px : quinze caractères tiennent. Au-delà (des centaines de
+                millions), la taille baisse au lieu de sortir de la carte. */}
+            <Text style={[styles.totalValue, tailleMontant(formatFCFA(totals.confirmedAmount), 34, 15)]}>{formatFCFA(totals.confirmedAmount)}</Text>
             <Text style={styles.totalMeta}>
               {totals.confirmedCount === 1
                 ? "1 Jëf confirmé"

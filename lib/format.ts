@@ -36,6 +36,64 @@ export function formatFCFA(value: number): string {
   return `${formatNumber(value)}${NBSP}FCFA`;
 }
 
+/**
+ * Au-delà de dix millions, un montant se resserre dans les cases étroites.
+ *
+ * Yessal fera transiter des milliards (2026-11-03). Écrit en entier,
+ * « 12 500 000 000 FCFA » ne tient pas dans une tuile de demi-largeur ; et
+ * comme ses espaces sont insécables, il ne passe pas non plus à la ligne : il
+ * se tronquait en « 12 500 0… », un montant faux. Sous le seuil, rien ne
+ * change : le nombre exact.
+ */
+const SEUIL_COMPACT = 10_000_000;
+
+/**
+ * 2 250 226 999 → « 2,25 Md » ; 85 187 000 → « 85,18 M » ; 1 250 000 → « 1 250 000 ».
+ *
+ * TRONQUÉ, jamais arrondi : 1 999 999 999 donne « 1,99 Md », pas « 2 Md ».
+ * Un total ne s'annonce jamais plus gros qu'il n'est. À n'employer que là où
+ * le montant exact se lit ailleurs, ou au moins dans `accessibilityLabel`.
+ */
+export function formatNumberCompact(value: number): string {
+  const abs = Math.abs(value);
+  if (abs < SEUIL_COMPACT) return formatNumber(value);
+  const [diviseur, unite] = abs >= 1_000_000_000 ? [1_000_000_000, "Md"] : [1_000_000, "M"];
+  /* Diviser par le centième d'unité, et non `(abs / diviseur) * 100` :
+     1,15 × 100 vaut 114,999… en virgule flottante, « 1,14 Md » au lieu de 1,15. */
+  const centiemes = Math.trunc(abs / (diviseur / 100));
+  const entier = Math.trunc(centiemes / 100);
+  const decimales = String(centiemes % 100).padStart(2, "0").replace(/0+$/, "");
+  const sign = value < 0 ? "-" : "";
+  return `${sign}${formatNumber(entier)}${decimales ? `,${decimales}` : ""}${NBSP}${unite}`;
+}
+
+/** 2 250 226 999 → « 2,25 Md FCFA ». Voir `formatNumberCompact`. */
+export function formatFCFACompact(value: number): string {
+  return `${formatNumberCompact(value)}${NBSP}FCFA`;
+}
+
+/**
+ * La taille d'un grand montant, réduite selon sa longueur.
+ *
+ * `capacite` : le nombre de caractères qui tiennent à la taille `taille` dans
+ * la largeur prévue (mesuré à 375 px). Au-delà, la police diminue en
+ * proportion, sans descendre sous 55 % : « 1 999 999 999 FCFA » tient sur une
+ * ligne au lieu de déborder de sa carte — les espaces insécables l'empêchent
+ * de passer à la ligne. Calculé, et non `adjustsFontSizeToFit` seul : ce
+ * dernier n'existe pas sur le web et ne se vérifie qu'à l'appareil.
+ */
+export function tailleMontant(
+  texte: string,
+  taille: number,
+  capacite: number,
+): { fontSize?: number; lineHeight?: number } {
+  const echelle = Math.max(Math.min(1, capacite / texte.length), 0.55);
+  /* Le montant tient : le style de l'écran reste maître de sa taille. */
+  if (echelle === 1) return {};
+  const fontSize = Math.floor(taille * echelle);
+  return { fontSize, lineHeight: Math.ceil(fontSize * 1.18) };
+}
+
 /** 0,62 → « 62 % ». Espace insécable avant le signe, comme le veut le français. */
 export function formatPercent(ratio: number): string {
   return `${Math.round(Math.min(Math.max(ratio, 0), 1) * 100)}\u00A0%`;

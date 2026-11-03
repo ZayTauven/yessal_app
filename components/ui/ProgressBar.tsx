@@ -70,12 +70,11 @@ export function ProgressBar({
               onPhoto && styles.captionOnPhoto,
               reached && !onPhoto && styles.captionReached,
             ]}
-            numberOfLines={1}
           >
             {left ?? ""}
           </Text>
           {right ? (
-            <Text style={[styles.caption, onPhoto && styles.captionOnPhoto]}>
+            <Text style={[styles.caption, styles.captionRight, onPhoto && styles.captionOnPhoto]}>
               {right}
             </Text>
           ) : null}
@@ -97,13 +96,22 @@ const styles = StyleSheet.create({
   fillLight: { backgroundColor: Violet[500] },
   fillReached: { backgroundColor: Violet[700] },
   fillOnPhoto: { backgroundColor: "#FFFFFF" },
+  /*
+   * Les légendes portent des montants, aux espaces insécables : elles ne se
+   * coupent pas. La gauche se tronquait (« 2 250 22… ») dès que les deux ne
+   * tenaient plus côte à côte — des milliards, demain. Elles passent
+   * désormais l'une sous l'autre, la droite restant calée à droite.
+   */
   captions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "baseline",
-    gap: Space.sm,
+    columnGap: Space.sm,
+    rowGap: 2,
   },
-  caption: { ...Type.label, color: Ink[500], flexShrink: 1 },
+  caption: { ...Type.label, color: Ink[500] },
+  captionRight: { marginLeft: "auto" },
   captionReached: { color: Violet[700] },
   captionOnPhoto: { color: "rgba(255,255,255,0.82)" },
 });

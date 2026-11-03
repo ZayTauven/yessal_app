@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/ui/EmptyState";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { TitleBadge } from "@/components/ui/TitleBadge";
-import { formatFCFA, formatNumber } from "@/lib/format";
+import { formatFCFA, formatNumber, formatNumberCompact } from "@/lib/format";
 import { SuiviService } from "@/lib/suivi.service";
 import { Font, Ink, Radius, Space, Surface, Violet } from "@/theme";
 import { lirePeriode, PERIODES, type SuiviDaara } from "@/types/suivi.types";
@@ -87,7 +87,16 @@ export default function SuiviDaaraScreen() {
             <View style={styles.stats}>
               <View style={[styles.stat, styles.statDark]}>
                 <Text style={styles.statLabelDark}>Total</Text>
-                <Text style={styles.statValueDark} adjustsFontSizeToFit numberOfLines={1}>{formatNumber(data.amount)}</Text>
+                {/* Tuile étroite : abrégé au-delà de 10 millions (`adjustsFontSizeToFit`
+                    ne joue qu'à l'appareil et se tronquait ailleurs). */}
+                <Text
+                  style={styles.statValueDark}
+                  adjustsFontSizeToFit
+                  numberOfLines={1}
+                  accessibilityLabel={`Total : ${formatFCFA(data.amount)}`}
+                >
+                  {formatNumberCompact(data.amount)}
+                </Text>
                 <Text style={styles.statLabelDark}>FCFA</Text>
               </View>
               <View style={styles.stat}>
@@ -143,7 +152,7 @@ export default function SuiviDaaraScreen() {
                 <View key={m.id} style={styles.row}>
                   <Avatar uri={m.avatar} name={m.name} size={40} />
                   <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                    <Text style={styles.name} numberOfLines={1}>{m.name}</Text>
+                    <Text style={styles.name} numberOfLines={2}>{m.name}</Text>
                     {!!m.title && <TitleBadge title={m.title} />}
                   </View>
                   <View style={{ alignItems: "flex-end" }}>

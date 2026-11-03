@@ -39,7 +39,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
-import { formatFCFA, formatNumber } from "@/lib/format";
+import { formatFCFA, formatNumberCompact } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
 import type { CampaignEtat, Contributor } from "@/types/campaign.types";
 import { methodLabel } from "@/lib/donation-display";
@@ -178,14 +178,18 @@ function Header({ etat }: { etat: CampaignEtat }) {
       <View style={styles.kpiGrid}>
         <Kpi
           icon={<TrendingUp size={16} color={Violet[700]} strokeWidth={1.5} />}
-          value={formatNumber(etat.collected_amount)}
+          /* Abrégé au-delà de 10 millions : en entier, « 2 250 226 999 »
+             se tronquait dans la tuile. Le montant exact est juste au-dessus. */
+          value={formatNumberCompact(etat.collected_amount)}
+          exact={formatFCFA(etat.collected_amount)}
           unit="FCFA"
           label="Collecté"
           accent
         />
         <Kpi
           icon={<Target size={16} color={Ink[500]} strokeWidth={1.5} />}
-          value={etat.goal_amount > 0 ? formatNumber(etat.goal_amount) : "—"}
+          value={etat.goal_amount > 0 ? formatNumberCompact(etat.goal_amount) : "—"}
+          exact={etat.goal_amount > 0 ? formatFCFA(etat.goal_amount) : "aucun"}
           unit={etat.goal_amount > 0 ? "FCFA" : undefined}
           label="Objectif"
         />
@@ -236,15 +240,22 @@ function Kpi({
   unit,
   label,
   accent = false,
+  exact,
 }: {
   icon: React.ReactNode;
   value: string;
   unit?: string;
   label: string;
   accent?: boolean;
+  /** Le montant entier, lu par le lecteur d'écran quand `value` est abrégé. */
+  exact?: string;
 }) {
   return (
-    <View style={[styles.kpi, accent && styles.kpiAccent]}>
+    <View
+      style={[styles.kpi, accent && styles.kpiAccent]}
+      accessible
+      accessibilityLabel={`${label} : ${exact ?? `${value}${unit ? ` ${unit}` : ""}`}`}
+    >
       {icon}
       <View style={styles.kpiValueRow}>
         <Text style={[styles.kpiValue, accent && styles.kpiValueAccent]} numberOfLines={1}>

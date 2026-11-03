@@ -42,7 +42,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
-import { formatFCFA, formatNumber } from "@/lib/format";
+import { formatFCFA, formatNumberCompact } from "@/lib/format";
 import { ContentService } from "@/lib/content.service";
 import type { Contributor, FeteCampaign, FeteEtat } from "@/types/campaign.types";
 import { methodLabel } from "@/lib/donation-display";
@@ -185,7 +185,9 @@ export default function FeteDetailScreen() {
             <View style={styles.kpiGrid}>
               <Kpi
                 icon={<TrendingUp size={16} color={Violet[700]} strokeWidth={1.5} />}
-                value={formatNumber(etat.total_collected)}
+                /* Abrégé au-delà de 10 millions : en entier, il se tronquait. */
+                value={formatNumberCompact(etat.total_collected)}
+                exact={formatFCFA(etat.total_collected)}
                 unit="FCFA"
                 label="Collecté"
                 accent
@@ -283,15 +285,22 @@ function Kpi({
   unit,
   label,
   accent = false,
+  exact,
 }: {
   icon: React.ReactNode;
   value: string;
   unit?: string;
   label: string;
   accent?: boolean;
+  /** Le montant entier, lu par le lecteur d'écran quand `value` est abrégé. */
+  exact?: string;
 }) {
   return (
-    <View style={[styles.kpi, accent && styles.kpiAccent]}>
+    <View
+      style={[styles.kpi, accent && styles.kpiAccent]}
+      accessible
+      accessibilityLabel={`${label} : ${exact ?? `${value}${unit ? ` ${unit}` : ""}`}`}
+    >
       {icon}
       <View style={styles.kpiValueRow}>
         <Text style={[styles.kpiValue, accent && styles.kpiValueAccent]} numberOfLines={1}>

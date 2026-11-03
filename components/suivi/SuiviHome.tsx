@@ -18,7 +18,7 @@ import { ErrorState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonListRow } from "@/components/ui/Skeleton";
 import { PodiumCard } from "@/components/suivi/PodiumCard";
-import { formatFCFA, formatNumber } from "@/lib/format";
+import { formatFCFA, formatNumber, tailleMontant } from "@/lib/format";
 import { SuiviService } from "@/lib/suivi.service";
 import { useAuthStore } from "@/store/auth.store";
 import { useUiStore } from "@/store/ui.store";
@@ -123,7 +123,13 @@ export function SuiviHome() {
           <>
             <View style={styles.hero} accessible accessibilityLabel={`Jëfs confirmés : ${formatFCFA(data.donations.amount)}`}>
               <Text style={styles.heroLabel}>Jëfs confirmés · {PERIODES.find((p) => p.value === periode)?.label.toLowerCase()}</Text>
-              <Text style={styles.heroAmount} adjustsFontSizeToFit numberOfLines={1}>
+              {/* `adjustsFontSizeToFit` n'agit qu'à l'appareil : la taille est aussi
+                  calculée, pour que des dizaines de milliards tiennent partout. */}
+              <Text
+                style={[styles.heroAmount, tailleMontant(formatNumber(data.donations.amount), 32, 13)]}
+                adjustsFontSizeToFit
+                numberOfLines={1}
+              >
                 {formatNumber(data.donations.amount)} <Text style={styles.heroCurrency}>FCFA</Text>
               </Text>
               <View style={styles.heroChips}>
