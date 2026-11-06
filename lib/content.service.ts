@@ -1,4 +1,6 @@
-import api from "./api";
+import { Platform } from "react-native";
+
+import api, { televerserEnFlux } from "./api";
 
 import type {
   CreateMessagePayload,
@@ -248,6 +250,8 @@ function normalizeMessage(item: any): Message {
     file_size: item.file_size ?? null,
     file_is_image: Boolean(item.file_is_image),
     file_kind: item.file_kind ?? null,
+    file_thumbnail_url: absoluteMediaUrl(item.file_thumbnail_url),
+    file_duration: item.file_duration ?? null,
     edited_at: item.edited_at ?? null,
     client_id: item.client_id ?? null,
     payload: item.payload
@@ -742,6 +746,20 @@ export const ContentService = {
   },
 
   async createMessage(payload: CreateMessagePayload): Promise<Message> {
+    if (payload.attachment?.kind === "video" && Platform.OS !== "web") {
+      const { uri, mimeType, duration, thumbnailB64 } = payload.attachment;
+      const parameters: Record<string, string> = { chat: String(payload.chat), content: payload.content };
+      if (payload.reply_to) parameters.reply_to = String(payload.reply_to);
+      if (payload.client_id) parameters.client_id = payload.client_id;
+      if (duration !== null && duration !== undefined) parameters.file_duration = String(Math.round(duration));
+      if (thumbnailB64) parameters.thumbnail_b64 = thumbnailB64;
+      const data = await televerserEnFlux<any>("comms/messages/", fichierPourEnvoi(uri, "fichier"), {
+        mimeType,
+        parameters,
+        onProgress: payload.onProgress,
+      });
+      return normalizeMessage(data);
+    }
     if (payload.attachment) {
       /* Multipart, avec un `File` d'expo-file-system — voir `lib/upload.ts`
          pour pourquoi jamais `{ uri, name, type }`. */

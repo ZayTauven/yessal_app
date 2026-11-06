@@ -65,7 +65,12 @@ import { Composer } from "@/components/chat/Composer";
 import { AudioBubble, JefCardView } from "@/components/chat/JefCard";
 import { JefReceipt } from "@/components/chat/JefReceipt";
 import { MessageActions } from "@/components/chat/MessageActions";
-import { DayDivider, MessageBubble, SystemNote } from "@/components/chat/MessageBubble";
+import { LienYoutube } from "@/components/chat/LienYoutube";
+import { Attachment as DocumentAttachment, DayDivider, MessageBubble, SystemNote, texteRiche } from "@/components/chat/MessageBubble";
+import { extraireYoutube } from "@/lib/liens";
+import { messageApi } from "@/lib/api";
+import { VideoBubble } from "@/components/chat/VideoBubble";
+import { libererApresEnvoi } from "@/lib/video";
 import { PinnedAnnouncement, pickPinned } from "@/components/chat/PinnedAnnouncement";
 import { daysBetween } from "@/components/chat/ChatRow";
 import { Avatar, AvatarStack, type StackedPerson } from "@/components/ui/Avatar";
@@ -537,6 +542,13 @@ export default function ConversationScreen() {
         reply_to: local.reply_to ?? null,
         attachment: local.local?.attachment ?? null,
         client_id: local.local?.clientId ?? null,
+        onProgress: (progress) =>
+          setState((previous) => ({
+            ...previous,
+            messages: previous.messages.map((m) =>
+              m.id === local.id && m.local && m.local.progress !== progress ? { ...m, local: { ...m.local, progress } } : m,
+            ),
+          })),
       });
       setState((previous) => ({
         ...previous,
@@ -545,7 +557,13 @@ export default function ConversationScreen() {
           [created],
         ),
       }));
-    } catch {
+      libererApresEnvoi(local.local?.attachment);
+    } catch (erreur) {
+      /* Le « Réessayer » de la bulle ne servira à rien si le serveur refuse le
+         fichier : autant le dire tout de suite. */
+      if (local.local?.attachment?.kind === "video") {
+        Alert.alert("Vidéo non envoyée", messageApi(erreur, "L'envoi de la vidéo a échoué. Réessayez."));
+      }
       setState((previous) => ({
         ...previous,
         messages: previous.messages.map((m) =>
@@ -596,6 +614,7 @@ export default function ConversationScreen() {
       file_size: file?.size ?? null,
       file_is_image: file?.kind === "image",
       file_kind: file?.kind ?? null,
+      file_duration: file?.duration ?? null,
       reply_to: replyingTo?.id ?? null,
       reply_preview: replyingTo
         ? {
@@ -1156,14 +1175,39 @@ function ChannelPost({
         ) : (
           <>
             {message.file_kind === "audio" && message.file_url ? <AudioBubble url={message.file_url} /> : null}
+            {message.file_kind === "video" && message.file_url ? (
+              <VideoBubble
+                url={message.file_url}
+                thumbnail={message.file_thumbnail_url}
+                duration={message.file_duration}
+                size={message.file_size}
+                onLongPress={() => onLongPress(message)}
+              />
+            ) : null}
+            {message.file_kind === "document" && message.file_url ? (
+              <DocumentAttachment url={message.file_url} name={message.file_name} size={message.file_size} mine={false} />
+            ) : null}
             {message.content && message.content !== message.file_name ? (
-              <Text style={styles.postText}>{message.content}</Text>
+              <PostText text={message.content} onLongPress={() => onLongPress(message)} />
             ) : null}
           </>
         )}
         <View style={styles.postFooter}>{footer}</View>
       </View>
     </Pressable>
+  );
+}
+
+/** Le texte d'une publication, avec ses liens : même rendu que dans une bulle. */
+function PostText({ text, onLongPress }: { text: string; onLongPress: () => void }) {
+  const { reste, videos } = extraireYoutube(text);
+  return (
+    <>
+      {reste ? <Text style={styles.postText}>{texteRiche(reste, false, onLongPress)}</Text> : null}
+      {videos.map((video) => (
+        <LienYoutube key={video.id} id={video.id} url={video.url} onLongPress={onLongPress} />
+      ))}
+    </>
   );
 }
 

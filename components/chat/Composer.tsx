@@ -8,7 +8,7 @@
  *
  * ── Ce que WhatsApp a appris aux membres, et qu'on leur rend ici ──────────
  *
- * - le « + » ouvre la galerie OU les documents (PDF, listes, reçus) ;
+ * - le « + » ouvre les photos, les vidéos OU les documents (PDF, listes, reçus) ;
  * - le micro, quand le champ est vide : un toucher lance l'enregistrement,
  *   un second l'envoie, la corbeille l'annule ;
  * - « @ » en salon propose les membres — c'est la mention qui fait sonner un
@@ -18,11 +18,11 @@
  *
  * Les images ne sont PAS recompressées (`quality: 1`) : la lisibilité d'une
  * photo de reçu ou de liste prime sur le poids — arbitrage déjà rendu pour
- * tous les téléversements de l'application.
+ * tous les téléversements de l'application. Les vidéos, si : voir `lib/video`.
  *
  * Dans un canal où l'on n'est pas auteur, un bandeau remplace tout le reste.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -33,9 +33,13 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import { FileText, ImagePlus, Lock, Mic, Pencil, Plus, Reply, Send, Square, Trash2, X } from "lucide-react-native";
+import { Clapperboard, FileText, ImagePlus, Lock, Mic, Pencil, Plus, Reply, Send, Square, Trash2, X } from "lucide-react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { messageApi } from "@/lib/api";
+import { fichierTropLourd, formatDuree, formatPoids } from "@/lib/upload";
+import { preparerVideo } from "@/lib/video";
+import { VideoAnnulee, type SourceVideo } from "@/lib/video.types";
 import type { Attachment, ChatMember, Message } from "@/types/content.types";
 import { Border, Font, GUTTER, Ink, Radius, Space, Status, Surface, Type, UIType, Violet } from "@/theme";
 
@@ -96,6 +100,8 @@ export function Composer({
 }: ComposerProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [caret, setCaret] = useState(0);
+  const [preparing, setPreparing] = useState<number | null>(null);
+  const cancelPreparation = useRef<(() => void) | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recState = useAudioRecorderState(recorder);
 
@@ -120,7 +126,7 @@ export function Composer({
 
   const recording = recState.isRecording;
   const empty = value.trim().length === 0 && !attachment;
-  const ready = !empty && !sending;
+  const ready = !empty && !sending && preparing === null;
 
   async function pickPhoto() {
     setMenuOpen(false);
@@ -132,6 +138,11 @@ export function Composer({
     const chosen = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
     const asset = chosen.canceled ? null : chosen.assets[0];
     if (!asset) return;
+    const tropLourde = fichierTropLourd(asset.fileSize);
+    if (tropLourde) {
+      Alert.alert("Photo trop lourde", tropLourde);
+      return;
+    }
     onAttach?.({
       uri: asset.uri,
       name: asset.fileName ?? `photo-${Date.now()}.jpg`,
@@ -141,12 +152,62 @@ export function Composer({
     });
   }
 
+  async function prepareVideo(source: SourceVideo) {
+    setPreparing(0);
+    onAttach?.(null);
+    try {
+      const video = await preparerVideo(source, {
+        onProgress: setPreparing,
+        onCancelReady: (cancel) => {
+          cancelPreparation.current = cancel;
+        },
+      });
+      onAttach?.(video);
+    } catch (erreur) {
+      if (!(erreur instanceof VideoAnnulee)) {
+        Alert.alert("Vidéo impossible à envoyer", messageApi(erreur, "Cette vidéo n'a pas pu être préparée."));
+      }
+    } finally {
+      cancelPreparation.current = null;
+      setPreparing(null);
+    }
+  }
+
+  async function pickVideo() {
+    setMenuOpen(false);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Accès refusé", "Autorisez l'accès à vos vidéos pour en partager une.");
+      return;
+    }
+    const chosen = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["videos"] });
+    const asset = chosen.canceled ? null : chosen.assets[0];
+    if (!asset) return;
+    await prepareVideo({
+      uri: asset.uri,
+      name: asset.fileName,
+      mimeType: asset.mimeType,
+      size: asset.fileSize,
+      /* expo-image-picker donne la durée en millisecondes. */
+      durationSeconds: asset.duration ? asset.duration / 1000 : null,
+    });
+  }
+
   async function pickDocument() {
     setMenuOpen(false);
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     const asset = result.canceled ? null : result.assets[0];
     if (!asset) return;
     const mimeType = asset.mimeType ?? "application/octet-stream";
+    if (kindOf(mimeType) === "video") {
+      await prepareVideo({ uri: asset.uri, name: asset.name, mimeType, size: asset.size });
+      return;
+    }
+    const tropLourd = fichierTropLourd(asset.size);
+    if (tropLourd) {
+      Alert.alert("Fichier trop lourd", tropLourd);
+      return;
+    }
     onAttach?.({ uri: asset.uri, name: asset.name, mimeType, kind: kindOf(mimeType), size: asset.size ?? null });
   }
 
@@ -235,17 +296,39 @@ export function Composer({
         </View>
       ) : null}
 
+      {preparing !== null ? (
+        <View style={styles.banner} accessibilityLiveRegion="polite">
+          <View style={[styles.thumb, styles.thumbDoc]}>
+            <Clapperboard size={20} color={Violet[700]} strokeWidth={1.6} />
+          </View>
+          <Text style={[styles.bannerBody, styles.bannerText]} numberOfLines={2}>
+            {`Préparation de la vidéo… ${preparing} %`}
+          </Text>
+          <Pressable onPress={() => cancelPreparation.current?.()} hitSlop={Space.md} accessibilityLabel="Annuler la préparation de la vidéo">
+            <X size={18} color={Ink[500]} strokeWidth={1.8} />
+          </Pressable>
+        </View>
+      ) : null}
+
       {attachment ? (
         <View style={styles.banner}>
-          {attachment.kind === "image" ? (
-            <Image source={{ uri: attachment.uri }} style={styles.thumb} />
+          {attachment.kind === "image" || attachment.thumbnailUri ? (
+            <Image source={{ uri: attachment.thumbnailUri ?? attachment.uri }} style={styles.thumb} />
+          ) : attachment.kind === "video" ? (
+            <View style={[styles.thumb, styles.thumbDoc]}>
+              <Clapperboard size={20} color={Violet[700]} strokeWidth={1.6} />
+            </View>
           ) : (
             <View style={[styles.thumb, styles.thumbDoc]}>
               <FileText size={20} color={Violet[700]} strokeWidth={1.6} />
             </View>
           )}
           <Text style={[styles.bannerBody, styles.bannerText]} numberOfLines={2}>
-            {attachment.kind === "image" ? "Photo prête — ajoutez une légende si vous voulez." : attachment.name}
+            {attachment.kind === "image"
+              ? "Photo prête — ajoutez une légende si vous voulez."
+              : attachment.kind === "video"
+                ? ["Vidéo prête", formatDuree(attachment.duration), attachment.size ? formatPoids(attachment.size) : ""].filter(Boolean).join(" · ")
+                : attachment.name}
           </Text>
           <Pressable onPress={() => onAttach?.(null)} hitSlop={Space.md} accessibilityLabel="Retirer la pièce jointe">
             <X size={18} color={Ink[500]} strokeWidth={1.8} />
@@ -260,6 +343,12 @@ export function Composer({
               <ImagePlus size={20} color="#6E2A50" strokeWidth={1.7} />
             </View>
             <Text style={styles.menuLabel}>Photo</Text>
+          </Pressable>
+          <Pressable onPress={pickVideo} accessibilityRole="button" style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}>
+            <View style={[styles.menuIcon, { backgroundColor: "#E3F0FF" }]}>
+              <Clapperboard size={20} color="#1F4E79" strokeWidth={1.7} />
+            </View>
+            <Text style={styles.menuLabel}>Vidéo</Text>
           </Pressable>
           <Pressable onPress={pickDocument} accessibilityRole="button" style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}>
             <View style={[styles.menuIcon, { backgroundColor: "#ECE6FB" }]}>

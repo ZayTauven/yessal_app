@@ -17,6 +17,9 @@ import { Image } from "expo-image";
 import { AlertCircle, Ban, Check, CheckCheck, FileText } from "lucide-react-native";
 
 import { AudioBubble } from "@/components/chat/JefCard";
+import { LienYoutube } from "@/components/chat/LienYoutube";
+import { VideoBubble } from "@/components/chat/VideoBubble";
+import { decouper, extraireYoutube, libelleLien } from "@/lib/liens";
 
 import { Avatar } from "@/components/ui/Avatar";
 import type { Message } from "@/types/content.types";
@@ -82,11 +85,13 @@ export function MessageBubble({
   const isImage =
     message.message_type === "file" && (message.file_kind === "image" || message.file_is_image) && !message.is_deleted;
   const isAudio = message.file_kind === "audio" && !message.is_deleted;
+  const isVideo = message.file_kind === "video" && !message.is_deleted;
   const imageUri = message.local?.imageUri ?? message.file_url;
   /* Une pièce jointe sans légende porte son nom de fichier en `content` : on ne le répète pas. */
   const caption =
     message.message_type === "file" && (message.content === message.file_name || isAudio) ? "" : message.content;
   const actionable = !message.is_deleted && !message.local;
+  const { reste: texte, videos } = extraireYoutube(caption);
 
   return (
     <View style={[styles.row, mine ? styles.rowMine : styles.rowOther]}>
@@ -117,7 +122,7 @@ export function MessageBubble({
             styles.bubble,
             mine ? styles.bubbleMine : styles.bubbleOther,
             message.is_deleted && styles.bubbleDeleted,
-            isImage && styles.bubbleImage,
+            (isImage || isVideo) && styles.bubbleImage,
             message.local?.status === "sending" && styles.bubbleSending,
           ]}
         >
@@ -151,17 +156,32 @@ export function MessageBubble({
                 </Pressable>
               ) : null}
 
-              {caption ? (
+              {isVideo ? (
+                <VideoBubble
+                  url={message.file_url}
+                  thumbnail={message.file_thumbnail_url ?? message.local?.attachment?.thumbnailUri}
+                  duration={message.file_duration ?? message.local?.attachment?.duration}
+                  size={message.file_size ?? message.local?.attachment?.size}
+                  sending={message.local ? { status: message.local.status, progress: message.local.progress } : null}
+                  onLongPress={() => actionable && onLongPress?.(message)}
+                />
+              ) : null}
+
+              {texte ? (
                 <Text
                   style={[
                     styles.text,
                     mine ? styles.textMine : styles.textOther,
-                    isImage && styles.captionPad,
+                    (isImage || isVideo) && styles.captionPad,
                   ]}
                 >
-                  {highlight(caption, mine)}
+                  {texteRiche(texte, mine, () => actionable && onLongPress?.(message))}
                 </Text>
               ) : null}
+
+              {videos.map((video) => (
+                <LienYoutube key={video.id} id={video.id} url={video.url} onLongPress={() => actionable && onLongPress?.(message)} />
+              ))}
 
               {isAudio && message.file_url ? (
                 <AudioBubble url={message.file_url} mine={mine} />
@@ -169,7 +189,7 @@ export function MessageBubble({
                 <Text style={[styles.text, styles.textDeleted]}>Note vocale en cours d&apos;envoi…</Text>
               ) : null}
 
-              {message.message_type === "file" && !isImage && !isAudio && (message.file_url || message.local) ? (
+              {message.message_type === "file" && !isImage && !isAudio && !isVideo && (message.file_url || message.local) ? (
                 <Attachment
                   url={message.file_url}
                   name={message.file_name ?? message.local?.attachment?.name}
@@ -180,7 +200,7 @@ export function MessageBubble({
             </>
           )}
 
-          <View style={[styles.meta, isImage && styles.captionPad]}>
+          <View style={[styles.meta, (isImage || isVideo) && styles.captionPad]}>
             <Text style={[styles.time, mine ? styles.timeMine : styles.timeOther]}>
               {message.edited_at ? "modifié · " : ""}
               {formatBubbleTime(message.sent_at)}
@@ -232,18 +252,35 @@ export function MessageBubble({
 }
 
 /** Les « @Prénom » ressortent : c'est ce qui fait sonner un téléphone en grand salon. */
-function highlight(text: string, mine: boolean) {
-  const parts = text.split(/(@[\p{L}][\p{L}'-]*)/u);
-  if (parts.length === 1) return text;
-  return parts.map((part, i) =>
-    part.startsWith("@") ? (
-      <Text key={i} style={[styles.mention, mine && styles.mentionMine]}>
-        {part}
-      </Text>
-    ) : (
-      part
-    ),
-  );
+/**
+ * Le texte d'un message : mentions en couleur et liens ouvrables, à l'adresse
+ * raccourcie. L'appui long reste celui de la bulle : l'adresse complète se copie
+ * depuis son menu.
+ */
+export function texteRiche(text: string, mine: boolean, onLongPress?: () => void) {
+  return decouper(text).map((morceau, i) => {
+    if (morceau.type === "mention") {
+      return (
+        <Text key={i} style={[styles.mention, mine && styles.mentionMine]}>
+          {morceau.valeur}
+        </Text>
+      );
+    }
+    if (morceau.type === "lien") {
+      return (
+        <Text
+          key={i}
+          accessibilityRole="link"
+          onPress={() => Linking.openURL(morceau.valeur).catch(() => undefined)}
+          onLongPress={onLongPress}
+          style={[styles.link, mine && styles.linkMine]}
+        >
+          {libelleLien(morceau.valeur)}
+        </Text>
+      );
+    }
+    return morceau.valeur;
+  });
 }
 
 /**
@@ -251,7 +288,7 @@ function highlight(text: string, mine: boolean) {
  * qui s'ouvre dans l'application du système. Les images et les notes vocales
  * ont leur propre rendu — `file_kind`, servi par `MessageSerializer`, le dit.
  */
-function Attachment({
+export function Attachment({
   url,
   name,
   size,
@@ -399,6 +436,8 @@ const styles = StyleSheet.create({
   captionPad: { paddingHorizontal: Space.md - 4 },
   meta: { flexDirection: "row", alignItems: "center", alignSelf: "flex-end", gap: 4 },
 
+  link: { color: Violet[700], textDecorationLine: "underline" },
+  linkMine: { color: Violet[900] },
   mention: { fontFamily: Font.semibold, color: Violet[700] },
   mentionMine: { color: Violet[900] },
 

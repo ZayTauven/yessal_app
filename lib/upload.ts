@@ -37,6 +37,36 @@ import { ErreurLisible } from "./api";
  * ligne le montre : la quasi-totalité des exemples de téléversement React Native
  * datent d'avant ce changement.
  */
+export const PLAFOND_FICHIER_MO = 15;
+export const PLAFOND_VIDEO_MO = 100;
+export const PLAFOND_FICHIER_OCTETS = PLAFOND_FICHIER_MO * 1024 * 1024;
+export const PLAFOND_VIDEO_OCTETS = PLAFOND_VIDEO_MO * 1024 * 1024;
+
+/** 2411724 → « 2,3 Mo ». */
+export function formatPoids(octets: number): string {
+  if (octets >= 1024 * 1024) return `${(octets / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
+  return `${Math.max(1, Math.round(octets / 1024))} Ko`;
+}
+
+/** 45 → « 0:45 » ; 3725 → « 1:02:05 ». */
+export function formatDuree(secondes?: number | null): string {
+  if (secondes === null || secondes === undefined) return "";
+  const s = Math.max(0, Math.round(secondes));
+  const deux = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}:${deux(m)}:${deux(s % 60)}` : `${m}:${deux(s % 60)}`;
+}
+
+/**
+ * Le message à montrer si ce fichier dépasse le plafond, ou `null` s'il passe.
+ * Dit AVANT l'envoi : sinon le membre consomme ses données pour apprendre un refus.
+ */
+export function fichierTropLourd(octets?: number | null): string | null {
+  if (!octets || octets <= PLAFOND_FICHIER_OCTETS) return null;
+  return `Ce fichier fait ${formatPoids(octets)} : la taille maximale autorisée est de ${PLAFOND_FICHIER_MO} Mo.`;
+}
+
 export function fichierPourEnvoi(uri: string, nature: "image" | "fichier" = "image"): File {
   /* Une note vocale ou un PDF n'est pas « une image » : le message le dit. */
   const ce = nature === "image" ? "Cette image" : "Ce fichier";

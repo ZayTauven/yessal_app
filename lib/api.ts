@@ -1,5 +1,7 @@
 import { Storage } from "./storage";
 
+import { File, UploadType } from "expo-file-system";
+
 import { Config } from "@/constants/configs";
 
 export class ApiError extends Error {
@@ -280,6 +282,55 @@ async function request<T>(
   }
 
   return readResponse<T>(response);
+}
+
+/**
+ * Envoie un fichier en flux natif, sans le charger en mémoire.
+ *
+ * Le `FormData` de `request` passe par `File.bytes()` : tout le fichier tient
+ * dans la mémoire JavaScript, ce qui ne pose aucun problème pour une photo et
+ * peut faire planter un petit Android avec une vidéo de 100 Mo. C'est aussi ce
+ * qui permet d'afficher l'avancement de l'envoi.
+ */
+export async function televerserEnFlux<T>(
+  path: string,
+  fichier: File,
+  options: { mimeType: string; parameters: Record<string, string>; onProgress?: (percent: number) => void },
+): Promise<T> {
+  const envoyer = async (token: string | null) => {
+    try {
+      return await fichier.upload(buildUrl(path), {
+        uploadType: UploadType.MULTIPART,
+        fieldName: "file",
+        mimeType: options.mimeType,
+        parameters: options.parameters,
+        headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        onProgress: ({ bytesSent, totalBytes }) => {
+          if (totalBytes > 0) options.onProgress?.(Math.min(100, Math.round((bytesSent / totalBytes) * 100)));
+        },
+      });
+    } catch (cause) {
+      throw new ErreurLisible("La connexion a été interrompue pendant l'envoi. Réessayez.", { cause });
+    }
+  };
+
+  let reponse = await envoyer(await Storage.getItemAsync(Config.TOKEN_KEY));
+  if (reponse.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) reponse = await envoyer(refreshed);
+  }
+
+  let corps: any = null;
+  try {
+    corps = reponse.body ? JSON.parse(reponse.body) : null;
+  } catch {
+    /* Une page 413 de nginx n'est pas du JSON. */
+  }
+  if (reponse.status < 200 || reponse.status >= 300) {
+    const repli = reponse.status === 413 ? "Ce fichier dépasse la taille autorisée par le serveur." : `HTTP ${reponse.status}`;
+    throw new ApiError(extractErrorMessage(corps ?? {}, repli), reponse.status, corps?.code, corps);
+  }
+  return corps as T;
 }
 
 const api = {

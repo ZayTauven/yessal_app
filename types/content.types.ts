@@ -201,11 +201,13 @@ export interface Message {
   /** Une image s'affiche en vignette ; le reste en carte de document. */
   file_is_image?: boolean;
   file_kind?: "image" | "audio" | "video" | "document" | null;
+  file_thumbnail_url?: string | null;
+  file_duration?: number | null;
   edited_at?: string | null;
   payload?: JefCard | null;
   reply_preview?: MessageReplyPreview | null;
   /** Message pas encore confirmé par le serveur — absent de tout ce que l'API rend. */
-  local?: { status: "sending" | "failed"; imageUri?: string | null; attachment?: Attachment | null; clientId?: string };
+  local?: { status: "sending" | "failed"; imageUri?: string | null; attachment?: Attachment | null; clientId?: string; progress?: number };
   /** Renvoyé par l'événement Pusher : l'identifiant de la bulle optimiste d'origine. */
   client_id?: string | null;
 }
@@ -217,6 +219,12 @@ export interface Attachment {
   mimeType: string;
   kind: "image" | "audio" | "video" | "document";
   size?: number | null;
+  /** Vidéo : durée en secondes, et aperçu fabriqué sur le téléphone. */
+  duration?: number | null;
+  thumbnailUri?: string | null;
+  thumbnailB64?: string | null;
+  /** Copie réduite, à effacer une fois envoyée. */
+  temporaire?: boolean;
 }
 
 export interface CreateMessagePayload {
@@ -226,6 +234,8 @@ export interface CreateMessagePayload {
   attachment?: Attachment | null;
   /** Identifiant de la bulle optimiste, renvoyé par l'événement Pusher. */
   client_id?: string | null;
+  /** Avancement de l'envoi d'une vidéo, en pourcentage. */
+  onProgress?: (percent: number) => void;
 }
 
 export interface Announcement {
