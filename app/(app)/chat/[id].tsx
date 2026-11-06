@@ -57,7 +57,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Image as ExpoImage } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { Bell, BellOff, ChevronLeft, Pin, PinOff, SmilePlus, Trash2, X } from "lucide-react-native";
+import { Bell, BellOff, ChevronLeft, Eye, Pin, PinOff, SmilePlus, Trash2, X } from "lucide-react-native";
 
 import { ChannelGlyph } from "@/components/chat/ChannelIcon";
 
@@ -863,8 +863,14 @@ export default function ConversationScreen() {
               case "message":
                 if (isChannel) {
                   const m = entry.message;
+                  const palier = m.payload?.variant === "palier";
                   const chips = (
-                    <ReactionChips message={m} light={m.payload?.variant === "palier"} onToggle={handleReact} onMore={openActions} />
+                    <View style={styles.postMeta}>
+                      <View style={styles.postChips}>
+                        <ReactionChips message={m} light={palier} onToggle={handleReact} onMore={openActions} />
+                      </View>
+                      <ViewCount count={m.view_count} light={palier} />
+                    </View>
                   );
                   if (m.message_type === "card" && m.payload) {
                     return (
@@ -1198,6 +1204,18 @@ function ChannelPost({
   );
 }
 
+/** L'œil d'une publication de canal. */
+function ViewCount({ count, light = false }: { count?: number | null; light?: boolean }) {
+  if (typeof count !== "number") return null;
+  const color = light ? "rgba(255,255,255,0.8)" : Ink[500];
+  return (
+    <View style={styles.views} accessible accessibilityLabel={`${count} ${count > 1 ? "vues" : "vue"}`}>
+      <Eye size={14} color={color} strokeWidth={1.8} />
+      <Text style={[styles.viewsText, { color }]}>{String(count).replace(/\B(?=(\d{3})+$)/g, "\u202f")}</Text>
+    </View>
+  );
+}
+
 /** Le texte d'une publication, avec ses liens : même rendu que dans une bulle. */
 function PostText({ text, onLongPress }: { text: string; onLongPress: () => void }) {
   const { reste, videos } = extraireYoutube(text);
@@ -1418,6 +1436,10 @@ const styles = StyleSheet.create({
   postText: { ...Type.body, color: Ink[900] },
   postDeleted: { ...Type.label, fontStyle: "italic", color: Ink[300] },
   postFooter: { marginTop: Space.xs },
+  postMeta: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: Space.sm },
+  postChips: { flexShrink: 1 },
+  views: { flexDirection: "row", alignItems: "center", gap: 4 },
+  viewsText: { ...Type.micro },
 
   viewer: { flex: 1, backgroundColor: "rgba(0,0,0,0.94)", justifyContent: "center" },
   viewerImage: { width: "100%", height: "80%" },

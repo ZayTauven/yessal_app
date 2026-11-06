@@ -252,6 +252,7 @@ function normalizeMessage(item: any): Message {
     file_kind: item.file_kind ?? null,
     file_thumbnail_url: absoluteMediaUrl(item.file_thumbnail_url),
     file_duration: item.file_duration ?? null,
+    view_count: item.view_count ?? null,
     edited_at: item.edited_at ?? null,
     client_id: item.client_id ?? null,
     payload: item.payload
