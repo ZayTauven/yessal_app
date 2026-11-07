@@ -195,6 +195,7 @@ export function MessageBubble({
                   name={message.file_name ?? message.local?.attachment?.name}
                   size={message.file_size ?? message.local?.attachment?.size}
                   mine={mine}
+                  failed={message.local?.status === "failed"}
                 />
               ) : null}
             </>
@@ -293,11 +294,13 @@ export function Attachment({
   name,
   size,
   mine,
+  failed = false,
 }: {
   url?: string | null;
   name?: string | null;
   size?: number | null;
   mine: boolean;
+  failed?: boolean;
 }) {
   const ext = (name ?? "").split(".").pop()?.toUpperCase().slice(0, 4) || "DOC";
   const poids = size ? (size < 1024 * 1024 ? `${Math.round(size / 1024)} Ko` : `${(size / 1048576).toFixed(1).replace(".", ",")} Mo`) : "";
@@ -316,7 +319,7 @@ export function Attachment({
         <Text style={styles.docName} numberOfLines={1}>
           {name || "Document"}
         </Text>
-        <Text style={styles.docMeta}>{url ? `${poids ? `${poids} · ` : ""}Ouvrir` : "Envoi en cours…"}</Text>
+        <Text style={styles.docMeta}>{url ? `${poids ? `${poids} · ` : ""}Ouvrir` : failed ? "Non envoyé" : "Envoi en cours…"}</Text>
       </View>
       <FileText size={18} color={Violet[700]} strokeWidth={1.6} />
     </Pressable>
