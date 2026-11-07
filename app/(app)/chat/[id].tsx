@@ -836,7 +836,7 @@ export default function ConversationScreen() {
           onEndReached={loadOlder}
           onEndReachedThreshold={0.3}
           ListFooterComponent={
-            loadingOlder ? <ActivityIndicator color={Violet[500]} style={styles.older} /> : null
+            loadingOlder ? <ActivityIndicator color={Violet[500]} style={styles.older} /> : undefined
           }
           ListEmptyComponent={
             <Text style={[styles.silent, styles.flipped]}>
@@ -850,7 +850,7 @@ export default function ConversationScreen() {
               <Text style={styles.typing}>
                 {typingNames.length === 1 ? `${typingNames[0]} écrit…` : "Plusieurs personnes écrivent…"}
               </Text>
-            ) : null
+            ) : undefined
           }
           renderItem={({ item: entry }) => {
             switch (entry.kind) {

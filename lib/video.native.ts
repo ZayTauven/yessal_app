@@ -1,5 +1,5 @@
+import { isRunningInExpoGo } from "expo";
 import { File } from "expo-file-system";
-import { createVideoThumbnail, getVideoMetaData, Video } from "react-native-compressor";
 
 import { ErreurLisible } from "@/lib/api";
 import { formatPoids, PLAFOND_VIDEO_OCTETS, PLAFOND_VIDEO_MO } from "@/lib/upload";
@@ -25,6 +25,16 @@ const DEBIT_TOLERE = DEBIT_VIDEO * 1.25;
 /** Au-delà, le serveur ignore l'aperçu (`VIGNETTE_POIDS_MAX`). */
 const VIGNETTE_POIDS_MAX = 512 * 1024;
 
+/*
+ * Expo Go n'embarque pas ce module natif : un simple `import` y plante l'application
+ * dès son démarrage, bien avant le premier écran. Il ne sert qu'aux essais du rendu
+ * sur iPhone, sans compte Apple ; les vrais builds ont toujours le module.
+ */
+const compresseur: typeof import("react-native-compressor") | null = isRunningInExpoGo()
+  ? null
+  : // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("react-native-compressor");
+
 function effacer(uri: string): void {
   try {
     new File(uri).delete();
@@ -37,9 +47,33 @@ function nomDe(uri: string): string {
   return decodeURIComponent(uri.split("?")[0].split("/").pop() ?? "") || `video-${Date.now()}.mp4`;
 }
 
+/** Sous Expo Go : la vidéo part telle quelle, sans aperçu, dans la limite du plafond. */
+function videoSansCompression(source: SourceVideo): Attachment {
+  const taille = source.size ?? new File(source.uri).size ?? 0;
+  const enCache = /\/cache\//.test(source.uri);
+  if (taille > PLAFOND_VIDEO_OCTETS) {
+    if (enCache) effacer(source.uri);
+    throw new ErreurLisible(
+      `Cette vidéo fait ${formatPoids(taille)} : la taille maximale est de ${PLAFOND_VIDEO_MO} Mo. Essayez-en une plus courte.`,
+    );
+  }
+  return {
+    uri: source.uri,
+    name: nomDe(source.uri),
+    mimeType: source.mimeType ?? "video/mp4",
+    kind: "video",
+    size: taille,
+    duration: source.durationSeconds ? Math.round(source.durationSeconds) : null,
+    temporaire: enCache,
+    thumbnailUri: null,
+    thumbnailB64: null,
+  };
+}
+
 async function fabriquerApercu(uri: string) {
+  if (!compresseur) return { thumbnailUri: null, thumbnailB64: null };
   try {
-    const vignette = await createVideoThumbnail(uri);
+    const vignette = await compresseur.createVideoThumbnail(uri);
     const chemin = vignette.path.startsWith("file://") ? vignette.path : `file://${vignette.path}`;
     const fichier = new File(chemin);
     if (fichier.size > VIGNETTE_POIDS_MAX) return { thumbnailUri: chemin, thumbnailB64: null };
@@ -51,6 +85,9 @@ async function fabriquerApercu(uri: string) {
 }
 
 export async function preparerVideo(source: SourceVideo, suivi: SuiviPreparation = {}): Promise<Attachment> {
+  if (!compresseur) return videoSansCompression(source);
+  const { getVideoMetaData, Video } = compresseur;
+
   const meta = await getVideoMetaData(source.uri).catch(() => null);
   const taille = source.size ?? meta?.size ?? new File(source.uri).size ?? 0;
   const duree = source.durationSeconds ?? meta?.duration ?? null;

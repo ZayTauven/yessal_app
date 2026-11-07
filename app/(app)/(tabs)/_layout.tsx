@@ -43,7 +43,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{ headerShown: false }}
-      tabBar={({ state, navigation }) => {
+      tabBar={({ state, emitter, navigateToTab }) => {
         const items: TabItem[] = TABS.map(({ name, label, icon: Icon }) => ({
           key: name,
           label,
@@ -55,13 +55,13 @@ export default function TabsLayout() {
             const route = state.routes.find((r) => r.name === name);
             if (!route) return;
             const focused = state.routes[state.index]?.name === name;
-            const event = navigation.emit({
+            const event = emitter.emit({
               type: "tabPress",
               target: route.key,
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
+              navigateToTab(route.key);
             }
           },
         }));

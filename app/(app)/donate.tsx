@@ -59,6 +59,7 @@ import {
   View,
   useWindowDimensions,
   type TextStyle,
+  type ScrollViewInstance,
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -719,7 +720,7 @@ function AmountStep({
     tapait son montant à l'aveugle — le chiffre était sorti par le haut. Toute
     frappe ramène donc le montant héros sous les yeux.
   */
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   const typeDigits = (next: string) => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
     onDigits(next);

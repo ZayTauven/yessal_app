@@ -299,7 +299,9 @@ export default function RegisterScreen() {
           refreshControl={
             <RefreshControl
               refreshing={daaraRefreshing}
-              onRefresh={() => selectedLdd && loadDaaras(selectedLdd, true)}
+              onRefresh={() => {
+                if (selectedLdd) void loadDaaras(selectedLdd, true);
+              }}
               tintColor={Violet[500]}
               colors={[Violet[500]]}
             />
