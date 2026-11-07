@@ -30,6 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Linking,
   ScrollView,
+  useWindowDimensions,
   Share,
   StyleSheet,
   Text,
@@ -178,6 +179,11 @@ export default function NewsDetailScreen() {
 
 function Article({ post }: { post: NewsPost }) {
   const gallery = post.gallery ?? [];
+  /* En pixels, pas en pourcentage : `width: "48%"` avec `aspectRatio` donnait un
+     cadre de taille nulle, et la section s'arrêtait à son titre (constaté sur iOS
+     et Android). Deux colonnes, entre les marges de l'écran. */
+  const { width: largeurEcran } = useWindowDimensions();
+  const coteVignette = Math.floor((largeurEcran - GUTTER * 2 - Space.sm) / 2);
   const date = formatDate(post.published_at ?? post.created_at);
 
   return (
@@ -258,7 +264,7 @@ function Article({ post }: { post: NewsPost }) {
                 uri={image.image}
                 accessibilityLabel={image.caption ?? `Photographie ${index + 1}`}
                 fallbackIconSize={26}
-                style={styles.galleryItem}
+                style={[styles.galleryItem, { width: coteVignette, height: coteVignette }]}
               />
             ))}
           </View>
@@ -319,8 +325,6 @@ const styles = StyleSheet.create({
   galleryTitle: { ...UIType.chipLabel, color: Ink[500] },
   galleryGrid: { flexDirection: "row", flexWrap: "wrap", gap: Space.sm },
   galleryItem: {
-    width: "48%",
-    aspectRatio: 1,
     borderRadius: Radius.input,
     ...continuous,
     overflow: "hidden",

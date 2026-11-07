@@ -560,9 +560,15 @@ export default function ConversationScreen() {
       libererApresEnvoi(local.local?.attachment);
     } catch (erreur) {
       /* Le « Réessayer » de la bulle ne servira à rien si le serveur refuse le
-         fichier : autant le dire tout de suite. */
-      if (local.local?.attachment?.kind === "video") {
-        Alert.alert("Vidéo non envoyée", messageApi(erreur, "L'envoi de la vidéo a échoué. Réessayez."));
+         fichier : autant le dire tout de suite. Un format refusé n'affichait
+         jusqu'ici qu'une bulle en échec, sans la raison. */
+      const piece = local.local?.attachment;
+      if (piece) {
+        const video = piece.kind === "video";
+        Alert.alert(
+          video ? "Vidéo non envoyée" : "Fichier non envoyé",
+          messageApi(erreur, video ? "L'envoi de la vidéo a échoué. Réessayez." : "L'envoi du fichier a échoué. Réessayez."),
+        );
       }
       setState((previous) => ({
         ...previous,
