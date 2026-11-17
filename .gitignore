@@ -32,6 +32,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+# EAS Simulator: session id and controller credentials
+.env.eas-simulator
 
 # typescript
 *.tsbuildinfo
