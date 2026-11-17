@@ -65,8 +65,15 @@ case "${1:-}" in
           --max-duration-minutes "$minutes" --name "Yessal debug iOS"
           --launch-arg "-EXDevMenuIsOnboardingFinished" --launch-arg "1"
           --launch-arg "-EXDevMenuShowsAtLaunch" --launch-arg "0"
+          --launch-arg "-EXDevMenuShowFloatingActionButton" --launch-arg "0"
           --non-interactive)
     if [[ -n "$metro_url" ]]; then
+      # The first bundle takes 1-2 min to build and the tunnel gives up after
+      # 30 s (504). Build it here, through localhost, before the clock starts.
+      echo "Preloading the iOS bundle (before the session, so it costs no minutes)..."
+      bundle_path="$(curl -s --max-time 60 -H "expo-platform: ios" -H "accept: application/expo+json,application/json" \
+        http://localhost:8081 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const u=new URL(JSON.parse(s).launchAsset.url);console.log(u.pathname+u.search)})')"
+      curl -s --max-time 1500 -o /dev/null -w "Bundle ready: %{size_download} bytes in %{time_total}s\n" "http://localhost:8081$bundle_path"
       encoded="$(node -e 'console.log(encodeURIComponent(process.argv[1]))' "$metro_url")"
       args+=(--open-url "$SCHEME://expo-development-client/?url=$encoded")
     fi
