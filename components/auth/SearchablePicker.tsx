@@ -21,8 +21,18 @@
  *
  * `${name} (${code || ""})` affichait une parenthèse vide pour toute entrée
  * sans code. La parenthèse ne s'écrit plus que s'il y a quelque chose dedans.
+ *
+ * ── « touba » devenu « ba|t » ───────────────────────────────────────────────
+ *
+ * Vu sur le simulateur iOS le 2026-11-17 : le champ de recherche était
+ * contrôlé (`value={query}`) et chaque lettre refiltrait les 376 Daaras puis
+ * redessinait la liste. Quand la lettre suivante arrivait avant la fin de ce
+ * rendu, React réimposait au champ un texte déjà périmé : des lettres
+ * disparaissaient et le curseur sautait au milieu du mot. Le champ n'est plus
+ * contrôlé — le texte appartient au clavier natif — et le filtre lit une
+ * valeur différée, si bien que la frappe passe avant la liste.
  */
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   FlatList,
   Modal,
@@ -82,18 +92,19 @@ export function SearchablePicker({
 }: SearchablePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
 
   const selected = options.find((option) => option.id === value);
 
   const results = useMemo(() => {
-    const needle = query.toLowerCase().trim();
+    const needle = deferredQuery.toLowerCase().trim();
     if (!needle) return options;
     return options.filter(
       (option) =>
         option.name?.toLowerCase().includes(needle) ||
         option.code?.toLowerCase().includes(needle),
     );
-  }, [options, query]);
+  }, [options, deferredQuery]);
 
   const close = () => {
     setOpen(false);
@@ -144,7 +155,6 @@ export function SearchablePicker({
           <View style={styles.search}>
             <Input
               placeholder="Rechercher…"
-              value={query}
               onChangeText={setQuery}
               autoFocus
               autoCorrect={false}
